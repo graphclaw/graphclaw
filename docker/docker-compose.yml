@@ -1,0 +1,38 @@
+services:
+  db:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.db
+    environment:
+      POSTGRES_DB: graphclaw
+      POSTGRES_USER: graphclaw
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-graphclaw_dev}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U graphclaw -d graphclaw"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://graphclaw:${DB_PASSWORD:-graphclaw_dev}@db:5432/graphclaw
+      SECRETS_BACKEND: env_file
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    volumes:
+      - ../src:/app/src
+      - ../tests:/app/tests
+    # Keep the container alive for interactive use / pytest runs
+    command: ["python", "-m", "pytest", "tests/", "--tb=short", "-q"]
+
+volumes:
+  pgdata:

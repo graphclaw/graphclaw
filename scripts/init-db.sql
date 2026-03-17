@@ -1,0 +1,61 @@
+-- =============================================================================
+-- GraphClaw database initialisation
+-- Runs automatically on first container start via docker-entrypoint-initdb.d
+-- =============================================================================
+
+-- Extensions ------------------------------------------------------------------
+
+CREATE EXTENSION IF NOT EXISTS age;
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- Load AGE shared library and set the search path required by AGE internals
+LOAD 'age';
+SET search_path = ag_catalog, "$user", public;
+
+-- Property graph --------------------------------------------------------------
+
+SELECT create_graph('graphclaw');
+
+-- Node labels (vertex types) --
+SELECT create_vlabel('graphclaw', 'TaskAtomic');
+SELECT create_vlabel('graphclaw', 'TaskComposite');
+SELECT create_vlabel('graphclaw', 'TaskDelegated');
+SELECT create_vlabel('graphclaw', 'TaskFollowUp');
+SELECT create_vlabel('graphclaw', 'TaskApproval');
+SELECT create_vlabel('graphclaw', 'TaskMilestone');
+SELECT create_vlabel('graphclaw', 'TaskReview');
+SELECT create_vlabel('graphclaw', 'TaskRecurring');
+SELECT create_vlabel('graphclaw', 'TaskDecision');
+SELECT create_vlabel('graphclaw', 'TaskCheckin');
+SELECT create_vlabel('graphclaw', 'TaskResearch');
+SELECT create_vlabel('graphclaw', 'GoalNode');
+SELECT create_vlabel('graphclaw', 'ConstraintNode');
+SELECT create_vlabel('graphclaw', 'UserNode');
+SELECT create_vlabel('graphclaw', 'ResourceNode');
+
+-- Edge labels (relationship types) --
+SELECT create_elabel('graphclaw', 'DEPENDS_ON');
+SELECT create_elabel('graphclaw', 'SPAWNED_FROM');
+SELECT create_elabel('graphclaw', 'FOLLOW_UP_FOR');
+SELECT create_elabel('graphclaw', 'BLOCKS');
+SELECT create_elabel('graphclaw', 'ASSIGNED_TO');
+SELECT create_elabel('graphclaw', 'OWNED_BY');
+SELECT create_elabel('graphclaw', 'APPLIES_TO');
+SELECT create_elabel('graphclaw', 'PART_OF');
+
+-- Embedding storage -----------------------------------------------------------
+-- Stores pre-computed text-embedding-3-small (1536-d) vectors for graph nodes.
+-- node_id mirrors the AGE vertex id cast to TEXT.
+
+CREATE TABLE IF NOT EXISTS node_embeddings (
+    node_id      TEXT        PRIMARY KEY,
+    embedding    vector(1536) NOT NULL,
+    computed_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+-- IVFFlat index for approximate nearest-neighbour search (cosine distance).
+-- lists=100 is a reasonable default for early development data volumes.
+CREATE INDEX IF NOT EXISTS node_embeddings_embedding_idx
+    ON node_embeddings
+    USING ivfflat (embedding vector_cosine_ops)
+    WITH (lists = 100);

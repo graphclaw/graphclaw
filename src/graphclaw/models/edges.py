@@ -1,0 +1,150 @@
+"""GraphClaw edge models — first-class citizens of the property graph."""
+
+from datetime import datetime
+from typing import Optional, Union, Annotated
+
+from pydantic import BaseModel, Field, field_validator
+
+from graphclaw.models.base import EDGE_ID_PATTERN
+from graphclaw.models.enums import EdgeCreatedBy, EdgeStrength, EdgeType, GateType
+
+
+# ---------------------------------------------------------------------------
+# Edge-specific property models
+# ---------------------------------------------------------------------------
+
+
+class DependsOnProps(BaseModel):
+    """Properties for a DEPENDS_ON edge.
+
+    gate_type controls how multiple DEPENDS_ON edges into the same node are
+    evaluated: AND (all predecessors must complete) vs OR (any one suffices).
+    """
+
+    gate_type: GateType = GateType.AND
+
+
+class PartOfProps(BaseModel):
+    """Properties for a PART_OF edge — carries sequential ordering within a goal."""
+
+    sequence_order: Optional[int] = None
+
+
+class BlocksProps(BaseModel):
+    """Properties for a BLOCKS edge — captures whether blocking is hard or soft."""
+
+    strength: EdgeStrength = EdgeStrength.HARD
+
+
+class FollowUpForProps(BaseModel):
+    """Properties for a FOLLOW_UP_FOR edge — carries the scheduled fire time."""
+
+    scheduled_fire_at: Optional[datetime] = None
+
+
+class SpawnedFromProps(BaseModel):
+    """Properties for a SPAWNED_FROM edge."""
+
+    pass
+
+
+class AssignedToProps(BaseModel):
+    """Properties for an ASSIGNED_TO edge."""
+
+    pass
+
+
+class OwnedByProps(BaseModel):
+    """Properties for an OWNED_BY edge."""
+
+    pass
+
+
+class AppliesToProps(BaseModel):
+    """Properties for an APPLIES_TO edge."""
+
+    pass
+
+
+class InformsProps(BaseModel):
+    """Properties for an INFORMS edge (context enrichment)."""
+
+    pass
+
+
+class BranchedFromProps(BaseModel):
+    """Properties for a BRANCHED_FROM edge (decision branches)."""
+
+    pass
+
+
+class BatchedInProps(BaseModel):
+    """Properties for a BATCHED_IN edge (task included in a check-in)."""
+
+    pass
+
+
+# ---------------------------------------------------------------------------
+# Generic edge properties block (used when specific props not required)
+# ---------------------------------------------------------------------------
+
+
+class EdgeProperties(BaseModel):
+    """Generic properties block carried on every edge in the graph.
+
+    Specific edge types may use typed sub-models (DependsOnProps, etc.)
+    while this model holds common metadata.
+    """
+
+    gate_type: Optional[GateType] = None          # DEPENDS_ON
+    sequence_order: Optional[int] = None          # PART_OF
+    strength: Optional[EdgeStrength] = None       # BLOCKS
+    scheduled_fire_at: Optional[datetime] = None  # FOLLOW_UP_FOR
+    created_at: Optional[datetime] = None
+    created_by: EdgeCreatedBy = EdgeCreatedBy.AGENT
+    note: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# GraphEdge — the canonical edge model
+# ---------------------------------------------------------------------------
+
+
+class GraphEdge(BaseModel):
+    """A directed, typed edge between two graph nodes.
+
+    source_id / target_id correspond to from_node / to_node in the PRD schema.
+    The properties block carries edge-specific data.
+    """
+
+    id: str
+    edge_type: EdgeType
+    source_id: str   # from_node
+    target_id: str   # to_node
+    properties: EdgeProperties = EdgeProperties()
+
+    @field_validator("id")
+    @classmethod
+    def validate_id(cls, v: str) -> str:
+        if not EDGE_ID_PATTERN.match(v):
+            raise ValueError(f"Invalid edge ID '{v}'. Expected EDGE-<identifier>")
+        return v
+
+
+__all__ = [
+    # Property sub-models
+    "DependsOnProps",
+    "PartOfProps",
+    "BlocksProps",
+    "FollowUpForProps",
+    "SpawnedFromProps",
+    "AssignedToProps",
+    "OwnedByProps",
+    "AppliesToProps",
+    "InformsProps",
+    "BranchedFromProps",
+    "BatchedInProps",
+    "EdgeProperties",
+    # Main edge model
+    "GraphEdge",
+]
