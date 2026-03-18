@@ -1,4 +1,47 @@
-"""Base node model and ID generation utilities for GraphClaw."""
+"""graphclaw.models.base — Base node model and typed ID generation utilities.
+
+Description
+-----------
+Defines ``BaseNode``, the Pydantic base class shared by every graph node type,
+along with the ID format constants, generator functions, and validator helpers
+that enforce the GraphClaw node ID naming conventions (e.g. ``TSK-AB-1234-ATM``).
+This module is the single source of truth for ID patterns so that both node
+models and the DB layer agree on what constitutes a valid identifier.
+
+Design Patterns
+---------------
+- Base Class: ``BaseNode`` carries ``id``, ``created_at``, and ``updated_at``
+  as the minimal shared contract for all graph vertices.
+- Factory Functions: ``generate_task_id``, ``generate_user_id``, etc. produce
+  validated IDs so callers never construct raw strings.
+
+Public API
+----------
+- BaseNode: Abstract base Pydantic model for all graph nodes.
+- TASK_ID_PATTERN: Compiled regex for task ID validation.
+- USER_ID_PATTERN: Compiled regex for user ID validation.
+- GOAL_ID_PATTERN: Compiled regex for goal ID validation.
+- CONSTRAINT_ID_PATTERN: Compiled regex for constraint ID validation.
+- RESOURCE_ID_PATTERN: Compiled regex for resource ID validation.
+- EDGE_ID_PATTERN: Compiled regex for edge ID validation.
+- CHECKIN_NODE_ID_PATTERN: Compiled regex for check-in node ID validation.
+- generate_id: Generic ``{PREFIX}-{uuid}`` ID generator.
+- generate_task_id: Generate a task ID in TSK-{INITIALS}-{SEQ}-{TYPE} format.
+- generate_user_id: Generate a USER-{uuid} ID.
+- generate_goal_id: Generate a GOAL-{uuid} ID.
+- generate_constraint_id: Generate a CON-{uuid} ID.
+- generate_resource_id: Generate a RES-{uuid} ID.
+- generate_edge_id: Generate an EDGE-{uuid} ID.
+- generate_checkin_node_id: Generate a CHK-{uuid} ID.
+- utcnow: Return the current UTC datetime (timezone-aware).
+- validate_id: Generic ID validator (pattern + entity name).
+- validate_task_id / validate_*_id: Thin wrappers around validate_id for Pydantic field_validator use.
+
+Dependencies
+------------
+- pydantic: BaseModel, ConfigDict, field_validator.
+- graphclaw.models.enums: TaskType (for the task type → code mapping).
+"""
 
 import re
 import uuid
@@ -55,6 +98,18 @@ def _sequence_number() -> str:
     return str(int(uuid.uuid4().hex[:4], 16)).zfill(4)
 
 
+def generate_id(prefix: str) -> str:
+    """Generate a generic ``{PREFIX}-{uuid}`` ID.
+
+    Args:
+        prefix: The uppercase prefix string (e.g. ``"USER"``, ``"GOAL"``).
+
+    Returns:
+        A string of the form ``{PREFIX}-{uuid4}``.
+    """
+    return f"{prefix}-{uuid.uuid4()}"
+
+
 def generate_task_id(user_initials: str, task_type: TaskType) -> str:
     """Generate a task ID in the form TSK-{INITIALS}-{SEQUENCE}-{TYPE_CODE}.
 
@@ -77,32 +132,32 @@ def generate_task_id(user_initials: str, task_type: TaskType) -> str:
 
 def generate_user_id() -> str:
     """Generate a user ID in the form USER-{uuid}."""
-    return f"USER-{uuid.uuid4()}"
+    return generate_id("USER")
 
 
 def generate_goal_id() -> str:
     """Generate a goal ID in the form GOAL-{uuid}."""
-    return f"GOAL-{uuid.uuid4()}"
+    return generate_id("GOAL")
 
 
 def generate_constraint_id() -> str:
     """Generate a constraint ID in the form CON-{uuid}."""
-    return f"CON-{uuid.uuid4()}"
+    return generate_id("CON")
 
 
 def generate_resource_id() -> str:
     """Generate a resource ID in the form RES-{uuid}."""
-    return f"RES-{uuid.uuid4()}"
+    return generate_id("RES")
 
 
 def generate_edge_id() -> str:
     """Generate an edge ID in the form EDGE-{uuid}."""
-    return f"EDGE-{uuid.uuid4()}"
+    return generate_id("EDGE")
 
 
 def generate_checkin_node_id() -> str:
     """Generate a check-in node ID in the form CHK-{uuid}."""
-    return f"CHK-{uuid.uuid4()}"
+    return generate_id("CHK")
 
 
 def utcnow() -> datetime:
@@ -115,6 +170,30 @@ def utcnow() -> datetime:
 # ---------------------------------------------------------------------------
 
 
+def validate_id(v: str, pattern: re.Pattern, entity_name: str) -> str:
+    """Generic ID validator used by all entity-specific validators.
+
+    Args:
+        v: The raw ID string to validate.
+        pattern: Compiled regex the ID must match.
+        entity_name: Human-readable entity label used in the error message
+            (e.g. ``"task"``, ``"user"``).
+
+    Returns:
+        ``v`` unchanged if it matches *pattern*.
+
+    Raises:
+        ValueError: If ``v`` does not match *pattern*.
+    """
+    if not pattern.match(v):
+        prefix = pattern.pattern.split("-")[0].lstrip("^")
+        raise ValueError(
+            f"Invalid {entity_name} ID '{v}'. "
+            f"Expected format: {prefix}-<identifier>"
+        )
+    return v
+
+
 def validate_task_id(v: str) -> str:
     if not TASK_ID_PATTERN.match(v):
         raise ValueError(
@@ -124,37 +203,23 @@ def validate_task_id(v: str) -> str:
 
 
 def validate_user_id(v: str) -> str:
-    if not USER_ID_PATTERN.match(v):
-        raise ValueError(f"Invalid user ID '{v}'. Expected format: USER-<identifier>")
-    return v
+    return validate_id(v, USER_ID_PATTERN, "user")
 
 
 def validate_goal_id(v: str) -> str:
-    if not GOAL_ID_PATTERN.match(v):
-        raise ValueError(f"Invalid goal ID '{v}'. Expected format: GOAL-<identifier>")
-    return v
+    return validate_id(v, GOAL_ID_PATTERN, "goal")
 
 
 def validate_constraint_id(v: str) -> str:
-    if not CONSTRAINT_ID_PATTERN.match(v):
-        raise ValueError(
-            f"Invalid constraint ID '{v}'. Expected format: CON-<identifier>"
-        )
-    return v
+    return validate_id(v, CONSTRAINT_ID_PATTERN, "constraint")
 
 
 def validate_resource_id(v: str) -> str:
-    if not RESOURCE_ID_PATTERN.match(v):
-        raise ValueError(
-            f"Invalid resource ID '{v}'. Expected format: RES-<identifier>"
-        )
-    return v
+    return validate_id(v, RESOURCE_ID_PATTERN, "resource")
 
 
 def validate_edge_id(v: str) -> str:
-    if not EDGE_ID_PATTERN.match(v):
-        raise ValueError(f"Invalid edge ID '{v}'. Expected format: EDGE-<identifier>")
-    return v
+    return validate_id(v, EDGE_ID_PATTERN, "edge")
 
 
 # ---------------------------------------------------------------------------

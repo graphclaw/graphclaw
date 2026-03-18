@@ -1,4 +1,41 @@
-"""Per-task-type metadata models with discriminated union for GraphClaw TaskNode."""
+"""graphclaw.models.type_metadata — Per-task-type metadata with discriminated union.
+
+Description
+-----------
+Defines 11 task-type-specific metadata models (one per ``TaskType`` variant) and
+the ``TypeMetadata`` annotated union that ``TaskNode.type_metadata`` uses as its
+field type.  Pydantic v2's discriminated union on ``task_type`` ensures that the
+correct sub-model is deserialised and validated based on the literal tag in the
+incoming data.
+
+Design Patterns
+---------------
+- Discriminated Union: ``TypeMetadata`` uses ``Annotated[Union[...], Field(discriminator="task_type")]``
+  so that Pydantic can select the correct sub-model at parse time without
+  inspecting all 11 shapes.
+- Literal Type Tags: Each sub-model carries ``task_type: Literal[TaskType.X]``
+  as the discriminator field, making the union self-describing.
+
+Public API
+----------
+- AtomicMetadata: Simple self-contained task — no sub-tasks.
+- DelegatedMetadata: Task delegated to a resource; tracks outbound message state.
+- FollowUpMetadata: Monitors a delegated task; has a scheduled fire time.
+- ApprovalMetadata: Requires explicit human approval; tracks approver and criteria.
+- CompositeMetadata: Parent task with child tasks; configures gate and strategy.
+- MilestoneMetadata: Marks a significant achievement; notifies resources on completion.
+- ReviewMetadata: Reviews another task or deliverable; carries confidence level.
+- RecurringMetadata: Spawns instances on a cron-like schedule.
+- DecisionMetadata: Branches the workflow based on a choice; tracks activated branches.
+- CheckinMetadata: Scheduled interaction artifact targeting a resource.
+- ResearchMetadata: Information-gathering task; tracks outputs and confidence.
+- TypeMetadata: The discriminated union alias used as the field type in TaskNode.
+
+Dependencies
+------------
+- graphclaw.models.enums: BreakdownStrategy, ConfidenceLevel, GateType, TaskType.
+- pydantic: BaseModel, Field, Annotated.
+"""
 
 from datetime import datetime
 from typing import Annotated, Literal, Optional, Union

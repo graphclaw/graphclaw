@@ -1,7 +1,33 @@
-"""Rich formatting utilities for the GraphClaw CLI.
+"""graphclaw.cli.formatters — Rich formatting utilities for the GraphClaw CLI.
 
-Provides reusable display helpers that render TaskNodes, GoalNodes,
-ScoreExplanations, and ActionQueueEntries using Rich tables and panels.
+Description
+-----------
+Provides reusable display helpers that render GraphClaw domain objects as Rich
+tables and panels.  All functions accept an optional ``console`` parameter for
+testability; if omitted, a module-level console is used.  This module is the
+single place where terminal formatting decisions are made, keeping the command
+modules focused on data retrieval.
+
+Design Patterns
+---------------
+- Presenter: Each ``format_*`` function handles the rendering of a single domain
+  object type, separating formatting concerns from data access.
+
+Public API
+----------
+- format_task_table: Print a Rich table of TaskNode objects.
+- format_task_panel: Print a detailed Rich panel for a single TaskNode.
+- format_goal_table: Print a Rich table of GoalNode objects.
+- format_goal_panel: Print a detailed Rich panel for a single GoalNode.
+- format_score_explanation: Print a Rich panel with full score factor breakdown.
+- format_action_queue: Print the agent action queue as a Rich table.
+- format_briefing: Wrap a pre-formatted briefing string in a Rich panel.
+
+Dependencies
+------------
+- graphclaw.models.nodes: GoalNode, TaskNode.
+- graphclaw.models.scoring: ActionQueueEntry, ScoreExplanation.
+- rich: Console, Panel, Table.
 """
 from __future__ import annotations
 

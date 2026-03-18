@@ -1,19 +1,40 @@
-"""CLI agent subcommands for GraphClaw.
+"""graphclaw.cli.agent_commands — Agent reasoning loop CLI sub-commands.
 
-Commands
---------
-agent run      — run one full agent reasoning cycle and show the action queue
-agent score    — score all tasks and display the ranked action queue
-agent briefing — generate a human-readable briefing of top priorities
+Description
+-----------
+Implements the three ``graphclaw agent`` sub-commands: ``run``, ``score``, and
+``briefing``.  Each command initialises an ``AgentLoop`` from environment config,
+runs one scoring cycle, and displays the results.  ``run`` and ``score`` display
+the action queue table; ``briefing`` displays the human-readable priority summary.
+
+Design Patterns
+---------------
+- Async Bridge: Each Typer command is synchronous but delegates to an ``async``
+  helper via ``asyncio.run()``.
+
+Public API
+----------
+- app: The ``typer.Typer`` instance for the ``agent`` sub-group.
+
+Dependencies
+------------
+- graphclaw.agent.loop: AgentLoop.
+- graphclaw.cli.formatters: format_action_queue, format_briefing.
+- graphclaw.db.connection: create_pool.
+- graphclaw.db.graph_repository: GraphRepository.
+- graphclaw.scoring.engine: ScoringEngine.
+- graphclaw.state.machine: StateMachine.
+- typer: CLI framework.
+- rich: Console output with status spinners.
 """
 from __future__ import annotations
 
 import asyncio
-from typing import Optional
 
 import typer
 from rich.console import Console
 
+from graphclaw.cli._shared import cli_pool
 from graphclaw.cli.formatters import format_action_queue, format_briefing
 
 app = typer.Typer(help="Agent reasoning loop commands")
@@ -29,16 +50,15 @@ err_console = Console(stderr=True, style="bold red")
 async def _build_agent_loop():
     """Initialise and return an AgentLoop from environment config.
 
-    Returns (pool, AgentLoop).  Raises typer.Exit on any setup failure.
+    Returns (pool, AgentLoop).  Raises SystemExit on any setup failure.
     """
-    import os
-
     from graphclaw.agent.loop import AgentLoop
     from graphclaw.db.connection import create_pool
     from graphclaw.db.graph_repository import GraphRepository
     from graphclaw.scoring.engine import ScoringEngine
     from graphclaw.state.machine import StateMachine
 
+    import os
     dsn = os.environ.get("DATABASE_URL")
     if not dsn:
         err_console.print(
@@ -128,7 +148,7 @@ async def _briefing_async(top_n: int) -> None:
 
 @app.command("run")
 def agent_run(
-    top_n: Optional[int] = typer.Option(
+    top_n: int | None = typer.Option(
         None,
         "--top",
         "-n",
@@ -147,7 +167,7 @@ def agent_run(
 
 @app.command("score")
 def agent_score(
-    top_n: Optional[int] = typer.Option(
+    top_n: int | None = typer.Option(
         None,
         "--top",
         "-n",

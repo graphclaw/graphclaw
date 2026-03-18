@@ -1,16 +1,56 @@
-"""Scoring engine for GraphClaw.
+"""graphclaw.scoring.engine — 7-factor weighted priority scoring engine.
 
-Computes the 7-factor weighted priority score for every task, applies
-chain topology modifiers, and returns a sorted ActionQueueEntry list.
+Description
+-----------
+The ``ScoringEngine`` is the computational heart of the GraphClaw agent.  It takes
+a list of active ``TaskNode`` objects and a pre-populated ``ScoringContext``, computes
+a weighted priority score for each task across 7 factors, applies chain topology
+modifiers (critical path multiplier, urgency rollup), and returns a sorted
+``ActionQueueEntry`` list ready for the agent briefing.
 
-Weight defaults match PRD Section 4.1 / SKILL.md:
-  W1=0.25, W2=0.20, W3=0.20, W4=0.15, W5=0.10, W6=0.05, W7=0.05
+Design Patterns
+---------------
+- Strategy: Each of the 7 factors is a pure function imported from
+  ``graphclaw.scoring.factors``; the engine orchestrates them without embedding
+  factor logic itself.
+- Context Object: ``ScoringContext`` is a dataclass populated by the agent loop
+  before the scoring pass so that factor functions remain pure and DB-free.
+- Cache-Aside: ``ScoreCache`` is checked before computing; results are stored
+  after computation and updated with final rank.
+
+Public API
+----------
+- ScoringEngine: Computes 7-factor priority scores and builds the action queue.
+- ScoringEngine.score_task: Score a single task, returning a ScoreExplanation.
+- ScoringEngine.score_all: Score all tasks, apply topology, return sorted queue.
+- ScoringContext: Pre-computed graph data needed to score a set of tasks.
+
+Dependencies
+------------
+- graphclaw.scoring.factors: The 7 pure factor functions.
+- graphclaw.scoring.cache: ScoreCache for invalidation-based caching.
+- graphclaw.scoring.topology: apply_sequential_suppression, urgency_rollup.
+- graphclaw.scoring.action_queue: build_action_queue for final assembly.
+- graphclaw.models.nodes: TaskNode.
+- graphclaw.models.scoring: ActionQueueEntry, ScoreExplanation, ScoreFactor, ScoreModifier.
+- graphclaw.models.enums: AutonomyLevel, GoalPriority, OverrideType, TaskState.
+
+Notes
+-----
+Weight defaults (W1=0.25, W2=0.20, W3=0.20, W4=0.15, W5=0.10, W6=0.05, W7=0.05)
+match PRD Section 4.1.  These are configurable at ScoringEngine construction time
+and will eventually be learned per-user via the UserNode.scoring_weights model.
+Critical path importance is expressed through factor F3 (critical_path_score,
+W3=0.20) whose raw value is already amplified by goal priority (1.0–1.5x) inside
+the factor function itself.  The final_score is the plain weighted sum of all 7
+factors; the urgency rollup modifier is recorded for explainability but does not
+alter the numeric score directly.
 """
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Optional
 
 from graphclaw.models.enums import AutonomyLevel, GoalPriority, OverrideType, TaskState
@@ -147,15 +187,15 @@ class ScoringEngine:
         if cached is not None:
             return cached
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         tid = task.id
 
         # --- Factor 1: Timeline Urgency ---
         deadline = task.timeline.deadline
         effort_days = task.timeline.estimated_effort_days or 0.0
         if deadline is not None:
-            # Strip timezone info for comparison to avoid naive/aware mismatch
-            dl = deadline.replace(tzinfo=None) if deadline.tzinfo else deadline
+            # Ensure both datetimes are timezone-aware for comparison
+            dl = deadline if deadline.tzinfo else deadline.replace(tzinfo=timezone.utc)
             days_remaining = (dl - now).total_seconds() / 86400.0
         else:
             days_remaining = 999.0  # no deadline → effectively far out
@@ -204,27 +244,14 @@ class ScoringEngine:
         f7_weighted = f7_raw * self.w7
 
         # --- Final Score ---
+        # Weighted sum of all 7 factors.  Weights sum to 1.0 so the baseline
+        # score range is [0, 1.0], but individual factors can exceed 1.0
+        # (e.g. timeline_urgency reaches 1.2 when overdue with negative slack),
+        # meaning final_score can occasionally exceed 1.0 before multipliers.
         final_score = (
             f1_weighted + f2_weighted + f3_weighted + f4_weighted
             + f5_weighted + f6_weighted + f7_weighted
         )
-
-        # Critical path post-multiplier (applied after all 7 factors).
-        if task.on_critical_path:
-            prio_key = goal_priority.value if hasattr(goal_priority, "value") else str(goal_priority)
-            cp_mult = {"P1": 1.5, "P2": 1.3, "P3": 1.1}.get(prio_key, 1.0)
-            if cp_mult != 1.0:
-                final_score *= cp_mult
-                modifiers.append(
-                    ScoreModifier(
-                        modifier_type="critical_path_multiplier",
-                        multiplier=cp_mult,
-                        plain_english=(
-                            f"Task is on the critical path for a {prio_key} goal "
-                            f"— score multiplied by {cp_mult}x"
-                        ),
-                    )
-                )
 
         # Chain urgency rollup applied later by score_all; stored here from
         # task.scoring if it was pre-set.

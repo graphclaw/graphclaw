@@ -1,12 +1,40 @@
-"""Chain topology analysis and sequential suppression for the scoring engine.
+"""graphclaw.scoring.topology — Chain topology analysis and sequential suppression.
 
-Implements the chain topology modifiers from PRD Section 9 / SKILL.md:
-- Sequential chains: only the first actionable node is surfaced; downstream
-  urgency rolls up to the first node.
-- Parallel chains: all nodes score independently.
-- analyze_chain_topology: determines topology for a single task.
-- apply_sequential_suppression: marks non-first nodes in sequential chains.
-- urgency_rollup: propagates max downstream urgency up to the chain head.
+Description
+-----------
+Implements the PRD Section 9 chain topology modifiers used by the scoring engine.
+For sequential chains (CompositeMetadata.breakdown_strategy == SEQUENTIAL), only
+the first actionable node is surfaced in the action queue — all later nodes are
+suppressed until their predecessor completes.  The urgency of downstream tasks
+rolls up to the chain head so the agent sees the full urgency context.  Parallel
+chains score all nodes independently with no suppression.
+
+Design Patterns
+---------------
+- Graph Traversal: Topology analysis is performed by navigating PART_OF and
+  DEPENDS_ON edges via GraphRepository, keeping the logic DB-query-driven
+  rather than requiring an in-memory graph structure.
+
+Public API
+----------
+- ChainTopology: Topology metadata for a single task.
+- analyze_chain_topology: Determine topology (sequential/parallel) for one task.
+- apply_sequential_suppression: Return suppression map for a list of tasks.
+- urgency_rollup: Compute the maximum downstream urgency for each chain head.
+
+Dependencies
+------------
+- graphclaw.db.graph_repository: GraphRepository (TYPE_CHECKING only).
+- graphclaw.models.enums: BreakdownStrategy, TaskState, TaskType.
+- graphclaw.models.nodes: TaskNode.
+- graphclaw.models.type_metadata: CompositeMetadata.
+
+Notes
+-----
+``analyze_chain_topology`` makes multiple DB round-trips per task (PART_OF edge
+look-up, parent node fetch, siblings look-up, sibling DEPENDS_ON look-up).  For
+Phase 0 with small graphs this is acceptable.  Future phases should batch these
+queries or cache the results across the scoring cycle.
 """
 from __future__ import annotations
 

@@ -1,7 +1,27 @@
-"""Action queue builder for GraphClaw.
+"""graphclaw.scoring.action_queue — Action queue builder from scored tasks.
 
-Converts (TaskNode, ScoreExplanation) pairs into ActionQueueEntry objects
-with a recommended_action and autonomy_level derived from the task context.
+Description
+-----------
+Converts a pre-sorted list of ``(TaskNode, ScoreExplanation)`` pairs into
+``ActionQueueEntry`` objects by deriving the recommended action verb and
+autonomy level from the task's type, state, and autonomy block.  This is the
+final assembly step before the action queue is returned to the agent loop or CLI.
+
+Design Patterns
+---------------
+- Factory Function: ``build_action_queue`` is a pure function with no I/O;
+  it maps typed data to typed data using the ``_ACTION_MAP`` vocabulary and the
+  autonomy block on each task.
+
+Public API
+----------
+- build_action_queue: Build a ranked ActionQueueEntry list from scored tasks.
+
+Dependencies
+------------
+- graphclaw.models.enums: AutonomyLevel, TaskState, TaskType.
+- graphclaw.models.nodes: TaskNode.
+- graphclaw.models.scoring: ActionQueueEntry, ScoreExplanation.
 """
 from __future__ import annotations
 

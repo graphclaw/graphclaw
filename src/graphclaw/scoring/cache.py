@@ -1,8 +1,41 @@
-"""Score cache with invalidation trigger support for GraphClaw.
+"""graphclaw.scoring.cache — In-process score cache with invalidation triggers.
 
-Phase 0 uses an in-process dict-based cache.  The cache stores the last
-ScoreExplanation for each task node and is invalidated on the six triggers
-defined in PRD Section 9 / SKILL.md.
+Description
+-----------
+Provides ``ScoreCache``, a lightweight in-process dict-based cache for
+``ScoreExplanation`` objects.  The cache avoids redundant scoring work across a
+single agent cycle and supports six named invalidation triggers from PRD Section 9.
+Phase 0 uses a plain dict; later phases will swap in a Redis-backed variant
+implementing the same interface.
+
+Design Patterns
+---------------
+- Cache-Aside: The engine reads the cache before computing and writes after;
+  the cache itself is passive and does not proactively expire entries.
+- Observer (deferred): Invalidation methods are called by the state machine,
+  the override handler, and the resource risk monitor when their data changes.
+
+Public API
+----------
+- ScoreCache.get: Return the cached ScoreExplanation for a task, or None.
+- ScoreCache.has: Return True if a valid cached score exists for a task.
+- ScoreCache.set: Store or replace the score explanation for a task.
+- ScoreCache.invalidate: Invalidate the score for a single task.
+- ScoreCache.invalidate_upstream: Invalidate a dependent and its upstream tasks.
+- ScoreCache.invalidate_by_resource: Invalidate all tasks assigned to a resource.
+- ScoreCache.invalidate_all: Clear the entire cache (forced full rescore).
+- ScoreCache.size: Number of currently cached scores.
+- ScoreCache.last_full_rescore: Timestamp of the last full cache clear.
+
+Dependencies
+------------
+- graphclaw.models.scoring: ScoreExplanation.
+
+Notes
+-----
+This implementation is not thread-safe.  Phase 0 runs single-threaded async I/O,
+so concurrent mutation is not a concern.  A Redis-backed implementation with
+atomic operations will be needed for multi-worker deployments.
 """
 from __future__ import annotations
 
@@ -10,6 +43,7 @@ import logging
 from datetime import datetime
 from typing import Optional
 
+from graphclaw.models.base import utcnow
 from graphclaw.models.scoring import ScoreExplanation
 
 logger = logging.getLogger(__name__)
@@ -117,7 +151,7 @@ class ScoreCache:
         """Clear the entire cache (forced full rescore)."""
         count = len(self._store)
         self._store.clear()
-        self._last_full_rescore = datetime.utcnow()
+        self._last_full_rescore = utcnow()
         logger.info("score_cache: full rescore — cleared %d entries", count)
 
     # ------------------------------------------------------------------

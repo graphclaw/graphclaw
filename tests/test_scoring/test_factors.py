@@ -187,27 +187,32 @@ class TestConstraintPressure:
         assert constraint_pressure([]) == 0.0
 
     def test_single_constraint_half_used(self):
-        # threshold=100, current=50 → pressure = (100-50)/100 = 0.5
+        # threshold=100, current=50 → pressure = 50/100 = 0.5
         result = constraint_pressure([{"threshold": 100, "current_value": 50}])
         assert result == pytest.approx(0.5)
 
     def test_constraint_at_limit(self):
-        # threshold=100, current=100 → pressure = 0.0
+        # threshold=100, current=100 → pressure = 100/100 = 1.0
         result = constraint_pressure([{"threshold": 100, "current_value": 100}])
-        assert result == pytest.approx(0.0)
+        assert result == pytest.approx(1.0)
 
     def test_constraint_exceeded(self):
-        # threshold=100, current=150 → (100-150)/100 = -0.5 → clamped to 0.0
+        # threshold=100, current=150 → 150/100 = 1.5 → clamped to 1.0
         result = constraint_pressure([{"threshold": 100, "current_value": 150}])
-        assert result == pytest.approx(0.0)
+        assert result == pytest.approx(1.0)
+
+    def test_constraint_low_usage(self):
+        # threshold=50, current=10 → pressure = 10/50 = 0.2
+        result = constraint_pressure([{"threshold": 50, "current_value": 10}])
+        assert result == pytest.approx(0.2)
 
     def test_multiple_constraints(self):
-        # Two constraints: 0.5 + 0.8 = 1.3
+        # Two constraints: 0.5 + 0.2 = 0.7
         result = constraint_pressure([
             {"threshold": 100, "current_value": 50},  # 0.5
-            {"threshold": 50, "current_value": 10},    # 0.8
+            {"threshold": 50, "current_value": 10},   # 0.2
         ])
-        assert result == pytest.approx(1.3)
+        assert result == pytest.approx(0.7)
 
     def test_zero_threshold_skipped(self):
         result = constraint_pressure([{"threshold": 0, "current_value": 50}])

@@ -129,17 +129,34 @@ class TestWeightApplication:
 
 
 class TestCriticalPathMultiplier:
-    def test_cp_p1_applies_1_5x(self):
+    def test_cp_p1_score_higher_than_off_cp(self):
+        """Critical path effect is captured via F3 factor, not a post-multiplier."""
+        engine = ScoringEngine()
+        task_cp = _make_task(on_critical_path=True)
+        task_off = _make_task(on_critical_path=False)
+        ctx_cp = _empty_context(task_goal_priority={task_cp.id: GoalPriority.P1})
+        ctx_off = _empty_context(task_goal_priority={task_off.id: GoalPriority.P1})
+        score_cp = engine.score_task(task_cp, ctx_cp).final_score
+        score_off = engine.score_task(task_off, ctx_off).final_score
+        assert score_cp > score_off
+
+    def test_cp_final_score_equals_weighted_sum(self):
+        """No post-multiplier: final_score is always the plain weighted sum."""
         engine = ScoringEngine()
         task = _make_task(on_critical_path=True)
-        ctx = _empty_context(
-            task_goal_priority={task.id: GoalPriority.P1},
-        )
+        ctx = _empty_context(task_goal_priority={task.id: GoalPriority.P1})
         result = engine.score_task(task, ctx)
-        # The final score should have a critical_path_multiplier modifier
+        expected = sum(f.weighted_score for f in result.factors)
+        assert result.final_score == pytest.approx(expected, abs=1e-9)
+
+    def test_no_critical_path_multiplier_modifier(self):
+        """The critical_path_multiplier modifier no longer exists."""
+        engine = ScoringEngine()
+        task = _make_task(on_critical_path=True)
+        ctx = _empty_context(task_goal_priority={task.id: GoalPriority.P1})
+        result = engine.score_task(task, ctx)
         cp_mods = [m for m in result.modifiers if m.modifier_type == "critical_path_multiplier"]
-        assert len(cp_mods) == 1
-        assert cp_mods[0].multiplier == 1.5
+        assert len(cp_mods) == 0
 
     def test_off_cp_no_modifier(self):
         engine = ScoringEngine()

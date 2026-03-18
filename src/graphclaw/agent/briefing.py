@@ -1,8 +1,24 @@
-"""Briefing formatter for the GraphClaw agent.
+"""graphclaw.agent.briefing — Human-readable briefing formatter for the agent action queue.
 
-Generates a structured, human-readable text briefing from a ranked
-ActionQueueEntry list.  Used by the CLI ``agent briefing`` command and
-by AgentLoop.generate_briefing().
+Description
+-----------
+Converts a ranked ``ActionQueueEntry`` list into a structured plain-text briefing
+suitable for terminal display or embedding in a notification.  The briefing shows
+the top N priorities with their scores, recommended actions, top scoring factor,
+and summary text.  Topology notes and check-in batching are included when present.
+
+Design Patterns
+---------------
+- Pure Function: ``format_briefing`` has no I/O dependencies; it only transforms
+  the action queue data into a string.
+
+Public API
+----------
+- format_briefing: Generate a structured text briefing from the action queue.
+
+Dependencies
+------------
+- graphclaw.models.scoring: ActionQueueEntry.
 """
 from __future__ import annotations
 

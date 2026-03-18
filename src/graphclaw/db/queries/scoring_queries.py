@@ -1,54 +1,51 @@
-"""Scoring-related graph queries for GraphClaw.
+"""graphclaw.db.queries.scoring_queries — Graph queries that feed the scoring engine.
 
-These queries feed the scoring engine with the data it needs to compute
-priority scores for tasks.  All three functions are read-only and return
-plain Python dicts so the scoring layer has no direct database dependency.
+Description
+-----------
+Provides three read-only async query functions that the scoring engine and agent
+loop use to populate a ``ScoringContext`` before each scoring cycle.  All
+functions return plain Python dicts so the scoring layer has no direct database
+dependency and can be tested without a live graph.
 
-Functions
----------
-get_active_tasks_for_scoring
-    All non-terminal, non-snoozed tasks for a specific user — the candidate
-    set for a scoring cycle.
-get_constraints_for_task
-    ConstraintNodes linked to a task via APPLIES_TO edges.
-get_assigned_resource
-    The ResourceNode assigned to a task via an ASSIGNED_TO edge.
+Design Patterns
+---------------
+- Query Module: All functions are pure async queries with no side effects,
+  returning list[dict] or dict | None for straightforward consumption.
+
+Public API
+----------
+- get_active_tasks_for_scoring: All non-terminal, non-snoozed tasks for a user.
+- get_constraints_for_task: ConstraintNodes linked to a task via APPLIES_TO edges.
+- get_assigned_resource: The ResourceNode assigned to a task via ASSIGNED_TO.
+
+Dependencies
+------------
+- graphclaw.db.connection: ``get_connection`` for pool checkout.
+- psycopg_pool: ``AsyncConnectionPool`` type.
+- json: agtype parsing.
+
+Notes
+-----
+``get_active_tasks_for_scoring`` currently filters terminal states via four
+separate ``<>`` comparisons in Cypher because AGE does not support the ``NOT IN``
+list syntax inside ``$$ ... $$`` blocks.  This is an AGE compatibility workaround.
 """
 from __future__ import annotations
 
-import json
 import logging
-from typing import Any
 
 from psycopg_pool import AsyncConnectionPool
 
 from graphclaw.db.connection import get_connection
+from graphclaw.db.utils import GRAPH_NAME, _extract_properties
 
 logger = logging.getLogger(__name__)
-
-GRAPH_NAME = "graphclaw"
 
 # Task states that are considered terminal — scoring skips these.
 _TERMINAL_STATES = {"COMPLETE", "CANCELLED", "ARCHIVED"}
 
 # Task state indicating the task has been snoozed — also skipped by default.
 _SNOOZED_STATE = "SNOOZED"
-
-
-def _parse_agtype(value: Any) -> Any:
-    if value is None:
-        return None
-    try:
-        return json.loads(str(value))
-    except json.JSONDecodeError:
-        return str(value)
-
-
-def _extract_properties(agtype_node: Any) -> dict:
-    parsed = _parse_agtype(agtype_node)
-    if isinstance(parsed, dict):
-        return parsed.get("properties", parsed)
-    return {}
 
 
 async def get_active_tasks_for_scoring(

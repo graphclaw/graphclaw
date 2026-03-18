@@ -1,12 +1,27 @@
-"""GraphClaw CLI entry point.
+"""graphclaw.cli.main — Root Typer application that mounts all CLI sub-commands.
 
-Defines the root Typer app and mounts the four sub-apps:
-  graphclaw task   — task management commands
-  graphclaw goal   — goal management commands
-  graphclaw agent  — agent reasoning loop commands
-  graphclaw graph  — graph inspection commands
+Description
+-----------
+Defines the top-level ``graphclaw`` Typer application and registers the four
+sub-apps (task, goal, agent, graph) as named sub-commands.  This module is the
+entry point configured in ``pyproject.toml`` under ``[project.scripts]``.
 
-Entry point: ``graphclaw.cli.main:app``  (configured in pyproject.toml)
+Design Patterns
+---------------
+- Composite: The root app uses Typer's ``add_typer`` to delegate routing to
+  four independent sub-apps, each in its own module.
+
+Public API
+----------
+- app: The root ``typer.Typer`` application instance.
+
+Dependencies
+------------
+- graphclaw.cli.agent_commands: Agent reasoning loop sub-commands.
+- graphclaw.cli.goal_commands: Goal management sub-commands.
+- graphclaw.cli.graph_commands: Graph inspection sub-commands.
+- graphclaw.cli.task_commands: Task management sub-commands.
+- typer: CLI framework.
 """
 from __future__ import annotations
 

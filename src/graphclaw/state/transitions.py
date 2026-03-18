@@ -1,6 +1,32 @@
-"""Valid state transitions and related exceptions for the GraphClaw state machine.
+"""graphclaw.state.transitions — Allowed task state transitions and InvalidTransitionError.
 
-Defines the directed-graph of allowed TaskState moves (PRD Section 7.1).
+Description
+-----------
+Defines the directed-graph of allowed ``TaskState`` moves as ``VALID_TRANSITIONS``,
+a dict mapping each source state to its permitted target states.  This table is the
+single source of truth for what transitions the state machine enforces; guards in
+``machine.py`` add additional domain constraints on top of the table.
+
+Design Patterns
+---------------
+- Lookup Table: ``VALID_TRANSITIONS`` externalises the allowed-move set so that
+  tests can assert the table directly without instantiating the StateMachine.
+
+Public API
+----------
+- VALID_TRANSITIONS: Dict mapping each TaskState to its list of permitted targets.
+- InvalidTransitionError: Exception raised when a transition is not allowed.
+
+Dependencies
+------------
+- graphclaw.models.enums: TaskState.
+
+Notes
+-----
+Terminal states (COMPLETE, CANCELLED) have empty target lists in the table.
+The COMPLETE → NEEDS_REVIEW low-confidence reopen is handled as a special-cased
+guard in StateMachine, not here, because it requires inspecting the task's
+progress.confidence field rather than just the state pair.
 """
 from __future__ import annotations
 

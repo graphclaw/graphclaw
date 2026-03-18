@@ -1,4 +1,46 @@
-"""GraphClaw domain enumerations."""
+"""graphclaw.models.enums — All domain enumerations for the GraphClaw system.
+
+Description
+-----------
+Centralises every ``str`` + ``Enum`` used across the GraphClaw domain model.
+Using ``str`` mixins allows direct serialisation to/from JSON without extra
+conversion and ensures enum values can be stored as plain strings in the AGE
+property graph.
+
+Design Patterns
+---------------
+- String Enums: All enums inherit from ``str`` so that ``enum.value`` equals
+  the string representation used in the database and API.
+
+Public API
+----------
+- TaskType: The 11 task variant types (ATOMIC, COMPOSITE, DELEGATED, etc.).
+- TaskState: All valid task states in the state machine.
+- EdgeType: All directed edge relationship labels.
+- GateType: AND / OR completion gate for composite tasks and DEPENDS_ON edges.
+- GoalPriority: P1 / P2 / P3 goal priority tiers.
+- ConstraintType: Categories of constraint (DEADLINE, BUDGET, etc.).
+- ResourceType: HUMAN or AI_AGENT resource classification.
+- AutonomyLevel: SUGGEST / AUTONOMOUS / REQUIRE_APPROVAL agent permission levels.
+- ChangedBy: Who triggered a state change (AGENT, HUMAN, SYSTEM, CASCADE).
+- GoalState: Active lifecycle states for GoalNode.
+- GoalOrigin: Whether a goal was user-defined or agent-inferred.
+- CheckinState: Lifecycle states for CheckinNode messages.
+- AvailabilityStatus: Resource availability signal levels.
+- RiskLevel: LOW / MEDIUM / HIGH risk classification.
+- ConstraintScope: Which entity type a constraint applies to.
+- ConfidenceLevel: HIGH / MEDIUM / LOW confidence on task progress estimates.
+- CompletionSignal: How a completion was determined (EXPLICIT, INFERRED, CASCADED).
+- OverrideType: Human priority override actions (PRIORITIZE, DEPRIORITIZE, SNOOZE).
+- MatchedBy: How an inbound update was matched to a task.
+- BreakdownStrategy: SEQUENTIAL / PARALLEL / HYBRID sub-task ordering.
+- EdgeStrength: HARD / SOFT edge strength for BLOCKS relationships.
+- EdgeCreatedBy: Whether an edge was created by HUMAN or AGENT.
+
+Dependencies
+------------
+- enum: Standard library Enum base class.
+"""
 
 from enum import Enum
 

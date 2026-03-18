@@ -1,43 +1,47 @@
-"""Critical path query for GraphClaw.
+"""graphclaw.db.queries.critical_path — Longest-path (critical path) query for a goal.
 
-Implements a modified Dijkstra / longest-path algorithm on the task DAG
-rooted at a GoalNode.  The critical path is the sequence of nodes whose
-cumulative ``estimated_effort_hours`` sum is the largest, representing the
-minimum time to completion for the goal.
+Description
+-----------
+Implements the PRD §21.2 critical path algorithm over the task DAG rooted at a
+GoalNode.  The critical path is defined as the root-to-leaf path whose
+cumulative ``estimated_effort_hours`` is largest — it represents the minimum
+elapsed time to complete the goal.  The AGE query returns every root→leaf path
+with its effort sum (using ``reduce``); Python then selects the maximum and
+annotates each node with ``on_critical_path`` and ``float`` (schedule slack).
 
-Algorithm (PRD §21.2):
-1. From the GoalNode, traverse all PART_OF and DEPENDS_ON edges downstream
-   to leaf nodes (nodes with no outgoing DEPENDS_ON edges).
-2. For each path from goal to leaf, sum ``estimated_effort_hours``.
-3. The path with the highest total is the critical path.
-4. Nodes on the critical path get ``on_critical_path=True``; all others get
-   ``float = critical_path_length - their_path_length``.
+Design Patterns
+---------------
+- Query Module: ``find_critical_path`` is a single-responsibility async function
+  that returns annotated node dicts; scoring factors consume the result directly.
 
-The AGE query returns every root→leaf path with its cumulative effort so we
-can pick the maximum in Python (AGE's ``reduce`` handles per-path sums).
+Public API
+----------
+- find_critical_path: Find the critical path from a GoalNode to its leaf tasks.
+
+Dependencies
+------------
+- graphclaw.db.connection: ``get_connection`` for pool checkout.
+- psycopg_pool: ``AsyncConnectionPool`` type.
+- json: agtype parsing.
+
+Notes
+-----
+Because AGE evaluates ``reduce`` inside the ``$$`` block and returns all paths
+sorted by effort descending, the first row is always the critical path.  The
+Python post-processing step builds the float map for all other paths so that
+near-critical nodes can be identified in future phases.
 """
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any
 
 from psycopg_pool import AsyncConnectionPool
 
 from graphclaw.db.connection import get_connection
+from graphclaw.db.utils import GRAPH_NAME, _parse_agtype
 
 logger = logging.getLogger(__name__)
-
-GRAPH_NAME = "graphclaw"
-
-
-def _parse_agtype(value: Any) -> Any:
-    if value is None:
-        return None
-    try:
-        return json.loads(str(value))
-    except json.JSONDecodeError:
-        return str(value)
 
 
 async def find_critical_path(
@@ -97,24 +101,6 @@ async def find_critical_path(
     best_row = rows[0]
     best_nodes_raw = _parse_agtype(best_row[0])
     best_effort = float(_parse_agtype(best_row[1]) or 0.0)
-
-    # Collect path-effort pairs for all paths so we can compute float values
-    # for nodes that appear on shorter paths.
-    all_paths: list[tuple[list[dict], float]] = []
-    for row in rows:
-        nodes_raw = _parse_agtype(row[0])
-        effort = float(_parse_agtype(row[1]) or 0.0)
-        nodes_list = _extract_nodes_list(nodes_raw)
-        all_paths.append((nodes_list, effort))
-
-    # Build a map from node_id -> float value.
-    # A node's float = critical_path_length - max_path_length_through_node.
-    node_max_effort: dict[str, float] = {}
-    for nodes_list, effort in all_paths:
-        for node in nodes_list:
-            nid = node.get("id", "")
-            if nid and effort > node_max_effort.get(nid, -1.0):
-                node_max_effort[nid] = effort
 
     # Step 3: Build the critical path result list.
     critical_nodes = _extract_nodes_list(best_nodes_raw)

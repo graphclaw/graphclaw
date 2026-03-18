@@ -1,54 +1,52 @@
-"""Dependency traversal queries for GraphClaw.
+"""graphclaw.db.queries.dependencies — Transitive dependency traversal queries.
 
-Three query functions covering the dependency graph:
+Description
+-----------
+Provides three read-only Cypher queries that traverse the DEPENDS_ON and BLOCKS
+edge types in the task graph.  These results feed the scoring engine's dependency
+weight factor and the agent's blocker-resolution reporting.  All queries use
+variable-length path patterns (``*``) so AGE resolves the full transitive closure
+automatically, up to its internal depth limit.
 
-- ``get_downstream_dependents`` — all tasks that (transitively) depend on a
-  given node (i.e. would be blocked if this node were delayed).
-- ``get_upstream_blockers`` — all tasks this node (transitively) depends on
-  (i.e. must complete before this node can start).
-- ``get_blocked_root_causes`` — for every currently BLOCKED task in the
-  graph, find the deepest upstream task that has no further dependencies
-  (the root cause).
+Design Patterns
+---------------
+- Query Module: All functions are pure async query functions with no side effects,
+  returning plain Python dicts to keep the scoring layer DB-agnostic.
 
-All queries use variable-length Cypher path patterns (``*``) which AGE
-resolves recursively up to an internal depth limit.  For very deep graphs
-consider adding a ``*..N`` upper bound.
+Public API
+----------
+- get_downstream_dependents: All tasks that (transitively) depend on a given node.
+- get_upstream_blockers: All tasks a given node (transitively) depends on.
+- get_blocked_root_causes: For every BLOCKED task, the deepest upstream root cause.
 
-NOTE: AGE does not support parameterized queries ($1) inside $$ blocks.
-All values are embedded directly into the Cypher string with escaping.
+Dependencies
+------------
+- graphclaw.db.connection: ``get_connection`` for pool checkout.
+- psycopg_pool: ``AsyncConnectionPool`` type.
+- json: agtype parsing.
+
+Notes
+-----
+AGE does not support ``$1`` bind parameters inside ``$$ ... $$`` blocks.  All
+node ID values are escaped via ``_escape()`` before embedding.  For very deep
+dependency graphs (depth > 100), consider adding an ``*..N`` upper bound to
+the variable-length path patterns to avoid excessive traversal time.
 """
 from __future__ import annotations
 
-import json
 import logging
-from typing import Any
 
 from psycopg_pool import AsyncConnectionPool
 
 from graphclaw.db.connection import get_connection
+from graphclaw.db.utils import GRAPH_NAME, _escape, _parse_agtype
 
 logger = logging.getLogger(__name__)
-
-GRAPH_NAME = "graphclaw"
-
-
-def _parse_agtype(value: Any) -> Any:
-    if value is None:
-        return None
-    try:
-        return json.loads(str(value))
-    except json.JSONDecodeError:
-        return str(value)
 
 
 def _row_to_dict(row: tuple, keys: list[str]) -> dict:
     """Zip column names with parsed agtype values from a result row."""
     return {k: _parse_agtype(v) for k, v in zip(keys, row)}
-
-
-def _escape(value: str) -> str:
-    """Escape a string for safe embedding inside Cypher string literals."""
-    return value.replace("\\", "\\\\").replace("'", "\\'")
 
 
 async def get_downstream_dependents(
@@ -66,7 +64,7 @@ async def get_downstream_dependents(
         result = await conn.execute(
             f"""
             SELECT * FROM cypher('{graph_name}', $$
-                MATCH (anchor {{id: '{eid}'}})<-[:DEPENDS_ON*]-(downstream)
+                MATCH (anchor {{id: '{eid}'}})<-[:DEPENDS_ON*..20]-(downstream)
                 WHERE downstream.id <> '{eid}'
                 RETURN DISTINCT downstream.id AS id,
                                downstream.state AS state,
@@ -98,7 +96,7 @@ async def get_upstream_blockers(
         result = await conn.execute(
             f"""
             SELECT * FROM cypher('{graph_name}', $$
-                MATCH (anchor {{id: '{eid}'}})-[:DEPENDS_ON*]->(upstream)
+                MATCH (anchor {{id: '{eid}'}})-[:DEPENDS_ON*..20]->(upstream)
                 WHERE upstream.id <> '{eid}'
                 RETURN DISTINCT upstream.id AS id,
                                upstream.state AS state,
@@ -128,7 +126,7 @@ async def get_blocked_root_causes(
         result = await conn.execute(
             f"""
             SELECT * FROM cypher('{graph_name}', $$
-                MATCH (blocked {{state: 'BLOCKED'}})-[:DEPENDS_ON|BLOCKS*]->(root)
+                MATCH (blocked {{state: 'BLOCKED'}})-[:DEPENDS_ON|BLOCKS*..20]->(root)
                 WHERE NOT (root)-[:DEPENDS_ON]->()
                 RETURN DISTINCT
                     blocked.id       AS blocked_id,

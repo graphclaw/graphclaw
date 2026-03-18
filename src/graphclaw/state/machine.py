@@ -1,12 +1,35 @@
-"""Task state machine for GraphClaw.
+"""graphclaw.state.machine — Task state machine with guard-based transition validation.
 
-Validates transitions, enforces guards, and records StateHistoryEntry
-on every transition (PRD Section 7.1).
+Description
+-----------
+Provides the ``StateMachine`` class, which validates and applies task state
+transitions according to the allowed transition table in ``transitions.py`` and
+a set of domain-specific guards.  All mutations are applied in-place on the
+``TaskNode`` object; callers are responsible for persisting the updated node.
+A ``StateHistoryEntry`` is appended on every successful transition for full
+audit trail support (PRD Section 7.1).
+
+Design Patterns
+---------------
+- State Machine: Centralises all transition logic behind a single ``transition()``
+  method, preventing scattered ad-hoc state mutations throughout the codebase.
+- Guard Clauses: Each guard is an independent static method that raises
+  ``InvalidTransitionError`` on violation, keeping the rules testable in isolation.
+
+Public API
+----------
+- StateMachine.transition: Validate and apply a state transition to a TaskNode.
+
+Dependencies
+------------
+- graphclaw.models.base: utcnow for timestamp generation.
+- graphclaw.models.enums: ChangedBy, ConfidenceLevel, TaskState, TaskType.
+- graphclaw.models.nodes: StateHistoryEntry, TaskNode.
+- graphclaw.state.transitions: VALID_TRANSITIONS, InvalidTransitionError.
 """
 from __future__ import annotations
 
-from datetime import datetime
-
+from graphclaw.models.base import utcnow
 from graphclaw.models.enums import ChangedBy, ConfidenceLevel, TaskState, TaskType
 from graphclaw.models.nodes import StateHistoryEntry, TaskNode
 from graphclaw.state.transitions import VALID_TRANSITIONS, InvalidTransitionError
@@ -73,7 +96,7 @@ class StateMachine:
         entry = StateHistoryEntry(
             from_state=from_state,
             to_state=new_state,
-            changed_at=datetime.utcnow(),
+            changed_at=utcnow(),
             changed_by=changed_by,
             reason=reason or None,
         )

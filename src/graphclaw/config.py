@@ -1,6 +1,38 @@
-"""Configuration management for GraphClaw.
+"""graphclaw.config — Application configuration loaded from environment variables.
 
-Loads settings from environment variables (with optional .env file support).
+Description
+-----------
+Provides two frozen dataclasses (``DatabaseConfig`` and ``AppConfig``) that
+read their values from environment variables at instantiation time, and a
+``Config`` singleton that exposes them via ``cached_property`` accessors.
+A ``.env`` file is loaded automatically if present, making local development
+setup straightforward without modifying the environment.
+
+Design Patterns
+---------------
+- Singleton: The module-level ``config`` instance is the canonical configuration
+  object; all application code imports it rather than constructing their own.
+- Frozen Dataclass: Both config classes are immutable after construction, preventing
+  accidental runtime mutation of configuration values.
+
+Public API
+----------
+- DatabaseConfig: Postgres + AGE connection settings.
+- AppConfig: Application-level settings (secrets backend, API keys, log level).
+- Config: Top-level singleton with ``database`` and ``app`` cached properties.
+- config: Module-level ``Config`` instance to import in application code.
+
+Dependencies
+------------
+- dotenv: Loads ``.env`` file into the environment at import time.
+- os: Environment variable access.
+
+Notes
+-----
+``DATABASE_URL`` is required and will raise ``KeyError`` at construction time if
+absent.  All other settings have safe defaults.  The ``SECRETS_BACKEND`` variable
+defaults to ``env_file`` for local development (Docker Compose); production
+deployments should set it to ``aws_sm`` or ``vault``.
 """
 from __future__ import annotations
 

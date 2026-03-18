@@ -1,13 +1,35 @@
-"""Agent reasoning loop for GraphClaw.
+"""graphclaw.agent.loop — AgentLoop: orchestrates the scoring cycle and builds the action queue.
 
-The AgentLoop orchestrates one complete scoring cycle:
-  1. Fetch active tasks from the graph.
-  2. Build a ScoringContext from graph relationships.
-  3. Score all tasks and build the ranked ActionQueueEntry list.
-  4. Optionally generate a human-readable briefing.
+Description
+-----------
+Provides the ``AgentLoop`` class, which is the primary entry point for the
+agent-side of the GraphClaw system.  One call to ``run_cycle()`` fetches all
+active tasks, builds a ``ScoringContext`` by querying graph relationships for each
+task, scores all tasks via ``ScoringEngine.score_all()``, and returns a ranked
+``ActionQueueEntry`` list.  The optional ``generate_briefing()`` method delegates
+to the briefing formatter for human-readable output.
 
-This is the primary entry point for the agent-side of the CLI
-(``graphclaw agent run`` / ``graphclaw agent score``).
+Design Patterns
+---------------
+- Facade: ``AgentLoop`` hides the complexity of fetching, context-building, scoring,
+  and formatting behind a simple ``run_cycle()`` call.
+- Dependency Injection: GraphRepository, ScoringEngine, and StateMachine are
+  injected at construction time, making the loop fully testable with stubs.
+
+Public API
+----------
+- AgentLoop.run_cycle: Execute one full agent scoring cycle and return the action queue.
+- AgentLoop.build_scoring_context: Build a ScoringContext for a given task list.
+- AgentLoop.generate_briefing: Generate a human-readable briefing from the action queue.
+
+Dependencies
+------------
+- graphclaw.db.graph_repository: GraphRepository (TYPE_CHECKING only for type hints).
+- graphclaw.state.machine: StateMachine (TYPE_CHECKING only for type hints).
+- graphclaw.scoring.engine: ScoringEngine, ScoringContext.
+- graphclaw.models.nodes: GoalNode, ResourceNode, TaskNode.
+- graphclaw.models.scoring: ActionQueueEntry.
+- graphclaw.agent.briefing: format_briefing (imported lazily to avoid circular imports).
 """
 from __future__ import annotations
 

@@ -5,13 +5,17 @@ All DB interactions are patched so no live Postgres connection is required.
 
 Patch strategy
 --------------
-The async helper functions inside CLI modules do local imports at call time:
+CLI commands now use ``graphclaw.cli._shared.cli_pool``, which imports
+``create_pool`` and ``GraphRepository`` at module load time:
 
     from graphclaw.db.connection import create_pool
     from graphclaw.db.graph_repository import GraphRepository
 
-Patching ``graphclaw.db.connection.create_pool`` replaces the object in that
-module's namespace, which is what a ``from ... import`` picks up at call time.
+To intercept these calls from tests, we patch the names as they exist in the
+``_shared`` module's namespace (where the ``from ... import`` bound them):
+
+    patch("graphclaw.cli._shared.create_pool", ...)
+    patch("graphclaw.cli._shared.GraphRepository", ...)
 """
 from __future__ import annotations
 
@@ -253,21 +257,28 @@ class TestGraphCommands:
     def test_graph_query_with_cypher(self):
         with patch("graphclaw.cli.graph_commands.asyncio.run") as mock_run:
             mock_run.return_value = None
-            result = runner.invoke(app, ["graph", "query", "MATCH (n) RETURN n LIMIT 1"])
+            result = runner.invoke(
+                app,
+                ["graph", "query", "--dangerous-allow-raw", "MATCH (n) RETURN n LIMIT 1"],
+            )
             assert result.exit_code == 0
+
+    def test_graph_query_without_dangerous_flag_exits_nonzero(self):
+        result = runner.invoke(app, ["graph", "query", "MATCH (n) RETURN n LIMIT 1"])
+        assert result.exit_code != 0
 
 
 # ---------------------------------------------------------------------------
 # Integration-style: async helpers with fully mocked DB
 # ---------------------------------------------------------------------------
 #
-# The async helper functions do local imports inside their bodies:
-#   from graphclaw.db.connection import create_pool
-#   from graphclaw.db.graph_repository import GraphRepository
-#
-# Patching ``graphclaw.db.connection.create_pool`` (the canonical location)
-# is sufficient because Python's module cache means the ``from ... import``
-# picks up whatever is currently in the source module's namespace.
+# CLI commands now use graphclaw.cli._shared.cli_pool(), which bound
+# ``create_pool`` and ``GraphRepository`` into the _shared module's namespace
+# at import time.  We patch them there so that cli_pool() returns our mocks.
+
+# Shared patch targets for all CLI DB tests.
+_PATCH_CREATE_POOL = "graphclaw.cli._shared.create_pool"
+_PATCH_GRAPH_REPO = "graphclaw.cli._shared.GraphRepository"
 
 
 def _make_db_mocks(task_list=None, goal_list=None, node=None):
@@ -293,11 +304,11 @@ class TestListTasksAsyncHelper:
 
         with patch.dict("os.environ", {"DATABASE_URL": "postgresql://test"}):
             with patch(
-                "graphclaw.db.connection.create_pool",
+                _PATCH_CREATE_POOL,
                 new=AsyncMock(return_value=mock_pool),
             ):
                 with patch(
-                    "graphclaw.db.graph_repository.GraphRepository",
+                    _PATCH_GRAPH_REPO,
                     return_value=mock_repo,
                 ):
                     from graphclaw.cli.task_commands import _list_tasks_async
@@ -312,11 +323,11 @@ class TestListTasksAsyncHelper:
 
         with patch.dict("os.environ", {"DATABASE_URL": "postgresql://test"}):
             with patch(
-                "graphclaw.db.connection.create_pool",
+                _PATCH_CREATE_POOL,
                 new=AsyncMock(return_value=mock_pool),
             ):
                 with patch(
-                    "graphclaw.db.graph_repository.GraphRepository",
+                    _PATCH_GRAPH_REPO,
                     return_value=mock_repo,
                 ):
                     from graphclaw.cli.task_commands import _list_tasks_async
@@ -333,11 +344,11 @@ class TestListTasksAsyncHelper:
 
         with patch.dict("os.environ", {"DATABASE_URL": "postgresql://test"}):
             with patch(
-                "graphclaw.db.connection.create_pool",
+                _PATCH_CREATE_POOL,
                 new=AsyncMock(return_value=mock_pool),
             ):
                 with patch(
-                    "graphclaw.db.graph_repository.GraphRepository",
+                    _PATCH_GRAPH_REPO,
                     return_value=mock_repo,
                 ):
                     from graphclaw.cli.task_commands import _list_tasks_async
@@ -364,11 +375,11 @@ class TestShowTaskAsyncHelper:
 
         with patch.dict("os.environ", {"DATABASE_URL": "postgresql://test"}):
             with patch(
-                "graphclaw.db.connection.create_pool",
+                _PATCH_CREATE_POOL,
                 new=AsyncMock(return_value=mock_pool),
             ):
                 with patch(
-                    "graphclaw.db.graph_repository.GraphRepository",
+                    _PATCH_GRAPH_REPO,
                     return_value=mock_repo,
                 ):
                     from graphclaw.cli.task_commands import _show_task_async
@@ -385,11 +396,11 @@ class TestShowTaskAsyncHelper:
 
         with patch.dict("os.environ", {"DATABASE_URL": "postgresql://test"}):
             with patch(
-                "graphclaw.db.connection.create_pool",
+                _PATCH_CREATE_POOL,
                 new=AsyncMock(return_value=mock_pool),
             ):
                 with patch(
-                    "graphclaw.db.graph_repository.GraphRepository",
+                    _PATCH_GRAPH_REPO,
                     return_value=mock_repo,
                 ):
                     from graphclaw.cli.task_commands import _show_task_async
@@ -492,11 +503,11 @@ class TestGraphStatsAsyncHelper:
 
         with patch.dict("os.environ", {"DATABASE_URL": "postgresql://test"}):
             with patch(
-                "graphclaw.db.connection.create_pool",
+                _PATCH_CREATE_POOL,
                 new=AsyncMock(return_value=mock_pool),
             ):
                 with patch(
-                    "graphclaw.db.graph_repository.GraphRepository",
+                    _PATCH_GRAPH_REPO,
                     return_value=mock_repo,
                 ):
                     from graphclaw.cli.graph_commands import _stats_async

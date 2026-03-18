@@ -1,9 +1,34 @@
-"""Composite completion cascade and sequential chain activation for GraphClaw.
+"""graphclaw.state.cascade — Composite completion cascade and sequential chain activation.
 
-Implements PRD Section 7.2 cascade logic:
-- check_composite_completion — AND/OR gate evaluation, confidence halting,
-  approval blocking, upward recursion.
-- activate_next_in_chain — INACTIVE_PENDING → ACTIVE for sequential chains.
+Description
+-----------
+Implements the PRD Section 7.2 cascade logic that fires when a child task reaches
+COMPLETE.  ``check_composite_completion`` evaluates the AND/OR completion gate of
+the parent composite/milestone task, applies confidence halting and approval
+blocking guards, then either auto-completes the parent (via CASCADE) or routes it
+to NEEDS_REVIEW.  ``activate_next_in_chain`` transitions INACTIVE_PENDING siblings
+to ACTIVE when their predecessor finishes, enabling sequential workflow progression.
+
+Design Patterns
+---------------
+- Chain of Responsibility: ``check_composite_completion`` checks each blocking
+  condition in order (REVIEW/APPROVAL pending → gate check → confidence check)
+  and short-circuits on the first match, keeping the logic readable.
+- Recursive: The function accepts an optional grandparent so it can recurse up
+  the PART_OF hierarchy after completing a parent.
+
+Public API
+----------
+- check_composite_completion: Evaluate and potentially auto-complete a composite parent.
+- activate_next_in_chain: Activate INACTIVE_PENDING tasks waiting on a completed task.
+
+Dependencies
+------------
+- graphclaw.db.graph_repository: GraphRepository (TYPE_CHECKING only).
+- graphclaw.models.enums: ChangedBy, ConfidenceLevel, GateType, TaskState, TaskType.
+- graphclaw.models.nodes: TaskNode.
+- graphclaw.models.type_metadata: CompositeMetadata.
+- graphclaw.state.machine: StateMachine (module-level singleton ``_sm``).
 """
 from __future__ import annotations
 

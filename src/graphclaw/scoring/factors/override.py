@@ -1,6 +1,29 @@
-"""Factor 5: Human Override Score (W5=0.10).
+"""graphclaw.scoring.factors.override — Factor 5: Human Override Score (W5=0.10).
 
-Pure function — no I/O, no imports from db layer.
+Description
+-----------
+Returns the score adjustment for a human override applied to a task.  Overrides
+allow users to explicitly raise (PRIORITIZE: +1.0), lower (DEPRIORITIZE: -0.3),
+or exclude (SNOOZE: None) a task from the action queue, superseding the computed
+priority signal from the other six factors.
+
+Design Patterns
+---------------
+- Pure Function: No I/O or imports from the DB layer; accepts only the override type.
+
+Public API
+----------
+- human_override_score: Return the score adjustment (float) or None if excluded.
+
+Notes
+-----
+A return value of ``None`` signals to the engine that the task should be excluded
+entirely from the action queue (SNOOZE case), not merely scored at 0.  The engine
+checks for None explicitly in the SNOOZE branch of its override handling.
+
+The ``_OVERRIDE_VALUES`` dict includes both canonical PRD names (PRIORITIZE,
+DEPRIORITIZE, SNOOZE) and legacy aliases (PRIORITY, TOP, WATCH, WAIT, SNOOZED)
+to ensure backward compatibility during the Phase 0 migration period.
 """
 from __future__ import annotations
 

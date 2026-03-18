@@ -121,7 +121,7 @@ class TestStateHistoryRecording:
     def test_history_entry_fields(self):
         sm = StateMachine()
         task = _make_task(state=TaskState.PENDING)
-        before = datetime.utcnow()
+        before = datetime.now(timezone.utc)
         sm.transition(task, TaskState.ACTIVE, ChangedBy.HUMAN, "starting work")
         entry = task.state_history[0]
         assert entry.from_state == TaskState.PENDING

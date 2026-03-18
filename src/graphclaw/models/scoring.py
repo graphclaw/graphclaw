@@ -1,8 +1,31 @@
-"""Scoring record models for GraphClaw.
+"""graphclaw.models.scoring — Scoring result models for the explainability interface.
 
-These records are written to the database at every scoring pass and power the
-explainability interface without requiring the agent to re-reason from scratch
-at query time (PRD Section 4.7).
+Description
+-----------
+Defines the Pydantic models that capture the output of each scoring pass:
+``ScoreFactor`` (one weighted factor), ``ScoreModifier`` (a post-scoring
+multiplier), ``ScoreExplanation`` (the complete breakdown persisted to the DB),
+and ``ActionQueueEntry`` (the ranked, actionable representation of a scored task).
+These records power the PRD Section 4.7 explainability interface without requiring
+the agent to re-reason from raw graph data at query time.
+
+Design Patterns
+---------------
+- Data Transfer Objects: These models carry scoring results from the engine to
+  the CLI, API, and DB persistence layer without coupling those consumers to the
+  engine internals.
+
+Public API
+----------
+- ScoreFactor: A single weighted factor contributing to a task's final score.
+- ScoreModifier: A multiplier applied on top of the base weighted score.
+- ScoreExplanation: Full scoring breakdown for one task, persisted after each pass.
+- ActionQueueEntry: A ranked, actionable queue entry combining task and explanation.
+
+Dependencies
+------------
+- graphclaw.models.enums: AutonomyLevel.
+- pydantic: BaseModel.
 """
 
 from datetime import datetime

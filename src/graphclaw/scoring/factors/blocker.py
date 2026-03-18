@@ -1,6 +1,26 @@
-"""Factor 4: Blocker Score (W4=0.15).
+"""graphclaw.scoring.factors.blocker — Factor 4: Blocker Score (W4=0.15).
 
-Pure function — no I/O, no imports from db layer.
+Description
+-----------
+Computes the blocker contribution for a task that is currently blocking another
+task via a BLOCKS edge.  When a downstream task is in BLOCKED state, the engine
+suppresses that task's own score and instead elevates the blocker's score using
+this factor, so the agent's action queue surfaces the root cause rather than the
+symptom.
+
+Design Patterns
+---------------
+- Pure Function: No I/O or imports from the DB layer; accepts only a type string.
+
+Public API
+----------
+- blocker_score: Compute the blocker factor score (0.0, 0.6, or 1.0).
+
+Notes
+-----
+Both enum values (``EdgeStrength.HARD``) and plain strings (``"HARD"``) are
+accepted because the scoring context may carry either form depending on how the
+BLOCKS edge strength was retrieved from the AGE property graph.
 """
 from __future__ import annotations
 

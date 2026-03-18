@@ -1,11 +1,46 @@
-"""GraphClaw graph node Pydantic models.
+"""graphclaw.models.nodes — Pydantic node models for all graph vertex types.
 
-All node types share BaseNode (id, created_at, updated_at).  TaskNode uses
-a discriminated union on task_type for its type_metadata block.
+Description
+-----------
+Defines the six node types that form the GraphClaw property graph: TaskNode,
+UserNode, GoalNode, ConstraintNode, ResourceNode, and CheckinNode.  Every type
+inherits from ``BaseNode`` (id, created_at, updated_at) and uses field
+validators to enforce the naming conventions defined in ``graphclaw.models.base``.
+``TaskNode`` is the richest model, embedding sub-models for timeline, scoring,
+state history, progress, overrides, autonomy, and type-specific metadata.
+
+Design Patterns
+---------------
+- Pydantic v2 Models: All node types use ``BaseModel`` / ``BaseNode`` with
+  ``field_validator`` for ID format enforcement.
+- Discriminated Union: ``TaskNode.type_metadata`` uses ``TypeMetadata``
+  (a ``Union`` discriminated on ``task_type``) to carry per-variant fields
+  without requiring separate node classes per task type.
+- Sub-models: Rich nested models (ScoringBlock, Timeline, OverrideBlock, etc.)
+  keep TaskNode fields logically grouped and independently serialisable.
+
+Public API
+----------
+- TaskNode: Core task vertex with 11 task type variants.
+- UserNode: Human user who owns tasks and goals.
+- GoalNode: High-level goal that tasks belong to.
+- ConstraintNode: Business constraint governing tasks, milestones, or goals.
+- ResourceNode: Any entity (human or AI agent) that can be assigned tasks.
+- CheckinNode: Batched communication artifact sent to a resource.
+- Timeline, ScoringBlock, StateHistoryEntry, ProgressBlock, OverrideBlock,
+  AutonomyBlock, UpdateLogEntry, EmbeddingInputs: TaskNode sub-models.
+- ScoringWeights, AutonomyDefaults, UserPreferences, BehavioralModel,
+  WorkingHours: UserNode sub-models.
+
+Dependencies
+------------
+- graphclaw.models.base: BaseNode, ID patterns, and validator helpers.
+- graphclaw.models.enums: All domain enumerations.
+- graphclaw.models.type_metadata: TypeMetadata discriminated union.
+- pydantic: BaseModel, field_validator.
 """
 
 from datetime import datetime
-from typing import Optional
 
 from pydantic import BaseModel, field_validator
 
@@ -47,12 +82,12 @@ from graphclaw.models.type_metadata import TypeMetadata
 class Timeline(BaseModel):
     """Timeline block within a TaskNode."""
 
-    deadline: Optional[datetime] = None
-    started_at: Optional[datetime] = None
-    estimated_effort_hours: Optional[float] = None
-    estimated_effort_days: Optional[float] = None
-    actual_effort_days: Optional[float] = None
-    completed_at: Optional[datetime] = None
+    deadline: datetime | None = None
+    started_at: datetime | None = None
+    estimated_effort_hours: float | None = None
+    estimated_effort_days: float | None = None
+    actual_effort_days: float | None = None
+    completed_at: datetime | None = None
 
 
 class ScoringBlock(BaseModel):
@@ -67,8 +102,8 @@ class ScoringBlock(BaseModel):
     constraint_pressure: float = 0.0     # W7: 0.0 – 1.0
     computed_priority: float = 0.0       # final weighted score
     chain_urgency_rollup: float = 0.0
-    last_scored_at: Optional[datetime] = None
-    score_reasoning: Optional[str] = None
+    last_scored_at: datetime | None = None
+    score_reasoning: str | None = None
 
 
 class StateHistoryEntry(BaseModel):
@@ -78,7 +113,7 @@ class StateHistoryEntry(BaseModel):
     to_state: TaskState
     changed_at: datetime
     changed_by: ChangedBy
-    reason: Optional[str] = None
+    reason: str | None = None
 
 
 class ProgressBlock(BaseModel):
@@ -86,7 +121,7 @@ class ProgressBlock(BaseModel):
 
     percentage: float = 0.0
     confidence: ConfidenceLevel = ConfidenceLevel.MEDIUM
-    last_update: Optional[datetime] = None
+    last_update: datetime | None = None
     completion_signal: CompletionSignal = CompletionSignal.EXPLICIT
 
 
@@ -94,11 +129,11 @@ class OverrideBlock(BaseModel):
     """Human-override sub-model for a TaskNode."""
 
     is_overridden: bool = False
-    override_type: Optional[OverrideType] = None
-    override_note: Optional[str] = None
-    set_by: Optional[str] = None         # user_id
-    set_at: Optional[datetime] = None
-    expires_at: Optional[datetime] = None
+    override_type: OverrideType | None = None
+    override_note: str | None = None
+    set_by: str | None = None            # user_id
+    set_at: datetime | None = None
+    expires_at: datetime | None = None
 
 
 class AutonomyBlock(BaseModel):
@@ -106,7 +141,7 @@ class AutonomyBlock(BaseModel):
 
     auto_update_allowed: bool = False
     auto_close_allowed: bool = False
-    requires_approval_from: Optional[str] = None  # user_id; null = fully autonomous
+    requires_approval_from: str | None = None  # user_id; null = fully autonomous
     level: AutonomyLevel = AutonomyLevel.SUGGEST
 
 
@@ -116,11 +151,11 @@ class UpdateLogEntry(BaseModel):
     received_at: datetime
     source: str                           # resource_id
     raw_text: str
-    parsed_status: Optional[str] = None
-    parsed_progress: Optional[float] = None
+    parsed_status: str | None = None
+    parsed_progress: float | None = None
     matched_by: MatchedBy = MatchedBy.TASK_ID
     match_confidence: float = 1.0
-    action_taken: Optional[str] = None
+    action_taken: str | None = None
 
 
 class EmbeddingInputs(BaseModel):
@@ -147,9 +182,9 @@ class TaskNode(BaseNode):
     description: str
 
     # Ownership
-    created_by: Optional[str] = None     # user_id
-    owned_by: Optional[str] = None       # user_id or resource_id
-    assigned_to: Optional[str] = None    # resource_id
+    created_by: str | None = None        # user_id
+    owned_by: str | None = None          # user_id or resource_id
+    assigned_to: str | None = None       # resource_id
 
     # State machine
     state: TaskState = TaskState.PENDING
@@ -172,10 +207,10 @@ class TaskNode(BaseNode):
     update_log: list[UpdateLogEntry] = []
 
     # Type-specific metadata (discriminated union on task_type)
-    type_metadata: Optional[TypeMetadata] = None
+    type_metadata: TypeMetadata | None = None
 
     # Vector embedding inputs (the float vector is stored in the DB layer)
-    embedding_inputs: Optional[EmbeddingInputs] = None
+    embedding_inputs: EmbeddingInputs | None = None
 
     # Autonomy
     autonomy: AutonomyBlock = AutonomyBlock()
@@ -208,7 +243,7 @@ class ScoringWeights(BaseModel):
     W5_override: float = 0.10
     W6_resource_risk: float = 0.05
     W7_constraint: float = 0.05
-    last_updated: Optional[datetime] = None
+    last_updated: datetime | None = None
     update_count: int = 0
 
 
@@ -219,7 +254,7 @@ class AutonomyDefaults(BaseModel):
 
 
 class UserPreferences(BaseModel):
-    briefing_time: Optional[str] = None  # "HH:MM"
+    briefing_time: str | None = None     # "HH:MM"
     briefing_style: str = "concise"      # "concise" | "detailed"
     default_follow_up_days: int = 3
     interrupt_threshold: float = 0.8
@@ -235,8 +270,8 @@ class BehavioralModel(BaseModel):
 
 
 class WorkingHours(BaseModel):
-    start: Optional[str] = None          # "HH:MM"
-    end: Optional[str] = None
+    start: str | None = None             # "HH:MM"
+    end: str | None = None
 
 
 class UserNode(BaseNode):
@@ -244,7 +279,7 @@ class UserNode(BaseNode):
 
     name: str
     email: str
-    role: Optional[str] = None
+    role: str | None = None
     timezone: str = "UTC"
     working_hours: WorkingHours = WorkingHours()
     preferences: UserPreferences = UserPreferences()
@@ -265,8 +300,8 @@ class UserNode(BaseNode):
 
 
 class GoalTimeline(BaseModel):
-    target_date: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
+    target_date: datetime | None = None
+    completed_at: datetime | None = None
 
 
 class GoalProgress(BaseModel):
@@ -280,14 +315,14 @@ class GoalNode(BaseNode):
 
     title: str
     description: str
-    owner: Optional[str] = None          # user_id
+    owner: str | None = None             # user_id
     state: GoalState = GoalState.ACTIVE
     timeline: GoalTimeline = GoalTimeline()
     progress: GoalProgress = GoalProgress()
     priority: GoalPriority = GoalPriority.P2
     origin: GoalOrigin = GoalOrigin.USER_DEFINED
     inferred_from: list[str] = []        # task_ids if agent-inferred
-    inference_note: Optional[str] = None
+    inference_note: str | None = None
     confirmed_by_user: bool = True
 
     @field_validator("id")
@@ -307,8 +342,8 @@ class ConstraintRule(BaseModel):
     """The rule body of a ConstraintNode."""
 
     hard_limit: bool = False
-    threshold: Optional[str] = None      # e.g. "$50,000" or "2024-12-31"
-    current_value: Optional[str] = None
+    threshold: str | None = None         # e.g. "$50,000" or "2024-12-31"
+    current_value: str | None = None
     pressure_score: float = 0.0          # 0.0 – 1.0
     breached: bool = False
 
@@ -345,7 +380,7 @@ class CapacityModel(BaseModel):
     current_active_tasks: int = 0
     load_factor: float = 0.0
     availability_status: AvailabilityStatus = AvailabilityStatus.AVAILABLE
-    last_signaled_at: Optional[datetime] = None
+    last_signaled_at: datetime | None = None
 
 
 class ReliabilityModel(BaseModel):
@@ -361,8 +396,8 @@ class ReliabilityModel(BaseModel):
 class RiskSignal(BaseModel):
     signal: str
     inferred_at: datetime
-    source_node: Optional[str] = None   # node_id
-    expires_at: Optional[datetime] = None
+    source_node: str | None = None       # node_id
+    expires_at: datetime | None = None
 
 
 class CurrentRisk(BaseModel):
@@ -383,8 +418,8 @@ class ResourceNode(BaseNode):
 
     resource_type: ResourceType
     name: str
-    contact: Optional[str] = None       # email address or endpoint URL
-    timezone: Optional[str] = None
+    contact: str | None = None           # email address or endpoint URL
+    timezone: str | None = None
     capacity: CapacityModel = CapacityModel()
     reliability: ReliabilityModel = ReliabilityModel()
     current_risk: CurrentRisk = CurrentRisk()
@@ -408,7 +443,7 @@ class ResourceNode(BaseNode):
 class CheckinResolution(BaseModel):
     task_id: str
     action_taken: str
-    new_state: Optional[str] = None
+    new_state: str | None = None
 
 
 class CheckinNode(BaseNode):
@@ -418,11 +453,11 @@ class CheckinNode(BaseNode):
     created_by: str = "AGENT"
     task_refs: list[str] = []             # task_ids batched into this check-in
     state: CheckinState = CheckinState.SCHEDULED
-    scheduled_for: Optional[datetime] = None
-    sent_at: Optional[datetime] = None
-    response_received_at: Optional[datetime] = None
-    outbound_message: Optional[str] = None
-    inbound_response: Optional[str] = None
+    scheduled_for: datetime | None = None
+    sent_at: datetime | None = None
+    response_received_at: datetime | None = None
+    outbound_message: str | None = None
+    inbound_response: str | None = None
     resolution: list[CheckinResolution] = []
 
 

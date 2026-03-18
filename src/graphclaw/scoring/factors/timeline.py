@@ -1,6 +1,35 @@
-"""Factor 1: Timeline Urgency (W1=0.25).
+"""graphclaw.scoring.factors.timeline — Factor 1: Timeline Urgency (W1=0.25).
 
-Pure function — no I/O, no imports from db layer.
+Description
+-----------
+Computes a stepped urgency score from calendar days remaining until the task
+deadline, with an additive effort-slack adjustment.  The design uses discrete
+brackets rather than a continuous function so that the scoring is predictable
+and explainable: operators can reason about which bracket a task falls into
+without needing to evaluate a formula.
+
+Design Patterns
+---------------
+- Pure Function: No I/O or imports from the DB layer; accepts only scalars.
+
+Public API
+----------
+- timeline_urgency: Compute the timeline urgency score (may exceed 1.0 if overdue
+  with negative slack).
+
+Notes
+-----
+Score brackets (days_remaining → base):
+  > 14 days → 0.2   (comfortable buffer)
+  > 7 days  → 0.4
+  > 3 days  → 0.6
+  > 1 day   → 0.85
+  > 0 days  → 1.0   (today)
+  <= 0 days → 1.2   (overdue)
+
+Effort-slack adjustment adds up to +0.30 when effort exceeds remaining time
+(negative slack), ensuring that a near-deadline task with high effort is scored
+more urgently than one with trivial remaining work.
 """
 from __future__ import annotations
 

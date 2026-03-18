@@ -1,4 +1,39 @@
-"""GraphClaw edge models — first-class citizens of the property graph."""
+"""graphclaw.models.edges — Pydantic models for all directed graph edge types.
+
+Description
+-----------
+Defines ``GraphEdge``, the canonical model for a directed, typed edge between
+two graph vertices, along with per-edge-type property models (``DependsOnProps``,
+``BlocksProps``, etc.) and the generic ``EdgeProperties`` block.  Edges are
+first-class objects in the GraphClaw property graph, carrying structured metadata
+such as gate type, blocking strength, and sequence order.
+
+Design Patterns
+---------------
+- Pydantic v2 Models: ``GraphEdge`` uses ``field_validator`` for ID format
+  enforcement consistent with node models.
+- Per-type Sub-models: Each edge type has a dedicated properties model so callers
+  can use strongly-typed access when the edge type is known.
+- Generic Properties Block: ``EdgeProperties`` flattens all optional per-type
+  fields into a single model for cases where edge type is not statically known.
+
+Public API
+----------
+- GraphEdge: Canonical directed edge between two nodes.
+- EdgeProperties: Generic edge properties block for unknown/mixed edge types.
+- DependsOnProps: Properties for DEPENDS_ON edges (gate_type).
+- PartOfProps: Properties for PART_OF edges (sequence_order).
+- BlocksProps: Properties for BLOCKS edges (strength).
+- FollowUpForProps: Properties for FOLLOW_UP_FOR edges (scheduled_fire_at).
+- SpawnedFromProps, AssignedToProps, OwnedByProps, AppliesToProps,
+  InformsProps, BranchedFromProps, BatchedInProps: Empty property models.
+
+Dependencies
+------------
+- graphclaw.models.base: EDGE_ID_PATTERN for ID validation.
+- graphclaw.models.enums: EdgeCreatedBy, EdgeStrength, EdgeType, GateType.
+- pydantic: BaseModel, Field, field_validator.
+"""
 
 from datetime import datetime
 from typing import Optional, Union, Annotated
