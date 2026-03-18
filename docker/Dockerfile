@@ -22,12 +22,19 @@ RUN pip install --no-cache-dir \
     "rich>=13.9.0" \
     "pgvector>=0.3.0" \
     "python-dotenv>=1.0.0" \
+    "redis[hiredis]>=5.0.0" \
+    "boto3>=1.35.0" \
+    "litellm>=1.50.0" \
+    "fastapi>=0.115.0" \
+    "uvicorn[standard]>=0.34.0" \
+    "aiosmtplib>=3.0.0" \
+    "PyYAML>=6.0" \
     "hatchling"
 
 # Copy source code
 COPY src/ ./src/
 
 # Install the package in editable mode so the graphclaw CLI entry point is available
-RUN pip install --no-cache-dir -e .
+RUN pip install --no-cache-dir -e ".[dev]"
 
 ENTRYPOINT ["graphclaw"]

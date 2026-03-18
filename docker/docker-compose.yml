@@ -17,6 +17,33 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: graphclaw
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:-graphclaw_dev}
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   app:
     build:
       context: ..
@@ -24,10 +51,17 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
     environment:
       DATABASE_URL: postgresql://graphclaw:${DB_PASSWORD:-graphclaw_dev}@db:5432/graphclaw
       SECRETS_BACKEND: env_file
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      REDIS_URL: redis://redis:6379
+      STORAGE_ENDPOINT_URL: http://minio:9000
+      STORAGE_BUCKET: graphclaw
     volumes:
       - ../src:/app/src
       - ../tests:/app/tests
@@ -36,3 +70,4 @@ services:
 
 volumes:
   pgdata:
+  miniodata:
