@@ -30,11 +30,18 @@ GRAPH_NAME = "graphclaw"
 def _parse_agtype(value: Any) -> Any:
     """Convert an agtype column value to a native Python object.
 
-    psycopg represents agtype as a custom type whose ``str()`` is valid JSON.
+    psycopg represents agtype as a string with an optional ``::vertex``,
+    ``::edge``, or other type suffix.  We strip the suffix, then parse
+    the remaining JSON.
     """
     if value is None:
         return None
     raw = str(value)
+    # Strip AGE type suffixes like ::vertex, ::edge, ::path
+    for suffix in ("::vertex", "::edge", "::path"):
+        if raw.endswith(suffix):
+            raw = raw[: -len(suffix)]
+            break
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
@@ -88,42 +95,16 @@ class GraphRepository:
         """
         props: dict = node.model_dump(mode="json")
         label: str = _resolve_label(node)
-        props_json = json.dumps(props)
+        cypher_map = _to_cypher_map(props)
 
-        query = f"""
-            SELECT * FROM cypher(%s, $$
-                CREATE (n:{label} %s)
-                RETURN n
-            $$) as (v agtype)
-        """
-        # AGE does not support %s inside $$ blocks — we must use string
-        # interpolation for literal values that go INTO the Cypher body.
-        # The safe pattern: build the properties literal as a JSON string
-        # and use the ``agtype`` cast inside Cypher.
-        cypher = f"""
-            SELECT * FROM cypher('{self._graph}', $$
-                CREATE (n:{label} {{id: '{props["id"]}'}})
-                SET n = {props_json}::agtype
-                RETURN n
-            $$) as (v agtype)
-        """
-        # NOTE: because AGE embeds the graph name and Cypher body in a SQL
-        # string literal, we use direct string formatting for the graph name
-        # and Cypher-level values, then pass the JSON blob through psycopg's
-        # parameter mechanism via a literal substitution approach.
-        # The properties dict is serialised and embedded as a Cypher map
-        # literal — this is safe because json.dumps produces valid JSON /
-        # Cypher map syntax.
         async with get_connection(self._pool) as conn:
             result = await conn.execute(
                 f"""
                 SELECT * FROM cypher('{self._graph}', $$
-                    CREATE (n:{label})
-                    SET n = %s::agtype
+                    CREATE (n:{label} {cypher_map})
                     RETURN n
                 $$) as (v agtype)
-                """,
-                (props_json,),
+                """
             )
             row = await result.fetchone()
         created = _extract_properties(row[0]) if row else props
@@ -135,15 +116,15 @@ class GraphRepository:
 
         Returns the properties dict, or ``None`` if not found.
         """
+        eid = _escape(node_id)
         async with get_connection(self._pool) as conn:
             result = await conn.execute(
                 f"""
                 SELECT * FROM cypher('{self._graph}', $$
-                    MATCH (n {{id: %s}})
+                    MATCH (n {{id: '{eid}'}})
                     RETURN n
                 $$) as (v agtype)
-                """,
-                (node_id,),
+                """
             )
             row = await result.fetchone()
         if row is None:
@@ -156,44 +137,21 @@ class GraphRepository:
         Only the keys present in ``updates`` are changed; other properties
         are left untouched.  Returns the updated properties dict.
         """
-        # Build SET clauses: n.key = value for each key in updates.
-        # Values are passed as individual %s parameters.
+        eid = _escape(node_id)
         set_fragments = []
-        params: list[Any] = []
         for key, value in updates.items():
-            set_fragments.append(f"n.{key} = %s::agtype")
-            params.append(json.dumps(value))
-        params.append(node_id)
-
+            set_fragments.append(f"n.{key} = {_to_cypher_value(value)}")
         set_clause = ", ".join(set_fragments)
-        async with get_connection(self._pool) as conn:
-            result = await conn.execute(
-                f"""
-                SELECT * FROM cypher('{self._graph}', $$
-                    MATCH (n {{id: %s}})
-                    SET {set_clause}
-                    RETURN n
-                $$) as (v agtype)
-                """,
-                (*params[:-1], params[-1]),  # set values first, then id at end (matches MATCH position)
-            )
-            # Reorder: psycopg %s binds left-to-right; MATCH uses last %s,
-            # SET uses preceding ones.  Pass id first, then set values.
-            # Re-execute with corrected parameter order.
-            _ = await result.fetchone()  # consume to avoid cursor issues
 
-        # Execute again with correct parameter order (id first for MATCH).
-        params_ordered = [node_id] + [json.dumps(v) for v in updates.values()]
         async with get_connection(self._pool) as conn:
             result = await conn.execute(
                 f"""
                 SELECT * FROM cypher('{self._graph}', $$
-                    MATCH (n {{id: %s}})
+                    MATCH (n {{id: '{eid}'}})
                     SET {set_clause}
                     RETURN n
                 $$) as (v agtype)
-                """,
-                tuple(params_ordered),
+                """
             )
             row = await result.fetchone()
         if row is None:
@@ -204,15 +162,15 @@ class GraphRepository:
 
     async def delete_node(self, node_id: str) -> None:
         """Remove a vertex and all its incident edges (DETACH DELETE)."""
+        eid = _escape(node_id)
         async with get_connection(self._pool) as conn:
             await conn.execute(
                 f"""
                 SELECT * FROM cypher('{self._graph}', $$
-                    MATCH (n {{id: %s}})
+                    MATCH (n {{id: '{eid}'}})
                     DETACH DELETE n
                 $$) as (v agtype)
-                """,
-                (node_id,),
+                """
             )
         logger.debug("delete_node", extra={"node_id": node_id})
 
@@ -224,17 +182,14 @@ class GraphRepository:
         """Return all vertices with the given label, optionally filtered.
 
         ``filters`` is a flat dict of ``{property: value}`` equality checks.
-        All filter values are passed as ``%s`` parameters.
+        Values are embedded directly into the Cypher query (AGE limitation).
 
         Returns a list of property dicts (may be empty).
         """
         filters = filters or {}
         where_fragments: list[str] = []
-        params: list[Any] = []
-
         for key, value in filters.items():
-            where_fragments.append(f"n.{key} = %s::agtype")
-            params.append(json.dumps(value))
+            where_fragments.append(f"n.{key} = {_to_cypher_value(value)}")
 
         where_clause = ""
         if where_fragments:
@@ -248,8 +203,7 @@ class GraphRepository:
                     {where_clause}
                     RETURN n
                 $$) as (v agtype)
-                """,
-                tuple(params) if params else None,
+                """
             )
             rows = await result.fetchall()
 
@@ -280,19 +234,19 @@ class GraphRepository:
         Returns the edge properties dict (may be empty if no properties set).
         """
         properties = properties or {}
-        props_json = json.dumps(properties)
+        cypher_map = _to_cypher_map(properties)
+        esrc = _escape(source_id)
+        etgt = _escape(target_id)
 
         async with get_connection(self._pool) as conn:
             result = await conn.execute(
                 f"""
                 SELECT * FROM cypher('{self._graph}', $$
-                    MATCH (src {{id: %s}}), (tgt {{id: %s}})
-                    CREATE (src)-[e:{edge_type}]->(tgt)
-                    SET e = %s::agtype
+                    MATCH (src {{id: '{esrc}'}}), (tgt {{id: '{etgt}'}})
+                    CREATE (src)-[e:{edge_type} {cypher_map}]->(tgt)
                     RETURN e
                 $$) as (e agtype)
-                """,
-                (source_id, target_id, props_json),
+                """
             )
             row = await result.fetchone()
 
@@ -330,13 +284,14 @@ class GraphRepository:
         ``label``, and any edge properties.
         """
         type_filter = f":{edge_type}" if edge_type else ""
+        enid = _escape(node_id)
 
         if direction == "out":
-            pattern = f"(n {{id: %s}})-[e{type_filter}]->(other)"
+            pattern = f"(n {{id: '{enid}'}})-[e{type_filter}]->(other)"
         elif direction == "in":
-            pattern = f"(other)-[e{type_filter}]->(n {{id: %s}})"
+            pattern = f"(other)-[e{type_filter}]->(n {{id: '{enid}'}})"
         else:  # both
-            pattern = f"(n {{id: %s}})-[e{type_filter}]-(other)"
+            pattern = f"(n {{id: '{enid}'}})-[e{type_filter}]-(other)"
 
         async with get_connection(self._pool) as conn:
             result = await conn.execute(
@@ -345,8 +300,7 @@ class GraphRepository:
                     MATCH {pattern}
                     RETURN e, other.id as other_id
                 $$) as (e agtype, other_id agtype)
-                """,
-                (node_id,),
+                """
             )
             rows = await result.fetchall()
 
@@ -378,11 +332,10 @@ class GraphRepository:
                 f"""
                 SELECT * FROM cypher('{self._graph}', $$
                     MATCH ()-[e]->()
-                    WHERE id(e) = %s
+                    WHERE id(e) = {edge_id}
                     DELETE e
                 $$) as (v agtype)
-                """,
-                (edge_id,),
+                """
             )
         logger.debug("delete_edge", extra={"edge_id": edge_id})
 
@@ -390,6 +343,50 @@ class GraphRepository:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _escape(value: str) -> str:
+    """Escape a string value for safe embedding inside Cypher string literals.
+
+    AGE does not support parameterized queries inside $$ blocks, so all
+    values must be embedded directly.  This escapes single quotes and
+    backslashes to prevent injection.
+    """
+    return value.replace("\\", "\\\\").replace("'", "\\'")
+
+
+def _to_cypher_value(value: Any) -> str:
+    """Convert a Python value to its Cypher literal representation.
+
+    - str → 'escaped_str'
+    - int/float → bare number
+    - bool → true/false
+    - None → null
+    - list → [item1, item2, ...]
+    - dict → serialised as a JSON string (AGE doesn't support nested maps well)
+    """
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, str):
+        return f"'{_escape(value)}'"
+    if isinstance(value, list):
+        items = ", ".join(_to_cypher_value(v) for v in value)
+        return f"[{items}]"
+    # Fallback: serialise as JSON string
+    return f"'{_escape(json.dumps(value))}'"
+
+
+def _to_cypher_map(props: dict) -> str:
+    """Convert a Python dict to a Cypher map literal: ``{key: val, ...}``."""
+    fragments = []
+    for key, value in props.items():
+        fragments.append(f"{key}: {_to_cypher_value(value)}")
+    return "{" + ", ".join(fragments) + "}"
+
 
 def _resolve_label(node: Any) -> str:
     """Derive the AGE vertex label from a node model instance.

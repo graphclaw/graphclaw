@@ -103,7 +103,11 @@ def _make_goal(title: str = "Test Goal") -> _StubNode:
 
 @pytest.fixture(scope="session")
 def event_loop_policy():
-    # Use the default asyncio event loop policy (compatible with pytest-asyncio).
+    """Use SelectorEventLoop on Windows for psycopg async compatibility."""
+    import sys
+    if sys.platform == "win32":
+        import asyncio
+        return asyncio.WindowsSelectorEventLoopPolicy()
     return None
 
 

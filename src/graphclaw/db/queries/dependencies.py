@@ -13,6 +13,9 @@ Three query functions covering the dependency graph:
 All queries use variable-length Cypher path patterns (``*``) which AGE
 resolves recursively up to an internal depth limit.  For very deep graphs
 consider adding a ``*..N`` upper bound.
+
+NOTE: AGE does not support parameterized queries ($1) inside $$ blocks.
+All values are embedded directly into the Cypher string with escaping.
 """
 from __future__ import annotations
 
@@ -43,6 +46,11 @@ def _row_to_dict(row: tuple, keys: list[str]) -> dict:
     return {k: _parse_agtype(v) for k, v in zip(keys, row)}
 
 
+def _escape(value: str) -> str:
+    """Escape a string for safe embedding inside Cypher string literals."""
+    return value.replace("\\", "\\\\").replace("'", "\\'")
+
+
 async def get_downstream_dependents(
     pool: AsyncConnectionPool,
     node_id: str,
@@ -52,34 +60,19 @@ async def get_downstream_dependents(
 
     A task T is a downstream dependent of N if there exists a path
     T-[:DEPENDS_ON*]->N (T cannot start until N is done).
-
-    Parameters
-    ----------
-    pool:
-        An open async connection pool.
-    node_id:
-        ``id`` property of the node to query from.
-    graph_name:
-        AGE property graph name.
-
-    Returns
-    -------
-    list[dict]
-        Each dict contains ``id``, ``state``, and ``title`` of the
-        dependent task.  The anchor node itself is excluded.
     """
+    eid = _escape(node_id)
     async with get_connection(pool) as conn:
         result = await conn.execute(
             f"""
             SELECT * FROM cypher('{graph_name}', $$
-                MATCH (anchor {{id: %s}})<-[:DEPENDS_ON*]-(downstream)
-                WHERE downstream.id <> %s
+                MATCH (anchor {{id: '{eid}'}})<-[:DEPENDS_ON*]-(downstream)
+                WHERE downstream.id <> '{eid}'
                 RETURN DISTINCT downstream.id AS id,
                                downstream.state AS state,
                                downstream.title AS title
             $$) as (id agtype, state agtype, title agtype)
-            """,
-            (node_id, node_id),
+            """
         )
         rows = await result.fetchall()
 
@@ -99,34 +92,19 @@ async def get_upstream_blockers(
 
     A task U is an upstream blocker of N if there exists a path
     N-[:DEPENDS_ON*]->U (N cannot start until U is done).
-
-    Parameters
-    ----------
-    pool:
-        An open async connection pool.
-    node_id:
-        ``id`` property of the node to query from.
-    graph_name:
-        AGE property graph name.
-
-    Returns
-    -------
-    list[dict]
-        Each dict contains ``id``, ``state``, and ``title`` of the blocking
-        task.  The anchor node itself is excluded.
     """
+    eid = _escape(node_id)
     async with get_connection(pool) as conn:
         result = await conn.execute(
             f"""
             SELECT * FROM cypher('{graph_name}', $$
-                MATCH (anchor {{id: %s}})-[:DEPENDS_ON*]->(upstream)
-                WHERE upstream.id <> %s
+                MATCH (anchor {{id: '{eid}'}})-[:DEPENDS_ON*]->(upstream)
+                WHERE upstream.id <> '{eid}'
                 RETURN DISTINCT upstream.id AS id,
                                upstream.state AS state,
                                upstream.title AS title
             $$) as (id agtype, state agtype, title agtype)
-            """,
-            (node_id, node_id),
+            """
         )
         rows = await result.fetchall()
 
@@ -145,19 +123,6 @@ async def get_blocked_root_causes(
 
     A root cause is the deepest upstream dependency that has no further
     DEPENDS_ON outgoing edges (i.e. a leaf in the dependency DAG).
-
-    The query follows both DEPENDS_ON and BLOCKS edges because a task can be
-    blocked either by an explicit dependency or by a BLOCKS relationship.
-
-    Returns
-    -------
-    list[dict]
-        Each dict contains:
-        - ``blocked_id`` — id of the BLOCKED task
-        - ``root_id`` — id of the root-cause task
-        - ``root_state`` — current state of the root-cause task
-        - ``root_assignee`` — ``assigned_to`` property of the root-cause task
-          (may be ``None``)
     """
     async with get_connection(pool) as conn:
         result = await conn.execute(
@@ -176,7 +141,7 @@ async def get_blocked_root_causes(
                 root_state  agtype,
                 root_assignee agtype
             )
-            """,
+            """
         )
         rows = await result.fetchall()
 
