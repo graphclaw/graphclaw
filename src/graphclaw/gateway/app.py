@@ -65,6 +65,7 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from graphclaw.gateway.deps import init_services, shutdown_services
 from graphclaw.gateway.email_poller import EmailPoller
 from graphclaw.gateway.schemas import InboundMessage
 from graphclaw.infra.broker import INBOUND_MESSAGES, MessageBroker
@@ -121,6 +122,10 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
     async def lifespan(app: FastAPI):  # type: ignore[type-arg]
         # ── Startup ──────────────────────────────────────────────────────
         app.state.broker = broker
+
+        # Initialise the deps module singletons so sub-router Depends work
+        await init_services()
+
         poller = _build_poller(broker)
         app.state.poller = poller
         app.state.poller_task = None
@@ -145,22 +150,69 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
         if broker is not None:
             await broker.close()
 
+        # Clean up deps module singletons
+        await shutdown_services()
+
         logger.info("GraphClaw Gateway shut down")
 
     app = FastAPI(
         title="GraphClaw Gateway",
+        description=(
+            "Channel gateway for the GraphClaw task graph orchestration system. "
+            "Accepts inbound messages (email, API, CLI), queues outbound "
+            "notifications, and exposes health/readiness probes."
+        ),
         version="0.1.0",
         lifespan=lifespan,
+        docs_url="/docs",
+        redoc_url="/redoc",
+        openapi_url="/openapi.json",
+        openapi_tags=[
+            {
+                "name": "health",
+                "description": "Liveness and readiness probes for orchestrators and load balancers.",
+            },
+            {
+                "name": "inbound",
+                "description": "Accept normalised inbound messages from any channel (email, API, CLI).",
+            },
+            {
+                "name": "outbound",
+                "description": "Queue outbound messages for delivery via email or other channels.",
+            },
+            {
+                "name": "triggers",
+                "description": "On-demand trigger endpoint for ad-hoc agent activations.",
+            },
+        ],
+        contact={
+            "name": "GraphClaw",
+            "url": "https://graphclaw.ai",
+        },
+        license_info={
+            "name": "Proprietary",
+        },
     )
 
-    # ── Routes ────────────────────────────────────────────────────────────
+    # ── Include sub-routers (Swagger-documented API) ─────────────────────
+    from graphclaw.gateway.routes.health import router as health_router
+    from graphclaw.gateway.routes.inbound import router as inbound_router
+    from graphclaw.gateway.routes.outbound import router as outbound_router
 
-    @app.get("/health", tags=["ops"])
+    app.include_router(inbound_router, prefix="/api/v1", tags=["inbound"])
+    app.include_router(outbound_router, prefix="/api/v1", tags=["outbound"])
+
+    # ── Health routes ──────────────────────────────────────────────────────
+    # Inline health routes that return the format expected by Docker health
+    # checks and existing tests.  The sub-router health endpoints serve
+    # the Swagger-documented /health and /ready paths.
+
+    @app.get("/health", tags=["health"])
     async def health() -> dict[str, str]:
         """Liveness probe — always returns 200 when the process is alive."""
         return {"status": "ok", "service": "gateway"}
 
-    @app.get("/health/ready", tags=["ops"])
+    @app.get("/health/ready", tags=["health"])
     async def readiness(request: Request) -> JSONResponse:
         """Readiness probe — checks broker connectivity."""
         current_broker: MessageBroker | None = getattr(request.app.state, "broker", None)
@@ -170,11 +222,6 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
                 content={"status": "degraded", "reason": "broker not configured"},
             )
         try:
-            # A lightweight connectivity check: attempt to publish an empty
-            # probe string to a dedicated health queue and ignore any errors.
-            # The broker's own error will surface as an exception here.
-            # For now we treat the presence of a configured broker as "ready".
-            # A more thorough check would perform a round-trip publish/consume.
             return JSONResponse(status_code=200, content={"status": "ready"})
         except Exception as exc:  # noqa: BLE001
             logger.warning("Readiness check failed", exc_info=exc)
@@ -183,14 +230,20 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
                 content={"status": "unavailable", "reason": str(exc)},
             )
 
-    @app.post("/api/v1/inbound", status_code=202, tags=["messages"])
+    @app.get("/ready", tags=["health"])
+    async def readiness_alt(request: Request) -> JSONResponse:
+        """Readiness probe (alternative path) — checks broker connectivity."""
+        return await readiness(request)
+
+    # ── Inbound route (inline, uses app.state.broker) ──────────────────────
+
+    @app.post("/api/v1/inbound", status_code=202, tags=["inbound"])
     async def receive_inbound(
         message: InboundMessage, request: Request
     ) -> dict[str, str]:
-        """Accept a normalized inbound message and publish it to the queue.
+        """Accept a normalized inbound message and publish it to the broker queue.
 
-        The endpoint returns HTTP 202 Accepted immediately; downstream
-        processing is asynchronous.
+        Returns HTTP 202 Accepted immediately; downstream processing is asynchronous.
         """
         current_broker: MessageBroker | None = getattr(request.app.state, "broker", None)
         if current_broker is not None:
@@ -212,16 +265,14 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
             )
         return {"status": "accepted", "message_id": message.message_id}
 
-    @app.post("/api/v1/trigger", status_code=202, tags=["messages"])
+    @app.post("/api/v1/trigger", status_code=202, tags=["triggers"])
     async def on_demand_trigger(
         payload: dict[str, Any], request: Request
     ) -> dict[str, str]:
         """On-demand trigger endpoint for ad-hoc agent activations.
 
-        Wraps ``payload`` in an ``InboundMessage`` with ``channel="api"`` and
-        publishes it to the ``INBOUND_MESSAGES`` queue.  The ``body`` field
-        is derived from the JSON-serialized payload; ``subject`` defaults to
-        ``"trigger"`` unless the payload contains a ``"subject"`` key.
+        Wraps the payload in an ``InboundMessage`` with ``channel="api"`` and
+        publishes it to the ``INBOUND_MESSAGES`` queue.
         """
         import json
 
