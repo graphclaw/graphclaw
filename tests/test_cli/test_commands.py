@@ -6,16 +6,16 @@ All DB interactions are patched so no live Postgres connection is required.
 Patch strategy
 --------------
 CLI commands now use ``graphclaw.cli._shared.cli_pool``, which imports
-``create_pool`` and ``GraphRepository`` at module load time:
+``create_pool`` and ``AgeGraphStore`` at module load time:
 
     from graphclaw.db.connection import create_pool
-    from graphclaw.db.graph_repository import GraphRepository
+    from graphclaw.db.age import AgeGraphStore
 
 To intercept these calls from tests, we patch the names as they exist in the
 ``_shared`` module's namespace (where the ``from ... import`` bound them):
 
     patch("graphclaw.cli._shared.create_pool", ...)
-    patch("graphclaw.cli._shared.GraphRepository", ...)
+    patch("graphclaw.cli._shared.AgeGraphStore", ...)
 """
 from __future__ import annotations
 
@@ -273,12 +273,12 @@ class TestGraphCommands:
 # ---------------------------------------------------------------------------
 #
 # CLI commands now use graphclaw.cli._shared.cli_pool(), which bound
-# ``create_pool`` and ``GraphRepository`` into the _shared module's namespace
+# ``create_pool`` and ``AgeGraphStore`` into the _shared module's namespace
 # at import time.  We patch them there so that cli_pool() returns our mocks.
 
 # Shared patch targets for all CLI DB tests.
 _PATCH_CREATE_POOL = "graphclaw.cli._shared.create_pool"
-_PATCH_GRAPH_REPO = "graphclaw.cli._shared.GraphRepository"
+_PATCH_GRAPH_REPO = "graphclaw.cli._shared.AgeGraphStore"
 
 
 def _make_db_mocks(task_list=None, goal_list=None, node=None):

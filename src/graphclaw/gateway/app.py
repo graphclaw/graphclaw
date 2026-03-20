@@ -3,8 +3,8 @@
 Description
 -----------
 Provides ``create_app``, which constructs and returns a fully configured
-FastAPI application instance.  The application manages the ``EmailPoller``
-background task and broker lifecycle via FastAPI's ``lifespan`` context
+FastAPI application instance.  The application manages channel adapters via
+``ChannelRegistry`` and the broker lifecycle via FastAPI's ``lifespan`` context
 manager.
 
 Endpoints:
@@ -17,13 +17,13 @@ Endpoints:
 Design Patterns
 ---------------
 - Factory: ``create_app`` is the single entry-point for constructing the ASGI
-  app; this allows different broker/poller configurations to be injected in
+  app; this allows different broker/registry configurations to be injected in
   tests without modifying module-level state.
 - Lifespan Context Manager: Startup and shutdown logic lives in a single
   ``asynccontextmanager`` function, avoiding deprecated ``on_event`` hooks.
-- Dependency Injection via ``app.state``: The broker is stored on
-  ``app.state.broker`` so that endpoint handlers can access it without module-
-  level globals.
+- Dependency Injection via ``app.state``: The broker and registry are stored on
+  ``app.state`` so that endpoint handlers can access them without module-level
+  globals.
 
 Public API
 ----------
@@ -32,7 +32,7 @@ Public API
 Dependencies
 ------------
 - graphclaw.gateway.schemas: InboundMessage.
-- graphclaw.gateway.email_poller: EmailPoller.
+- graphclaw.gateway.channel_registry: build_registry.
 - graphclaw.infra.broker: MessageBroker, INBOUND_MESSAGES.
 - fastapi: FastAPI, Request (third-party).
 - contextlib: asynccontextmanager (stdlib).
@@ -46,17 +46,12 @@ serves traffic, but ``/health/ready`` returns ``status: "degraded"`` and
 publishing to the broker is skipped.  This enables lightweight integration
 testing without a running message broker.
 
-Email polling is enabled only when the environment variables
-``GATEWAY_IMAP_HOST``, ``GATEWAY_IMAP_USER``, and ``GATEWAY_IMAP_PASS`` are
-all set.  Port defaults to 993; folder defaults to ``"INBOX"``; poll interval
-defaults to 60 seconds.  These can be overridden via ``GATEWAY_IMAP_PORT``,
-``GATEWAY_IMAP_FOLDER``, and ``GATEWAY_IMAP_POLL_INTERVAL`` respectively.
+Channel adapters are discovered and started via ``build_registry``.  Each
+adapter reads its own environment variables for credentials.
 """
 from __future__ import annotations
 
-import asyncio
 import logging
-import os
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -65,40 +60,12 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from graphclaw.gateway.channel_registry import build_registry
 from graphclaw.gateway.deps import init_services, shutdown_services
-from graphclaw.gateway.email_poller import EmailPoller
 from graphclaw.gateway.schemas import InboundMessage
 from graphclaw.infra.broker import INBOUND_MESSAGES, MessageBroker
 
 logger = logging.getLogger(__name__)
-
-
-def _build_poller(broker: MessageBroker | None) -> EmailPoller | None:
-    """Construct an ``EmailPoller`` from environment variables, if configured.
-
-    Returns ``None`` when the required IMAP environment variables are absent.
-    """
-    host = os.environ.get("GATEWAY_IMAP_HOST", "")
-    user = os.environ.get("GATEWAY_IMAP_USER", "")
-    password = os.environ.get("GATEWAY_IMAP_PASS", "")
-    if not (host and user and password):
-        logger.info(
-            "EmailPoller not started: GATEWAY_IMAP_HOST / GATEWAY_IMAP_USER / "
-            "GATEWAY_IMAP_PASS not all set"
-        )
-        return None
-    port = int(os.environ.get("GATEWAY_IMAP_PORT", "993"))
-    folder = os.environ.get("GATEWAY_IMAP_FOLDER", "INBOX")
-    poll_interval = int(os.environ.get("GATEWAY_IMAP_POLL_INTERVAL", "60"))
-    return EmailPoller(
-        host=host,
-        port=port,
-        username=user,
-        password=password,
-        folder=folder,
-        poll_interval=poll_interval,
-        broker=broker,
-    )
 
 
 def create_app(broker: MessageBroker | None = None) -> FastAPI:
@@ -126,26 +93,17 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
         # Initialise the deps module singletons so sub-router Depends work
         await init_services()
 
-        poller = _build_poller(broker)
-        app.state.poller = poller
-        app.state.poller_task = None
+        registry = build_registry()
+        app.state.registry = registry
 
-        if poller is not None:
-            logger.info("Starting EmailPoller background task")
-            app.state.poller_task = asyncio.create_task(poller.start())
+        if broker is not None:
+            await registry.start_all(broker)
 
         logger.info("GraphClaw Gateway started")
         yield
 
         # ── Shutdown ──────────────────────────────────────────────────────
-        if poller is not None:
-            await poller.stop()
-        if app.state.poller_task is not None:
-            app.state.poller_task.cancel()
-            try:
-                await app.state.poller_task
-            except asyncio.CancelledError:
-                pass
+        await registry.stop_all()
 
         if broker is not None:
             await broker.close()
@@ -184,6 +142,10 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
                 "name": "triggers",
                 "description": "On-demand trigger endpoint for ad-hoc agent activations.",
             },
+            {
+                "name": "auth",
+                "description": "OAuth 2.0 + Platform JWT authentication (login, callback, refresh, logout, me).",
+            },
         ],
         contact={
             "name": "GraphClaw",
@@ -198,9 +160,11 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
     from graphclaw.gateway.routes.health import router as health_router
     from graphclaw.gateway.routes.inbound import router as inbound_router
     from graphclaw.gateway.routes.outbound import router as outbound_router
+    from graphclaw.auth.routes import router as auth_router
 
     app.include_router(inbound_router, prefix="/api/v1", tags=["inbound"])
     app.include_router(outbound_router, prefix="/api/v1", tags=["outbound"])
+    app.include_router(auth_router)
 
     # ── Health routes ──────────────────────────────────────────────────────
     # Inline health routes that return the format expected by Docker health
@@ -301,5 +265,102 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
                 "Gateway: broker not configured, trigger %s dropped", message_id
             )
         return {"status": "accepted", "message_id": message_id}
+
+    # ── WhatsApp webhook routes ──────────────────────────────────────────────
+
+    @app.get("/webhooks/whatsapp", tags=["inbound"])
+    async def whatsapp_verify(request: Request) -> Any:
+        """Handle Meta's webhook verification challenge (GET).
+
+        Meta sends a GET request with ``hub.mode=subscribe``,
+        ``hub.verify_token=<token>``, and ``hub.challenge=<challenge>``.
+        We echo back ``hub.challenge`` if the token matches.
+        """
+        from fastapi.responses import PlainTextResponse
+
+        params = request.query_params
+        mode = params.get("hub.mode", "")
+        token = params.get("hub.verify_token", "")
+        challenge = params.get("hub.challenge", "")
+
+        if mode != "subscribe":
+            return JSONResponse(status_code=400, content={"error": "invalid hub.mode"})
+
+        registry = getattr(request.app.state, "registry", None)
+        adapter = registry.get("whatsapp") if registry else None
+        if adapter is None:
+            return JSONResponse(status_code=503, content={"error": "whatsapp channel not configured"})
+
+        if not adapter.verify_webhook_token(token):
+            logger.warning("WhatsApp webhook verification failed: bad verify_token")
+            return JSONResponse(status_code=403, content={"error": "forbidden"})
+
+        logger.info("WhatsApp webhook verified successfully")
+        return PlainTextResponse(content=challenge)
+
+    @app.post("/webhooks/whatsapp", status_code=200, tags=["inbound"])
+    async def whatsapp_inbound(request: Request) -> dict[str, str]:
+        """Receive and process a WhatsApp Cloud API webhook event (POST).
+
+        Validates the ``X-Hub-Signature-256`` header before processing.
+        Returns ``{"status": "ok"}`` to Meta immediately; message processing
+        is asynchronous via the broker.
+        """
+        body_bytes = await request.body()
+        signature = request.headers.get("X-Hub-Signature-256", "")
+
+        registry = getattr(request.app.state, "registry", None)
+        adapter = registry.get("whatsapp") if registry else None
+        if adapter is None:
+            # Channel not configured — accept silently so Meta doesn't retry
+            return {"status": "ok"}
+
+        if not adapter.verify_signature(body_bytes, signature):
+            logger.warning("WhatsApp inbound: invalid signature, rejecting webhook")
+            return JSONResponse(status_code=403, content={"error": "invalid signature"})
+
+        import json as _json
+
+        try:
+            payload = _json.loads(body_bytes)
+        except _json.JSONDecodeError:
+            return JSONResponse(status_code=400, content={"error": "invalid JSON"})
+
+        await adapter.handle_webhook(payload)
+        return {"status": "ok"}
+
+    # ── Telegram webhook route ────────────────────────────────────────────────
+
+    @app.post("/webhooks/telegram", status_code=200, tags=["inbound"])
+    async def telegram_inbound(request: Request) -> dict[str, str]:
+        """Receive a Telegram Update via webhook (POST).
+
+        Validates the optional ``X-Telegram-Bot-Api-Secret-Token`` header
+        if ``TELEGRAM_WEBHOOK_SECRET`` is set. Returns ``{"status": "ok"}``
+        immediately; message processing is asynchronous via the broker.
+
+        Only active when ``TELEGRAM_USE_WEBHOOK=true``.
+        """
+        secret_token = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+
+        registry = getattr(request.app.state, "registry", None)
+        adapter = registry.get("telegram") if registry else None
+        if adapter is None:
+            return {"status": "ok"}
+
+        if not adapter.verify_secret_token(secret_token):
+            logger.warning("Telegram inbound: invalid secret token, rejecting webhook")
+            return JSONResponse(status_code=403, content={"error": "forbidden"})
+
+        import json as _json
+
+        body_bytes = await request.body()
+        try:
+            update = _json.loads(body_bytes)
+        except _json.JSONDecodeError:
+            return JSONResponse(status_code=400, content={"error": "invalid JSON"})
+
+        await adapter.handle_update(update)
+        return {"status": "ok"}
 
     return app

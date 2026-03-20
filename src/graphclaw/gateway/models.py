@@ -4,8 +4,7 @@ Description
 -----------
 Provides additional Pydantic data transfer objects used by gateway routes and
 task-matching logic.  This module supplements ``graphclaw.gateway.schemas`` with
-models for task matching results, health status responses, and a unified
-``EmailConfig`` value object for email channel configuration.
+models for task matching results and health status responses.
 
 Design Patterns
 ---------------
@@ -18,18 +17,22 @@ Public API
 ----------
 - TaskMatch: Result of matching an inbound message to a task node.
 - HealthStatus: Health / readiness check response payload.
-- EmailConfig: Configuration value object for email channel credentials.
+- EmailConfig: Configuration value object for email channel credentials (re-exported).
 
 Dependencies
 ------------
 - pydantic: BaseModel, Field (third-party).
 - graphclaw.models.enums: MatchedBy, ConfidenceLevel.
+- graphclaw.gateway.channels.email.config: EmailConfig (backward compat).
 
 Notes
 -----
 ``InboundMessage`` and ``OutboundMessage`` live in ``graphclaw.gateway.schemas``
 to keep the core DTOs isolated from domain-level enumerations.  This module
 extends the gateway model surface without requiring changes to that file.
+
+``EmailConfig`` has moved to ``graphclaw.gateway.channels.email.config`` and is
+re-exported here for backward compatibility.
 """
 from __future__ import annotations
 
@@ -80,41 +83,5 @@ class HealthStatus(BaseModel):
     services: dict[str, str] = Field(default_factory=dict)
 
 
-class EmailConfig(BaseModel):
-    """Configuration value object for the email channel.
-
-    Collects all credentials and tuning parameters required by both the
-    ``EmailPoller`` (IMAP) and the ``EmailSender`` (SMTP) components.  A single
-    instance of this model is typically constructed from environment variables
-    at application startup and injected into the email components.
-
-    Attributes
-    ----------
-    imap_host:
-        IMAP server hostname (e.g. ``"imap.gmail.com"``).  Empty string
-        disables the IMAP poller.
-    imap_port:
-        IMAP server port.  Defaults to 993 (IMAP over TLS).
-    smtp_host:
-        SMTP server hostname (e.g. ``"smtp.gmail.com"``).
-    smtp_port:
-        SMTP server port.  Defaults to 587 (STARTTLS).
-    username:
-        Login username / email address for both IMAP and SMTP.
-    password:
-        App-specific password or OAuth token for IMAP/SMTP authentication.
-    poll_interval:
-        Seconds between IMAP poll cycles.  Defaults to 30.0.
-    enabled:
-        When ``False`` (the default), the email channel is disabled and neither
-        the poller nor the sender will be started.
-    """
-
-    imap_host: str = ""
-    imap_port: int = 993
-    smtp_host: str = ""
-    smtp_port: int = 587
-    username: str = ""
-    password: str = ""
-    poll_interval: float = 30.0
-    enabled: bool = False
+# Backward compatibility — EmailConfig moved to channels.email.config
+from graphclaw.gateway.channels.email.config import EmailConfig  # noqa: F401, E402

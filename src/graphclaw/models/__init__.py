@@ -28,6 +28,7 @@ from graphclaw.models.enums import (
     RiskLevel,
     TaskState,
     TaskType,
+    VisibilityScope,
 )
 
 # Base / ID utilities
@@ -36,6 +37,7 @@ from graphclaw.models.base import (
     CONSTRAINT_ID_PATTERN,
     EDGE_ID_PATTERN,
     GOAL_ID_PATTERN,
+    GRANT_ID_PATTERN,
     RESOURCE_ID_PATTERN,
     TASK_ID_PATTERN,
     USER_ID_PATTERN,
@@ -44,6 +46,7 @@ from graphclaw.models.base import (
     generate_constraint_id,
     generate_edge_id,
     generate_goal_id,
+    generate_grant_id,
     generate_resource_id,
     generate_task_id,
     generate_user_id,
@@ -51,6 +54,7 @@ from graphclaw.models.base import (
     validate_constraint_id,
     validate_edge_id,
     validate_goal_id,
+    validate_grant_id,
     validate_resource_id,
     validate_task_id,
     validate_user_id,
@@ -88,6 +92,7 @@ from graphclaw.models.nodes import (
     GoalNode,
     GoalProgress,
     GoalTimeline,
+    OrganizationNode,
     OverrideBlock,
     ProgressBlock,
     ReliabilityModel,
@@ -101,7 +106,16 @@ from graphclaw.models.nodes import (
     UpdateLogEntry,
     UserNode,
     UserPreferences,
+    VisibilityGrantNode,
     WorkingHours,
+    WorkspaceNode,
+)
+
+# Scoring weight learner
+from graphclaw.models.scoring_weights import (
+    DEFAULT_SCORING_WEIGHTS,
+    ScoringWeightLearner,
+    ScoringWeightUpdate,
 )
 
 # Edge models
@@ -153,6 +167,7 @@ __all__ = [
     "RiskLevel",
     "TaskState",
     "TaskType",
+    "VisibilityScope",
     # ID patterns
     "TASK_ID_PATTERN",
     "USER_ID_PATTERN",
@@ -161,6 +176,7 @@ __all__ = [
     "RESOURCE_ID_PATTERN",
     "EDGE_ID_PATTERN",
     "CHECKIN_NODE_ID_PATTERN",
+    "GRANT_ID_PATTERN",
     # ID generators
     "generate_task_id",
     "generate_user_id",
@@ -169,6 +185,7 @@ __all__ = [
     "generate_resource_id",
     "generate_edge_id",
     "generate_checkin_node_id",
+    "generate_grant_id",
     "utcnow",
     # ID validators
     "validate_task_id",
@@ -177,6 +194,7 @@ __all__ = [
     "validate_constraint_id",
     "validate_resource_id",
     "validate_edge_id",
+    "validate_grant_id",
     # Base
     "BaseNode",
     # Type metadata
@@ -222,6 +240,11 @@ __all__ = [
     "ConstraintNode",
     "ResourceNode",
     "CheckinNode",
+    # Phase 2
+    "OrganizationNode",
+    "WorkspaceNode",
+    # Phase 3
+    "VisibilityGrantNode",
     # Edge property sub-models
     "DependsOnProps",
     "PartOfProps",
@@ -242,4 +265,8 @@ __all__ = [
     "ScoreModifier",
     "ScoreExplanation",
     "ActionQueueEntry",
+    # Scoring weight learner
+    "DEFAULT_SCORING_WEIGHTS",
+    "ScoringWeightUpdate",
+    "ScoringWeightLearner",
 ]

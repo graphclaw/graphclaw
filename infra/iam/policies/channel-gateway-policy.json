@@ -1,0 +1,47 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "SQSInboundPublish",
+      "Effect": "Allow",
+      "Action": [
+        "sqs:SendMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl"
+      ],
+      "Resource": "arn:aws:sqs:*:*:graphclaw-inbound-messages"
+    },
+    {
+      "Sid": "S3AttachmentStore",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:GetObject"
+      ],
+      "Resource": "arn:aws:s3:::graphclaw-attachments/inbound/*"
+    },
+    {
+      "Sid": "SecretsManagerChannelCredentials",
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:GetSecretValue"
+      ],
+      "Resource": [
+        "arn:aws:secretsmanager:*:*:secret:graphclaw/channels/email/*",
+        "arn:aws:secretsmanager:*:*:secret:graphclaw/channels/telegram/*",
+        "arn:aws:secretsmanager:*:*:secret:graphclaw/channels/whatsapp/*"
+      ]
+    },
+    {
+      "Sid": "DenyDangerousActions",
+      "Effect": "Deny",
+      "Action": [
+        "iam:*",
+        "sts:AssumeRole",
+        "s3:DeleteBucket",
+        "s3:DeleteObject"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

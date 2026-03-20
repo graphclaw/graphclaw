@@ -5362,7 +5362,7 @@ Embeddings (Vector Index):
 
 ### 28.2 Container Services
 
-The application is packaged as multiple containers deployed as a single unit. Each container owns a specific concern. They communicate over an internal Docker/Kubernetes network — only the API server and channel gateway are externally exposed.
+The application is packaged as seven containers deployed as a single unit. Each container owns a specific concern. They communicate over an internal Docker/Kubernetes network — only the API server and channel gateway are externally exposed.
 
 ```
 .---------------------------------------------------------.
@@ -5380,6 +5380,16 @@ The application is packaged as multiple containers deployed as a single unit. Ea
 |  External exposure:  api-server, channel-gateway only  |
 `---------------------------------------------------------'
 ```
+
+| Container | External? | What it does |
+|-----------|-----------|--------------|
+| `agent-runtime` | No | The AI brain. One instance per user. Runs the orchestrating agent's LLM reasoning loop, reads/writes MD files (Redis cache → S3 fallback), processes trigger events from the user's dedicated Redis Stream queue, spawns skill agents as async threads. Scaled to zero when idle. |
+| `channel-gateway` | **Yes** | Receives and authenticates inbound messages from all channels (WhatsApp HMAC, Telegram secret token, Email DKIM/IMAP). Normalises to `InboundMessage`, extracts attachments to S3, publishes to SQS. Dispatches outbound messages to the correct channel API. Shared across all users; horizontally scaled behind ALB. |
+| `trigger-engine` | No | Cron scheduler (daily briefings, follow-up timers), graph event listener (Postgres NOTIFY on state changes), inbound dispatcher (routes SQS messages to the correct user's trigger queue), DLQ handler. Scheduler is single-instance; queue-processor workers are horizontally scalable. |
+| `graph-db` | No | Postgres + Apache AGE extension. Primary store for all node/edge data — task graph, goal hierarchy, org model, alias mappings, visibility grants. Also runs pgvector for embedding-based inbound message resolution. PgBouncer sits in front at scale. |
+| `relational-db` | No | Separate Postgres instance for operational data: audit log, state history, conversation archive, user registry, briefing schedules, MCP server registry, A2A key store. Separated from `graph-db` so graph traversal load does not contend with operational reads. |
+| `cache` | No | Redis. Per-user namespaced key space: write-through MD file cache (`cache:USER-{id}:*`), active conversation context, trigger queue Redis Streams, JWT jti revocation list, alias resolver results. Redis Cluster (3-node) in production. |
+| `api-server` | **Yes** | FastAPI. Settings panel (channels, orgs, LLM providers, schedules, MCP registry), visual graph interface API, OAuth 2.0 callback handler, platform JWT issuance/refresh/revocation, user onboarding provisioning (atomically creates UserNode + S3 prefix + IAM role + SQS queue + container slot). Only container with IAM permission to create user-scoped roles. |
 
 ---
 
@@ -5884,6 +5894,166 @@ S3 credentials:   IAM roles (no static credentials)
 DB passwords:     Secret store, rotated on schedule
 JWT secrets:      Secret store, rotated on schedule
 ```
+
+---
+
+### 28.11 Container Responsibilities and Scaling Analysis (1,000 Users)
+
+This section documents the responsibility of each container and formally records the scaling requirements identified during Phase 3 design review. These requirements are delivered in Phase 5.
+
+#### Container Responsibility Summary
+
+| Container | External? | Scaling model | Primary responsibility |
+|-----------|-----------|---------------|------------------------|
+| `agent-runtime` | No | One per user, idle-to-zero | LLM reasoning loop, MD file read/write, skill agent threads |
+| `channel-gateway` | **Yes** | Horizontal replicas behind ALB | Inbound auth + normalisation, outbound dispatch, attachment S3 upload |
+| `trigger-engine` | No | Horizontal queue-processor replicas | Cron scheduler, follow-up timers, graph event listener, DLQ handler |
+| `graph-db` | No | Primary + read replica, PgBouncer pool | Postgres + AGE graph store + pgvector embeddings |
+| `relational-db` | No | Primary + read replica | Audit log, state history, conversation archive, user registry |
+| `cache` | No | Redis Cluster (3-node HA) | Write-through MD file cache, active conversation context, JWT jti revocation, trigger queues |
+| `api-server` | **Yes** | Horizontal replicas behind ALB | Settings panel, OAuth callback, JWT issuance, user onboarding provisioning |
+
+#### `agent-runtime` — Scale-to-Zero is Mandatory
+
+At 1,000 users, ~5–15% are active simultaneously during business hours (50–150 warm containers). Keeping 1,000 containers alive at idle cost (~$3–5/user/month) is viable but wasteful. Scale-to-zero is required for personal and team tiers.
+
+```
+Cold-start mitigation:
+  Problem:   Fargate cold start ≈ 8–12 seconds — acceptable for async
+             triggers (briefings, follow-ups) but borderline for real-time chat.
+  Mitigation: Pre-warm on first message arrival while sending "typing..."
+             indicator to the channel. Container is warm by the time the
+             LLM call completes.
+
+Scale-to-zero policy:
+  Personal tier:    zero overnight (configurable quiet hours)
+  Team tier:        keep alive during configured working hours
+  Enterprise tier:  always-on with minimum replica count
+
+Tooling:
+  ECS:  Application Auto Scaling with custom metric (trigger queue depth)
+  EKS:  KEDA (Kubernetes Event-Driven Autoscaling) on Redis Stream length
+```
+
+#### `channel-gateway` — Horizontal Replicas Required
+
+Single container is a bottleneck at 1,000 users during morning message peaks. Design is stateless — any replica can handle any webhook.
+
+```
+Scaling approach:
+  Deploy 2–4 replicas behind ALB (round-robin).
+  WhatsApp and Telegram webhooks: any replica handles any POST.
+  IMAP polling: move to SES inbound routing in production to
+    eliminate per-mailbox poller threads (one SES rule fires a
+    Lambda → POST to gateway, no persistent IMAP connection pool).
+
+IMAP vs SES in production:
+  Local dev / testing:  IMAP polling (Phase 1/2 implementation)
+  Production (Phase 5): SES inbound → S3 → Lambda → gateway POST
+    Eliminates long-lived IMAP connections and connection pool limits.
+    SES handles TLS, spam filtering, and delivery guarantees.
+```
+
+#### `trigger-engine` — Morning Briefing Spike
+
+The critical risk: if all 1,000 users have briefings at 08:00 UTC, 1,000 trigger events hit the queue processor simultaneously. A single-threaded processor serializes them.
+
+```
+Mitigations (in order of priority):
+  1. Per-user briefing jitter: daily_briefing_hour_utc in OrgSettings
+     already supports per-user configuration. Spread users across
+     a 60-minute window to flatten the spike.
+  2. Horizontal queue-processor workers: cron scheduler is a single
+     instance (lightweight, stateful clock); queue processors are
+     stateless consumers on the same Redis Stream consumer group.
+     Scale processor replicas independently of the scheduler.
+  3. EventBridge Scheduler (AWS) or Cloud Scheduler (GCP) for cron
+     reliability — optional but recommended for production.
+
+Queue processor scaling:
+  Redis Stream consumer group: multiple processor instances consume
+  from the same stream; each message delivered to exactly one consumer.
+  No coordination required — add replicas freely.
+```
+
+#### `graph-db` — Connection Pool and Read Replica
+
+At 1,000 users with up to 500 tasks each, the graph DB faces two distinct pressures: connection count (1,000 agent-runtime containers × N connections each = thousands of open Postgres connections) and query load during briefing windows.
+
+```
+Required before production at 1,000 users:
+  1. PgBouncer connection pool in front of Postgres.
+     Target: max_connections=200 on Postgres; PgBouncer pools
+     to thousands of application connections via transaction mode.
+  2. Read replica for scoring/briefing queries (SELECT-heavy).
+     Primary handles writes only.
+  3. AGE-specific indexes:
+     - vlabel index (node type lookups)
+     - user_id property index (all queries are user-scoped)
+     - state property index (filtering by task state)
+     - due_date property index (urgency scoring)
+  4. Query timeout: 5-second hard timeout on graph traversals
+     to prevent long-running queries blocking the primary.
+
+Scale ceiling:
+  Postgres + AGE is validated to ~5,000 users at this task density.
+  Beyond 5,000: evaluate Amazon Neptune (managed) or CitusDB
+  (distributed Postgres). PRD Design Principle 27 (polyglot
+  persistence) ensures this is a backend swap, not an architectural change.
+```
+
+#### `relational-db` — Standard Postgres Scaling
+
+Stores audit logs, state history, conversation archive, user registry, MCP server registry, A2A key store. At 1,000 users this is tens of millions of rows — well within single-instance capacity.
+
+```
+Actions required at 1,000 users:
+  - Read replica for audit log / reporting queries.
+  - Partition audit_log table by month (time-series growth pattern).
+  - Index on (user_id, created_at) for per-user history queries.
+```
+
+#### `cache` (Redis) — HA Cluster
+
+Per-user namespacing is already correct. Memory footprint at 1,000 users:
+
+```
+Active conversation context: ~50 KB × 150 simultaneous = 7.5 MB
+MD file write-through cache:  ~2 MB × 1,000 users      = 2 GB
+JWT revocation list:          sparse                     = negligible
+Trigger queues (Redis Streams): ~1 KB/event             = negligible
+
+Total at 1,000 users: ~2–3 GB
+Recommended instance: cache.r6g.large (13 GB) — 4–5x headroom.
+
+HA configuration:
+  Redis Cluster (3 primary + 3 replica nodes).
+  Consistent hashing by USER-[id] prefix.
+  No application changes required — same CLIENT interface.
+```
+
+#### `api-server` — Standard Horizontal Scaling
+
+Stateless FastAPI. 2–3 replicas behind ALB handle 1,000 users with substantial headroom. The onboarding provisioning path (IAM role creation) is the only operation with external latency (AWS IAM API ~1–2 seconds) — this is async and does not block the HTTP response.
+
+#### Scaling Verdict Summary
+
+```
+Container        | 1,000 users    | Required action
+-----------------+----------------+------------------------------------------
+agent-runtime    | ✅ with config  | Fargate Spot / KEDA idle-to-zero
+                 |                | Pre-warm on first message arrival
+channel-gateway  | ✅ with replicas| 2–4 replicas + ALB
+                 |                | SES inbound (replaces IMAP in prod)
+trigger-engine   | ✅ with config  | Per-user briefing jitter
+                 |                | Horizontal queue-processor replicas
+graph-db         | ✅ with tuning  | PgBouncer + read replica + AGE indexes
+relational-db    | ✅ as-is        | Partition audit_log; add read replica
+cache            | ✅ as-is        | Redis Cluster (3-node HA)
+api-server       | ✅ as-is        | 2–3 replicas + ALB
+```
+
+None of these require architectural changes — all are operational and configuration concerns. The per-user container isolation model scales linearly: adding users adds containers proportionally, and the idle-to-zero policy keeps cost proportional to active users, not total users.
 
 ---
 
@@ -8549,3 +8719,131 @@ Row 5: User Activity
 | 56 | **S3 versioning is the MD file backup** | Object versioning on the agent bucket provides point-in-time recovery for any MD file without a separate backup process |
 | 57 | **Rolling deployment is safe because restarts are safe** | The heartbeat.md + context.md recovery model means container replacement mid-session is transparent to the user — deployment and recovery use the same mechanism |
 | 58 | **Schema migrations are non-destructive and idempotent** | MD file migrations add fields and preserve old ones, carry version stamps, and can be re-run safely — old and new container versions coexist during any deployment |
+| 59 | **MCP tools extend, not replace, the agent brain** | MCP servers give the orchestrating agent reach into external services — they are tool-call extensions, not reasoning layers; the agent remains the single decision-maker |
+| 60 | **Tool trust is tiered and revocable** | MCP server registrations carry a trust tier (auto-approve / gated / blocked); write-capable tools require explicit user grant; any tier can be revoked instantly from the settings panel |
+
+---
+
+## 34. Architecture: MCP Server Integration
+
+The orchestrating agent gains the ability to interact with external services — calendars, code repositories, project management tools, communication platforms — through the **Model Context Protocol (MCP)**. MCP is an open standard that defines how AI models discover and call tools exposed by external servers. GraphClaw acts as an MCP client; external services act as MCP servers.
+
+This is additive, not architectural: MCP tool calls are a new action type available to the orchestrating agent alongside existing actions (publish to broker, write MD files, send outbound messages, invoke skill agents). The file-based brain, stateless invocation, and progressive loading model are unchanged.
+
+---
+
+### 34.1 Why MCP over Direct API Integration
+
+Each new service integration previously required custom code in the agent-runtime: authentication logic, API client, error handling, pagination, and rate-limit handling — all baked into the container image. With MCP:
+
+- **Services are decoupled from the agent container.** A new integration is a new MCP server registration, not a container rebuild.
+- **Tool discovery is dynamic.** The agent queries registered servers for their tool manifests at runtime — no hardcoded tool lists in the agent prompt.
+- **The protocol is LLM-agnostic.** Claude, GPT-4, Gemini, and local models all consume MCP tool schemas identically.
+- **Permissions are explicit.** Each MCP server declares exactly what tools it exposes and what data it reads or writes. Users approve at registration time.
+
+---
+
+### 34.2 MCP Registry
+
+Each user maintains a personal **MCP Registry** — a list of registered MCP servers stored in the settings panel and persisted to the graph DB as `MCPServerNode` nodes.
+
+```
+MCPServerNode
+  id:             MCP-{uuid}
+  name:           "Google Calendar"
+  transport:      "stdio" | "sse" | "http"
+  endpoint_url:   string | null          # for sse/http transports
+  command:        string | null          # for stdio transport
+  trust_tier:     "AUTO" | "GATED" | "BLOCKED"
+  scope:          ["read_events", "create_event", ...]   # declared by server
+  secret_ref:     string | null          # Secrets Manager key ID for auth token
+  enabled:        bool
+  registered_at:  datetime
+  last_used_at:   datetime | null
+```
+
+**Trust tiers:**
+- `AUTO` — tools from this server are called without user confirmation. Suitable for read-only tools the user has explicitly trusted (e.g. calendar read, GitHub issue read).
+- `GATED` — the orchestrating agent proposes the tool call and waits for user approval before executing. Suitable for write operations (e.g. create calendar event, open GitHub issue).
+- `BLOCKED` — server is registered but all tool calls are rejected. Used to temporarily suspend a server without removing its configuration.
+
+---
+
+### 34.3 Orchestrating Agent as MCP Client
+
+At reasoning time, when the orchestrating agent identifies a task or trigger that could benefit from an external tool, it:
+
+1. Queries the MCP Registry for enabled servers whose declared scope matches the need (e.g. `read_events` for a deadline awareness check).
+2. Issues an MCP `tools/list` request to the server to get the current tool manifest.
+3. Includes relevant tools in the LLM tool-use payload (Claude tool_use format).
+4. Executes approved tool calls and incorporates the results into the reasoning step.
+5. Logs each tool call as a structured event: `server_id`, `tool_name`, `input_hash`, `result_size_bytes`, `latency_ms`, `trust_tier`.
+
+**Progressive loading applies to MCP tools.** Tool manifests are not loaded on every invocation — only when the trigger type and current reasoning step indicate an external tool is likely needed. Time-based triggers load calendar tools; inbound updates about code tasks load GitHub tools.
+
+```
+Orchestrating agent reasoning step (MCP-aware):
+
+  Trigger: time-based → daily briefing
+  Load: top-N scored tasks (existing)
+  Load: MCPRegistry.get_enabled(scope="read_events")  ← NEW
+  If calendar server available:
+    tools/list → get available tools
+    call: get_events(date_range=today+7days)
+    Incorporate: deadline proximity for tasks with calendar links
+  Proceed: score, rank, generate briefing
+```
+
+---
+
+### 34.4 Pre-Built MCP Server Adapters
+
+The platform ships pre-built configuration templates for common MCP servers. Users activate them from the settings panel — no command-line setup required.
+
+| Service | Transport | Trust default | Key capabilities |
+|---------|-----------|---------------|-----------------|
+| Google Calendar | SSE | AUTO (read) / GATED (write) | Read events, create events, check free/busy |
+| GitHub | HTTP | AUTO (read) / GATED (write) | List issues/PRs, read file, create issue, add comment |
+| Slack | HTTP | AUTO (read) / GATED (write) | Read channel messages, post message, list channels |
+| Jira | HTTP | AUTO (read) / GATED (write) | List issues, update status, add comment |
+| Notion | HTTP | AUTO (read) / GATED (write) | Read pages/databases, create page |
+| Linear | HTTP | AUTO (read) / GATED (write) | List issues, update status |
+| Google Drive | HTTP | AUTO (read) / GATED (write) | List files, read file content, create doc |
+
+Custom MCP servers (user-built or third-party) can be registered via the settings panel by providing a transport type, endpoint URL or command, and OAuth/API-key credentials.
+
+---
+
+### 34.5 Skill Agents and MCP
+
+Skill agents (defined in SKILL.md) can both **consume** and **expose** MCP tools.
+
+**Consuming:** A SKILL.md file can declare MCP server dependencies in its frontmatter. The skill worker runtime resolves these against the user's MCP Registry before invoking the skill agent:
+
+```yaml
+---
+name: calendar-aware-briefing
+version: 1.0.0
+mcp_servers:
+  - name: Google Calendar
+    scope: [read_events, get_free_busy]
+    trust_tier: AUTO
+---
+```
+
+**Exposing:** A skill agent can expose its outputs as MCP tools for other agents to consume. For example, a Pipeline Report skill agent can expose a `get_pipeline_summary` tool that the orchestrating agent calls during briefing generation — no file handoff required.
+
+---
+
+### 34.6 Security Model
+
+**Authentication:** MCP server credentials (OAuth tokens, API keys) are stored in AWS Secrets Manager under the user's `/workgraph/USER-{id}/mcp/` namespace. The agent-runtime retrieves them at tool-call time, never at container startup. Credentials are never written to MD files or logs.
+
+**Sandboxing:** All MCP tool calls are routed through the agent-runtime's MCP client, which enforces:
+- Trust tier check before execution (AUTO / GATED / BLOCKED).
+- Tool scope validation: the agent may only call tools in the declared scope the user approved at registration.
+- Read-only default: any tool with side effects (creates, updates, deletes) is classified as `GATED` unless the user explicitly upgrades it to `AUTO`.
+- Request/response size limits: 512 KB request, 2 MB response — same as A2A limits.
+- Timeout: 30-second hard timeout per tool call; the agent continues reasoning without the result if exceeded.
+
+**Audit trail:** Every MCP tool call is logged with `session_id`, `user_id`, `server_id`, `tool_name`, `trust_tier`, `approved_by` (`auto` or `USER-{id}`), input parameter hash, and response size. This provides a full audit trail for any tool-assisted agent action.

@@ -3,7 +3,7 @@
 Description
 -----------
 Provides ``cli_pool``, a single async context manager that validates
-``DATABASE_URL``, creates a connection pool, yields ``(pool, GraphRepository)``,
+``DATABASE_URL``, creates a connection pool, yields ``(pool, AgeGraphStore)``,
 and closes the pool on exit.  All CLI sub-command modules use this helper to
 eliminate copy-paste database setup boilerplate.
 
@@ -14,12 +14,12 @@ Design Patterns
 
 Public API
 ----------
-- cli_pool: Async context manager yielding (AsyncConnectionPool, GraphRepository).
+- cli_pool: Async context manager yielding (AsyncConnectionPool, AgeGraphStore).
 
 Dependencies
 ------------
 - graphclaw.db.connection: create_pool.
-- graphclaw.db.graph_repository: GraphRepository.
+- graphclaw.db: GraphStore ABC, AgeGraphStore concrete implementation.
 """
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ import sys
 from contextlib import asynccontextmanager
 
 from graphclaw.db.connection import create_pool
-from graphclaw.db.graph_repository import GraphRepository
+from graphclaw.db.age import AgeGraphStore
 
 
 @asynccontextmanager
@@ -54,7 +54,7 @@ async def cli_pool():
 
     pool = await create_pool(dsn)
     try:
-        repo = GraphRepository(pool)
+        repo = AgeGraphStore(pool)
         yield pool, repo
     finally:
         await pool.close()

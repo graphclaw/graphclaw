@@ -14,3 +14,7 @@ env/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# PRD docs kept at root for convenience (canonical copies live in docs/)
+task-graph-requirements.md
+task-graph-review-notes.md

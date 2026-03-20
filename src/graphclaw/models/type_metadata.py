@@ -86,11 +86,27 @@ class ApprovalMetadata(BaseModel):
     task_type: Literal[TaskType.APPROVAL] = TaskType.APPROVAL
     approver_id: str
     approval_criteria: Optional[str] = None
-    max_wait_days: Optional[int] = None
-    escalation_target: Optional[str] = None
-    escalation_action: Optional[str] = None
     approved_at: Optional[datetime] = None
     rejection_reason: Optional[str] = None
+
+    # Phase 3 — Cross-User Delegation + Approval Escalation fields
+    max_wait_days: int = Field(
+        default=7, ge=1, le=90, description="Days before escalation triggers"
+    )
+    escalation_target_user_id: Optional[str] = Field(
+        default=None, description="User to escalate to after max_wait_days"
+    )
+    escalation_action: str = Field(
+        default="REASSIGN", description="REASSIGN | CANCEL | AUTO_APPROVE"
+    )
+    delegated_by_user_id: Optional[str] = Field(
+        default=None, description="Original delegating user"
+    )
+    artifact_required: bool = Field(
+        default=False, description="Whether artifact submission is required"
+    )
+    artifact_submitted_at: Optional[datetime] = None
+    artifact_storage_key: Optional[str] = None
 
 
 class CompositeMetadata(BaseModel):

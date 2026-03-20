@@ -294,14 +294,14 @@ class TestPollerStopFlag:
 
         call_count = 0
 
-        async def mock_poll_inbox():
+        async def mock_poll_once():
             nonlocal call_count
             call_count += 1
             if call_count >= 2:
                 poller._running = False
-            return []
 
-        poller._poll_inbox = mock_poll_inbox  # type: ignore[method-assign]
+        # start() calls _poll_once(), not _poll_inbox()
+        poller._poll_once = mock_poll_once  # type: ignore[method-assign]
 
         with patch("asyncio.sleep", new_callable=AsyncMock):
             await poller.start()

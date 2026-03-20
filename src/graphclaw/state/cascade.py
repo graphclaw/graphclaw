@@ -24,7 +24,7 @@ Public API
 
 Dependencies
 ------------
-- graphclaw.db.graph_repository: GraphRepository (TYPE_CHECKING only).
+- graphclaw.db.base: GraphStore ABC (TYPE_CHECKING only).
 - graphclaw.models.enums: ChangedBy, ConfidenceLevel, GateType, TaskState, TaskType.
 - graphclaw.models.nodes: TaskNode.
 - graphclaw.models.type_metadata: CompositeMetadata.
@@ -47,7 +47,7 @@ from graphclaw.models.type_metadata import CompositeMetadata
 from graphclaw.state.machine import StateMachine
 
 if TYPE_CHECKING:
-    from graphclaw.db.graph_repository import GraphRepository
+    from graphclaw.db.base import GraphStore
 
 logger = logging.getLogger(__name__)
 
@@ -177,7 +177,7 @@ def check_composite_completion(
 
 async def activate_next_in_chain(
     completed_task: TaskNode,
-    graph_repo: GraphRepository,
+    graph_repo: GraphStore,
 ) -> list[TaskNode]:
     """Activate INACTIVE_PENDING tasks that were waiting on *completed_task*.
 

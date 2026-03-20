@@ -68,7 +68,7 @@ from graphclaw.scoring.factors import (
 )
 
 if TYPE_CHECKING:
-    from graphclaw.db.graph_repository import GraphRepository
+    from graphclaw.db.base import GraphStore
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +117,7 @@ class ScoringContext:
     task_resource_load_factor: dict[str, float] = field(default_factory=dict)
     task_resource_risk_signals: dict[str, float] = field(default_factory=dict)
     task_constraints: dict[str, list[dict]] = field(default_factory=dict)
-    graph_repo: Optional[GraphRepository] = field(default=None, compare=False)
+    graph_repo: Optional[GraphStore] = field(default=None, compare=False)
 
 
 # ---------------------------------------------------------------------------

@@ -36,11 +36,15 @@ Public API
 - BreakdownStrategy: SEQUENTIAL / PARALLEL / HYBRID sub-task ordering.
 - EdgeStrength: HARD / SOFT edge strength for BLOCKS relationships.
 - EdgeCreatedBy: Whether an edge was created by HUMAN or AGENT.
+- VisibilityScope: Access level granted to a user on a specific node (VIEWER, EDITOR, OWNER).
 
 Dependencies
 ------------
 - enum: Standard library Enum base class.
 """
+
+from __future__ import annotations
+
 
 from enum import Enum
 
@@ -84,6 +88,11 @@ class EdgeType(str, Enum):
     INFORMS = "INFORMS"
     BRANCHED_FROM = "BRANCHED_FROM"
     BATCHED_IN = "BATCHED_IN"
+    MEMBER_OF = "MEMBER_OF"          # UserNode → OrganizationNode / WorkspaceNode
+    ADMIN_OF = "ADMIN_OF"            # UserNode → OrganizationNode / WorkspaceNode
+    BELONGS_TO_ORG = "BELONGS_TO_ORG"  # WorkspaceNode → OrganizationNode
+    SCOPED_TO_WS = "SCOPED_TO_WS"   # TaskNode / GoalNode → WorkspaceNode
+    GRANTS_ACCESS_TO = "GRANTS_ACCESS_TO"  # VisibilityGrantNode → target node
 
 
 class GateType(str, Enum):
@@ -201,3 +210,42 @@ class EdgeStrength(str, Enum):
 class EdgeCreatedBy(str, Enum):
     HUMAN = "HUMAN"
     AGENT = "AGENT"
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 — Organizations & Workspaces
+# ---------------------------------------------------------------------------
+
+
+class OrgRole(str, Enum):
+    """Role a user holds within an organization."""
+
+    OWNER = "OWNER"
+    ADMIN = "ADMIN"
+    MEMBER = "MEMBER"
+    GUEST = "GUEST"
+
+
+class MembershipStatus(str, Enum):
+    """Status of a user's membership in an org or workspace."""
+
+    ACTIVE = "ACTIVE"
+    INVITED = "INVITED"
+    SUSPENDED = "SUSPENDED"
+    REMOVED = "REMOVED"
+
+
+class WorkspaceVisibility(str, Enum):
+    """Who can see tasks/goals within a workspace."""
+
+    PRIVATE = "PRIVATE"      # Only explicit members
+    INTERNAL = "INTERNAL"    # All org members
+    PUBLIC = "PUBLIC"        # Readable by any authenticated user
+
+
+class VisibilityScope(str, Enum):
+    """Access level granted to a user on a specific node."""
+
+    VIEWER = "VIEWER"    # read-only
+    EDITOR = "EDITOR"    # can update node properties and state
+    OWNER = "OWNER"      # full control including revoking grants

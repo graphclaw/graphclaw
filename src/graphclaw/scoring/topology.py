@@ -24,7 +24,7 @@ Public API
 
 Dependencies
 ------------
-- graphclaw.db.graph_repository: GraphRepository (TYPE_CHECKING only).
+- graphclaw.db.base: GraphStore ABC (TYPE_CHECKING only).
 - graphclaw.models.enums: BreakdownStrategy, TaskState, TaskType.
 - graphclaw.models.nodes: TaskNode.
 - graphclaw.models.type_metadata: CompositeMetadata.
@@ -46,7 +46,7 @@ from graphclaw.models.nodes import TaskNode
 from graphclaw.models.type_metadata import CompositeMetadata
 
 if TYPE_CHECKING:
-    from graphclaw.db.graph_repository import GraphRepository
+    from graphclaw.db.base import GraphStore
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +81,7 @@ class ChainTopology:
 
 async def analyze_chain_topology(
     task: TaskNode,
-    graph_repo: GraphRepository,
+    graph_repo: GraphStore,
 ) -> ChainTopology:
     """Determine whether *task* lives in a sequential or parallel chain.
 
@@ -217,7 +217,7 @@ async def analyze_chain_topology(
 
 async def apply_sequential_suppression(
     tasks: list[TaskNode],
-    graph_repo: GraphRepository,
+    graph_repo: GraphStore,
 ) -> dict[str, bool]:
     """Determine which tasks should be suppressed due to sequential chain topology.
 
@@ -255,7 +255,7 @@ async def apply_sequential_suppression(
 
 async def urgency_rollup(
     tasks: list[TaskNode],
-    graph_repo: GraphRepository,
+    graph_repo: GraphStore,
 ) -> dict[str, float]:
     """Compute the chain urgency rollup for sequential chain heads.
 

@@ -33,6 +33,10 @@ SELECT create_vlabel('graphclaw', 'ConstraintNode');
 SELECT create_vlabel('graphclaw', 'UserNode');
 SELECT create_vlabel('graphclaw', 'ResourceNode');
 
+-- Phase 2 node labels --
+SELECT create_vlabel('graphclaw', 'OrganizationNode');
+SELECT create_vlabel('graphclaw', 'WorkspaceNode');
+
 -- Edge labels (relationship types) --
 SELECT create_elabel('graphclaw', 'DEPENDS_ON');
 SELECT create_elabel('graphclaw', 'SPAWNED_FROM');
@@ -42,6 +46,18 @@ SELECT create_elabel('graphclaw', 'ASSIGNED_TO');
 SELECT create_elabel('graphclaw', 'OWNED_BY');
 SELECT create_elabel('graphclaw', 'APPLIES_TO');
 SELECT create_elabel('graphclaw', 'PART_OF');
+
+-- Phase 2 edge labels --
+SELECT create_elabel('graphclaw', 'MEMBER_OF');
+SELECT create_elabel('graphclaw', 'ADMIN_OF');
+SELECT create_elabel('graphclaw', 'BELONGS_TO_ORG');
+SELECT create_elabel('graphclaw', 'SCOPED_TO_WS');
+
+-- Phase 3: Visibility grant node
+SELECT create_vlabel('graphclaw', 'VisibilityGrantNode');
+
+-- Phase 3: Visibility grant edge
+SELECT create_elabel('graphclaw', 'GRANTS_ACCESS_TO');
 
 -- Embedding storage -----------------------------------------------------------
 -- Stores pre-computed text-embedding-3-small (1536-d) vectors for graph nodes.

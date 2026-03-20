@@ -1,0 +1,59 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "S3UserFileUploads",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:GetObject",
+        "s3:DeleteObject",
+        "s3:ListBucket",
+        "s3:CreateMultipartUpload",
+        "s3:UploadPart",
+        "s3:CompleteMultipartUpload",
+        "s3:AbortMultipartUpload",
+        "s3:ListMultipartUploadParts"
+      ],
+      "Resource": [
+        "arn:aws:s3:::graphclaw-tasks",
+        "arn:aws:s3:::graphclaw-tasks/users/*",
+        "arn:aws:s3:::graphclaw-attachments",
+        "arn:aws:s3:::graphclaw-attachments/uploads/*"
+      ],
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": ["users/${aws:PrincipalTag/UserId}/*"]
+        }
+      }
+    },
+    {
+      "Sid": "SQSOnDemandTriggers",
+      "Effect": "Allow",
+      "Action": [
+        "sqs:SendMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl"
+      ],
+      "Resource": "arn:aws:sqs:*:*:graphclaw-trigger-events"
+    },
+    {
+      "Sid": "SecretsManagerJWTKey",
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:GetSecretValue"
+      ],
+      "Resource": "arn:aws:secretsmanager:*:*:secret:graphclaw/auth/jwt-private-key*"
+    },
+    {
+      "Sid": "DenyDangerousActions",
+      "Effect": "Deny",
+      "Action": [
+        "iam:*",
+        "sts:AssumeRole",
+        "s3:DeleteBucket"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

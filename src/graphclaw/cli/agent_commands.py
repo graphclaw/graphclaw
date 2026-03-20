@@ -21,7 +21,7 @@ Dependencies
 - graphclaw.agent.loop: AgentLoop.
 - graphclaw.cli.formatters: format_action_queue, format_briefing.
 - graphclaw.db.connection: create_pool.
-- graphclaw.db.graph_repository: GraphRepository.
+- graphclaw.db.age: AgeGraphStore.
 - graphclaw.scoring.engine: ScoringEngine.
 - graphclaw.state.machine: StateMachine.
 - typer: CLI framework.
@@ -54,7 +54,7 @@ async def _build_agent_loop():
     """
     from graphclaw.agent.loop import AgentLoop
     from graphclaw.db.connection import create_pool
-    from graphclaw.db.graph_repository import GraphRepository
+    from graphclaw.db.age import AgeGraphStore
     from graphclaw.scoring.engine import ScoringEngine
     from graphclaw.state.machine import StateMachine
 
@@ -73,7 +73,7 @@ async def _build_agent_loop():
         err_console.print(f"Could not connect to the database: {exc}")
         raise typer.Exit(code=1)
 
-    repo = GraphRepository(pool)
+    repo = AgeGraphStore(pool)
     engine = ScoringEngine()
     sm = StateMachine()
     loop = AgentLoop(graph_repo=repo, scoring_engine=engine, state_machine=sm)

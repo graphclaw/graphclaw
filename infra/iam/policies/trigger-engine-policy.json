@@ -1,0 +1,47 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "SQSTriggerPublish",
+      "Effect": "Allow",
+      "Action": [
+        "sqs:SendMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl"
+      ],
+      "Resource": "arn:aws:sqs:*:*:graphclaw-trigger-events"
+    },
+    {
+      "Sid": "S3TaskFilesRead",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::graphclaw-tasks",
+        "arn:aws:s3:::graphclaw-tasks/users/*"
+      ]
+    },
+    {
+      "Sid": "SecretsManagerTriggerConfig",
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:GetSecretValue"
+      ],
+      "Resource": "arn:aws:secretsmanager:*:*:secret:graphclaw/trigger/*"
+    },
+    {
+      "Sid": "DenyDangerousActions",
+      "Effect": "Deny",
+      "Action": [
+        "iam:*",
+        "sts:AssumeRole",
+        "s3:DeleteBucket",
+        "s3:DeleteObject",
+        "s3:PutObject"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

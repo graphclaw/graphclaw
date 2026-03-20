@@ -10,8 +10,8 @@ models and the DB layer agree on what constitutes a valid identifier.
 
 Design Patterns
 ---------------
-- Base Class: ``BaseNode`` carries ``id``, ``created_at``, and ``updated_at``
-  as the minimal shared contract for all graph vertices.
+- Base Class: ``BaseNode`` carries ``id``, ``created_at``, ``updated_at``, and
+  ``version`` as the minimal shared contract for all graph vertices.
 - Factory Functions: ``generate_task_id``, ``generate_user_id``, etc. produce
   validated IDs so callers never construct raw strings.
 
@@ -25,6 +25,7 @@ Public API
 - RESOURCE_ID_PATTERN: Compiled regex for resource ID validation.
 - EDGE_ID_PATTERN: Compiled regex for edge ID validation.
 - CHECKIN_NODE_ID_PATTERN: Compiled regex for check-in node ID validation.
+- GRANT_ID_PATTERN: Compiled regex for visibility grant ID validation.
 - generate_id: Generic ``{PREFIX}-{uuid}`` ID generator.
 - generate_task_id: Generate a task ID in TSK-{INITIALS}-{SEQ}-{TYPE} format.
 - generate_user_id: Generate a USER-{uuid} ID.
@@ -33,21 +34,27 @@ Public API
 - generate_resource_id: Generate a RES-{uuid} ID.
 - generate_edge_id: Generate an EDGE-{uuid} ID.
 - generate_checkin_node_id: Generate a CHK-{uuid} ID.
+- generate_org_id: Generate an ORG-{uuid} ID.
+- generate_workspace_id: Generate a WS-{uuid} ID.
+- generate_grant_id: Generate a GRANT-{uuid} ID.
 - utcnow: Return the current UTC datetime (timezone-aware).
 - validate_id: Generic ID validator (pattern + entity name).
 - validate_task_id / validate_*_id: Thin wrappers around validate_id for Pydantic field_validator use.
+- validate_grant_id: Thin wrapper for visibility grant ID validation.
 
 Dependencies
 ------------
-- pydantic: BaseModel, ConfigDict, field_validator.
+- pydantic: BaseModel, ConfigDict, Field, field_validator.
 - graphclaw.models.enums: TaskType (for the task type → code mapping).
 """
+
+from __future__ import annotations
 
 import re
 import uuid
 from datetime import datetime, timezone
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from graphclaw.models.enums import TaskType
 
@@ -64,6 +71,9 @@ CONSTRAINT_ID_PATTERN = re.compile(r"^CON-[\w-]+$")
 RESOURCE_ID_PATTERN = re.compile(r"^RES-[\w-]+$")
 EDGE_ID_PATTERN = re.compile(r"^EDGE-[\w-]+$")
 CHECKIN_NODE_ID_PATTERN = re.compile(r"^CHK-[\w-]+$")
+ORG_ID_PATTERN = re.compile(r"^ORG-[\w-]+$")
+WORKSPACE_ID_PATTERN = re.compile(r"^WS-[\w-]+$")
+GRANT_ID_PATTERN = re.compile(r"^GRANT-[\w-]+$")
 
 # ---------------------------------------------------------------------------
 # Task type → type-code mapping
@@ -160,6 +170,21 @@ def generate_checkin_node_id() -> str:
     return generate_id("CHK")
 
 
+def generate_org_id() -> str:
+    """Generate an organization ID in the form ORG-{uuid}."""
+    return generate_id("ORG")
+
+
+def generate_workspace_id() -> str:
+    """Generate a workspace ID in the form WS-{uuid}."""
+    return generate_id("WS")
+
+
+def generate_grant_id() -> str:
+    """Generate a visibility grant ID in the form GRANT-{uuid}."""
+    return generate_id("GRANT")
+
+
 def utcnow() -> datetime:
     """Return the current UTC datetime (timezone-aware)."""
     return datetime.now(timezone.utc)
@@ -222,6 +247,20 @@ def validate_edge_id(v: str) -> str:
     return validate_id(v, EDGE_ID_PATTERN, "edge")
 
 
+def validate_org_id(v: str) -> str:
+    return validate_id(v, ORG_ID_PATTERN, "organization")
+
+
+def validate_workspace_id(v: str) -> str:
+    return validate_id(v, WORKSPACE_ID_PATTERN, "workspace")
+
+
+def validate_grant_id(v: str) -> str:
+    if not GRANT_ID_PATTERN.match(v):
+        raise ValueError(f"Invalid grant ID format: {v!r} (expected GRANT-...)")
+    return v
+
+
 # ---------------------------------------------------------------------------
 # Base node
 # ---------------------------------------------------------------------------
@@ -235,3 +274,10 @@ class BaseNode(BaseModel):
     id: str
     created_at: datetime
     updated_at: datetime
+    version: int = Field(
+        default=0,
+        description=(
+            "Optimistic locking version counter. Increment on every write; "
+            "reject writes where version in DB != version in payload."
+        ),
+    )

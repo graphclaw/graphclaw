@@ -2,12 +2,13 @@
 
 Description
 -----------
-Defines the six node types that form the GraphClaw property graph: TaskNode,
-UserNode, GoalNode, ConstraintNode, ResourceNode, and CheckinNode.  Every type
-inherits from ``BaseNode`` (id, created_at, updated_at) and uses field
-validators to enforce the naming conventions defined in ``graphclaw.models.base``.
-``TaskNode`` is the richest model, embedding sub-models for timeline, scoring,
-state history, progress, overrides, autonomy, and type-specific metadata.
+Defines the graph node types that form the GraphClaw property graph: TaskNode,
+UserNode, GoalNode, ConstraintNode, ResourceNode, CheckinNode, OrganizationNode,
+WorkspaceNode, and VisibilityGrantNode.  Every type inherits from ``BaseNode``
+(id, created_at, updated_at, version) and uses field validators to enforce the
+naming conventions defined in ``graphclaw.models.base``.  ``TaskNode`` is the
+richest model, embedding sub-models for timeline, scoring, state history,
+progress, overrides, autonomy, and type-specific metadata.
 
 Design Patterns
 ---------------
@@ -27,6 +28,9 @@ Public API
 - ConstraintNode: Business constraint governing tasks, milestones, or goals.
 - ResourceNode: Any entity (human or AI agent) that can be assigned tasks.
 - CheckinNode: Batched communication artifact sent to a resource.
+- OrganizationNode: Multi-user organization workspace boundary.
+- WorkspaceNode: Scoped collection of tasks and goals within an org.
+- VisibilityGrantNode: Fine-grained access grant for a specific node and user.
 - Timeline, ScoringBlock, StateHistoryEntry, ProgressBlock, OverrideBlock,
   AutonomyBlock, UpdateLogEntry, EmbeddingInputs: TaskNode sub-models.
 - ScoringWeights, AutonomyDefaults, UserPreferences, BehavioralModel,
@@ -37,19 +41,23 @@ Dependencies
 - graphclaw.models.base: BaseNode, ID patterns, and validator helpers.
 - graphclaw.models.enums: All domain enumerations.
 - graphclaw.models.type_metadata: TypeMetadata discriminated union.
-- pydantic: BaseModel, field_validator.
+- pydantic: BaseModel, Field, field_validator.
 """
 
-from datetime import datetime
+from __future__ import annotations
 
-from pydantic import BaseModel, field_validator
+from datetime import datetime, timezone
+
+from pydantic import BaseModel, Field, field_validator
 
 from graphclaw.models.base import (
     CONSTRAINT_ID_PATTERN,
     GOAL_ID_PATTERN,
+    ORG_ID_PATTERN,
     RESOURCE_ID_PATTERN,
     TASK_ID_PATTERN,
     USER_ID_PATTERN,
+    WORKSPACE_ID_PATTERN,
     BaseNode,
 )
 from graphclaw.models.enums import (
@@ -65,11 +73,15 @@ from graphclaw.models.enums import (
     GoalPriority,
     GoalState,
     MatchedBy,
+    MembershipStatus,
+    OrgRole,
     OverrideType,
     ResourceType,
     RiskLevel,
     TaskState,
     TaskType,
+    VisibilityScope,
+    WorkspaceVisibility,
 )
 from graphclaw.models.type_metadata import TypeMetadata
 
@@ -461,6 +473,114 @@ class CheckinNode(BaseNode):
     resolution: list[CheckinResolution] = []
 
 
+# ---------------------------------------------------------------------------
+# OrganizationNode  (Phase 2)
+# ---------------------------------------------------------------------------
+
+
+class OrgSettings(BaseModel):
+    """Configuration block for an organization."""
+
+    default_workspace_visibility: WorkspaceVisibility = WorkspaceVisibility.INTERNAL
+    allow_guest_members: bool = False
+    require_approval_for_tasks: bool = False
+    daily_briefing_hour_utc: int = 8  # 0-23
+
+
+class OrgMember(BaseModel):
+    """Inline membership record stored on OrganizationNode."""
+
+    user_id: str
+    role: OrgRole = OrgRole.MEMBER
+    status: MembershipStatus = MembershipStatus.ACTIVE
+    joined_at: datetime | None = None
+
+
+class OrganizationNode(BaseNode):
+    """Node representing a multi-user organization workspace boundary.
+
+    Organizations own one or more Workspaces and hold the membership list
+    that determines who can see and act on tasks within those workspaces.
+    """
+
+    name: str
+    domain: str | None = None             # e.g. "acme.com" for SSO matching
+    owner_id: str                          # USER-{uuid} of the founding user
+    members: list[OrgMember] = []
+    settings: OrgSettings = OrgSettings()
+
+    @field_validator("id")
+    @classmethod
+    def validate_id(cls, v: str) -> str:
+        if not ORG_ID_PATTERN.match(v):
+            raise ValueError(f"Invalid org ID '{v}'. Expected ORG-<identifier>")
+        return v
+
+
+# ---------------------------------------------------------------------------
+# WorkspaceNode  (Phase 2)
+# ---------------------------------------------------------------------------
+
+
+class WorkspaceNode(BaseNode):
+    """Node representing a scoped collection of tasks and goals.
+
+    A workspace belongs to one OrganizationNode and provides an isolation
+    boundary for tasks, goals, and briefings.  All tasks/goals that are
+    SCOPED_TO_WS this node are only visible to workspace members.
+    """
+
+    org_id: str                            # ORG-{uuid} of the parent org
+    name: str
+    description: str = ""
+    visibility: WorkspaceVisibility = WorkspaceVisibility.INTERNAL
+    task_prefix: str = ""                  # User-initials prefix for task IDs in this workspace
+    member_ids: list[str] = []             # USER-{uuid} list (subset of org members)
+    is_default: bool = False               # True for the org's default workspace
+
+    @field_validator("id")
+    @classmethod
+    def validate_id(cls, v: str) -> str:
+        if not WORKSPACE_ID_PATTERN.match(v):
+            raise ValueError(f"Invalid workspace ID '{v}'. Expected WS-<identifier>")
+        return v
+
+
+# ---------------------------------------------------------------------------
+# VisibilityGrantNode  (Phase 3 — Multi-User Visibility Grants)
+# ---------------------------------------------------------------------------
+
+
+class VisibilityGrantNode(BaseNode):
+    """Grants a specific user access to a specific node at a given scope.
+
+    Forward edge: GRANTS_ACCESS_TO from VisibilityGrantNode -> target node.
+    Reverse lookup: query by (granted_to_user_id, target_node_id) to check access.
+    Grants are permanent until explicitly revoked (deleted from graph).
+    """
+
+    grantor_user_id: str = Field(..., description="USER-{id} of user granting access.")
+    granted_to_user_id: str = Field(..., description="USER-{id} receiving the grant.")
+    target_node_id: str = Field(..., description="ID of the node being shared.")
+    target_node_type: str = Field(
+        ..., description="Node label (e.g. 'TaskNode', 'GoalNode')."
+    )
+    scope: VisibilityScope = VisibilityScope.VIEWER
+    granted_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
+    revoked_at: datetime | None = None
+    revoked_by: str | None = None
+    reason: str = ""
+
+    @field_validator("id", mode="before")
+    @classmethod
+    def _validate_id(cls, v: str) -> str:
+        from graphclaw.models.base import validate_grant_id
+
+        return validate_grant_id(v)
+
+
 __all__ = [
     # Sub-models
     "Timeline",
@@ -492,4 +612,12 @@ __all__ = [
     "ConstraintNode",
     "ResourceNode",
     "CheckinNode",
+    # Phase 2
+    "OrgSettings",
+    "OrgMember",
+    "OrganizationNode",
+    "WorkspaceNode",
+    # Phase 3
+    "VisibilityGrantNode",
+    "VisibilityScope",
 ]

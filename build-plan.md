@@ -23,7 +23,9 @@
 
 ## Phased Implementation Plan
 
-### Phase 0 — Core Loop Proof (Weeks 1-4)
+### Phase 0 — Core Loop Proof (Weeks 1-4) ✅ COMPLETE
+
+**Status:** Delivered. 211 passing tests. See `docs/phase0-test-results.md`.
 
 **Goal:** Prove the fundamental concept — graph-based task management with a single AI agent reasoning loop.
 
@@ -48,7 +50,18 @@
 
 ---
 
-### Phase 1 — Single-User System (Weeks 5-12)
+### Phase 1 — Single-User System (Weeks 5-12) ✅ COMPLETE
+
+**Status:** Delivered. 485+ passing unit tests. Plugin architecture refactored (4-layer ABC+Factory pattern).
+
+**Delivered workstreams:**
+- WS-F Gateway: FastAPI app, email channel plugin (IMAP/SMTP), Swagger UI, ChannelAdapter ABC, channel_registry
+- WS-G Triggers: TriggerEngine (scheduled/inbound/on-demand), follow-up timing model
+- WS-H Skills: SKILL.md parser, SkillWorker pool, HeartbeatMonitor, LLMRouter (LiteLLM)
+- WS-I Infra: StorageClient (S3/MinIO), MessageBroker (Redis), SecretsClient (env_file), AsyncLogger
+- WS-J Inbound: Task resolver (ID regex + pgvector), status signal extractor, processor pipeline
+- WS-K Briefing: format_briefing(), AgentLoop scoring cycle orchestration
+- Plugin refactoring: GraphStore/GraphQueryEngine ABCs, create_graph_store() factory, LLMClient ABC, create_llm_client() factory
 
 **Goal:** Working single-user system with one communication channel and skill agents.
 
@@ -78,7 +91,7 @@
 
 ---
 
-### Phase 2 — Multi-Channel + Organizations (Weeks 13-20)
+### Phase 2 — Multi-Channel + Organizations (Weeks 13-20) ← NEXT
 
 **Goal:** Add WhatsApp and Telegram. Introduce organization workspaces.
 
@@ -105,13 +118,12 @@
 
 ### Phase 3 — Multi-User + Delegation + Security (Weeks 21-28)
 
-**Goal:** Multiple users, cross-user delegation, A2A protocol, full auth stack.
+**Goal:** Multiple users, cross-user delegation, full auth stack.
 
 **Scope:**
 - Multi-user graph with visibility grants (Section 25.2)
 - Container-per-user runtime (with idle scaling)
 - Cross-user delegation flow (Delegated tasks to external ResourceNodes)
-- A2A REST API for external agents (Section 30.9)
 - Onboarding & network growth (recruited users arrive with pre-seeded tasks)
 - Conflict resolution: optimistic locking with version field on nodes
 - Scoring weight learning: exponential moving average, updated on override signals
@@ -121,25 +133,24 @@
 - **IAM role-per-container architecture** (Sec 31.2) — user-scoped S3 prefix conditions
 - **User onboarding provisioning** (Sec 31.8) — atomic creation of UserNode + S3 prefix + IAM role + SQS queue + container
 - **Secrets Manager integration** (Sec 31.4) — full `/workgraph/` namespace, BYOK LLM key flow (Sec 31.5)
-- **Attack surface mitigations** (Sec 31.7) — webhook HMAC, rate limits, A2A key scoping
+- **Attack surface mitigations** (Sec 31.7) — webhook HMAC, rate limits
 
 **Key deliverables:**
 1. Multi-tenant container orchestration (Kubernetes / Fargate)
 2. Node-level visibility grant system
-3. A2A API with key lifecycle
-4. User onboarding provisioning flow (atomic, with rollback)
-5. Optimistic locking on graph writes
-6. OAuth 2.0 auth server + JWT issuance/refresh/revocation
-7. Per-user IAM role provisioning
-8. SecretsClient backends: AWSSecretsClient, HashiCorpVaultClient
+3. User onboarding provisioning flow (atomic, with rollback)
+4. Optimistic locking on graph writes
+5. OAuth 2.0 auth server + JWT issuance/refresh/revocation
+6. Per-user IAM role provisioning
+7. SecretsClient backends: AWSSecretsClient, HashiCorpVaultClient
 
 **Dependencies:** Phase 2 complete, container orchestration infra, IdP OAuth client registrations
 
 ---
 
-### Phase 4 — Visual Interface + Advanced Skills (Weeks 29-36)
+### Phase 4 — Visual Interface + Agent Interop + Advanced Skills (Weeks 29-36)
 
-**Goal:** Web-based graph visualization, expanded skill library, calendar integration.
+**Goal:** Web-based graph visualization, A2A protocol, MCP server integration, expanded skill library, calendar integration.
 
 **Scope:**
 - Web UI: graph visualization (Cytoscape.js or react-flow), task management, settings panel
@@ -149,13 +160,19 @@
 - Bulk import from Jira, Asana, Notion (via their APIs)
 - Advanced briefing styles (concise vs. detailed)
 - Explainability dashboard (score breakdowns, decision audit trail)
+- **A2A REST API for external agents** (Section 30.9) — per-agent API keys (hashed), key lifecycle (register/rotate/revoke), A2A updates feed standard SQS inbound pipeline, rate limiting per key, 512 KB request cap
+- **MCP Server Integration** (Section 34) — orchestrating agent as MCP client; pre-built MCP server adapters for calendar, GitHub, Jira, Slack, Notion; user-configured MCP registry stored in settings panel; tool approval model (auto-approve trusted / human-in-the-loop for new); MCP tool secrets managed via Secrets Manager; skill agents can expose and consume MCP tools; sandboxed execution — MCP calls run in read-only mode by default, write operations require explicit user grant
 
 **Key deliverables:**
 1. React web application with graph visualization
 2. REST/GraphQL API server
 3. Calendar sync service
-4. Import adapters for 3 external systems
+4. Import adapters for 3 external systems (Jira, Asana, Notion)
 5. Skill registry with versioning
+6. A2A API with key lifecycle (moved from Phase 3)
+7. MCP server registry + orchestrating agent MCP client runtime (Section 34)
+8. Pre-built MCP adapters: Google Calendar, GitHub, Slack
+9. MCP tool approval workflow (trusted / gated / blocked tiers)
 
 **Dependencies:** Phase 3 APIs stable
 
@@ -163,7 +180,7 @@
 
 ### Phase 5 — Scale, Observability, Enterprise (Weeks 37-48)
 
-**Goal:** Production hardening, full observability stack, enterprise features, compliance.
+**Goal:** Production hardening at 1,000+ users, full observability stack, enterprise features, compliance.
 
 **Scope:**
 - Slack and Microsoft Teams channel integration
@@ -172,7 +189,6 @@
 - DDoS protection (WAF, CloudFront/Cloudflare)
 - Encryption at rest for all storage layers
 - SOC 2 audit trail
-- Idle-to-zero container scaling
 - Performance optimization for 500+ task graphs
 - Progressive loading enforcement per trigger type
 - Data residency controls (EU, US, APAC)
@@ -185,15 +201,22 @@
 - **MD file schema migration** (Sec 32.10) — forward-only, non-destructive, version-stamped, idempotent migration jobs
 - **Log scrubbing** (Sec 32.3) — reject `sk-ant-*`, `wg_agent_*`, `Bearer` patterns before durable storage
 - **X-Ray integration** (Sec 32.5, optional) — visual trace maps layered on session_id
+- **Container scaling hardening** (Sec 28.11) — idle-to-zero for `agent-runtime` (Fargate Spot / KEDA on Redis Stream depth); `channel-gateway` 2–4 replicas + ALB; `trigger-engine` per-user briefing jitter + horizontal queue-processor replicas
+- **Graph DB production hardening** (Sec 28.11) — PgBouncer connection pool, read replica for scoring/briefing queries, AGE indexes on vlabel/user_id/state/due_date, 5-second query timeout enforcement
+- **SES inbound routing** (Sec 28.11) — replace IMAP polling with SES → S3 → Lambda → gateway POST for production email ingest; eliminates long-lived IMAP connection pool
+- **Redis Cluster HA** (Sec 28.11) — 3-node Redis Cluster with consistent hashing by USER-id prefix; `relational-db` monthly partition on audit_log table
 
 **Key deliverables:**
 1. Enterprise channel integrations (Slack, Teams)
 2. Compliance framework (GDPR, SOC 2)
-3. Auto-scaling infrastructure
+3. Container auto-scaling: idle-to-zero (`agent-runtime`), horizontal replicas (`channel-gateway`, `trigger-engine` queue processors, `api-server`)
 4. CloudWatch observability stack (log groups, metric filters, dashboards, alarms)
 5. Backup/recovery procedures with tested runbooks
 6. Rolling deployment pipeline with schema migration
-7. Performance benchmarks at scale
+7. Graph DB production hardening: PgBouncer + read replica + AGE index tuning
+8. SES inbound email routing (replaces IMAP in production)
+9. Redis Cluster HA + `relational-db` audit_log partitioning
+10. Performance benchmarks: 1,000-user load test with pass/fail thresholds
 
 ---
 
@@ -215,14 +238,15 @@
 | Meeting Notes Agent | Transcribe + structure meeting notes | 2 | Integrate (Whisper API + Claude) |
 | LinkedIn Outreach Agent | Draft personalized outreach messages | 3 | Build (Claude + profile data) |
 | Pipeline Report Agent | Aggregate prospect status for BD reporting | 3 | Build (graph query + Claude) |
+| MCP Tool Agent | Execute tool calls via registered MCP servers | 4 | Build (MCP SDK + Claude tool-use) |
 | Calendar Sync Agent | Bi-directional calendar awareness | 4 | Build (Google/Outlook APIs) |
 | Import Agent | Parse external tool exports into graph nodes | 4 | Build (per-source adapters) |
 | Monitoring Agent | Infrastructure health, alert on anomalies | 5 | Integrate (Prometheus + AlertManager) |
 
 ### Agent-to-Agent Protocol Partners
 
-- **Google A2A Protocol** — Open standard for agent interop. Support as external agent communication layer.
-- **MCP (Model Context Protocol)** — Tool/context sharing between agents. Skills can expose/consume tools via MCP.
+- **Google A2A Protocol** — Open standard for agent interop. Support as external agent communication layer. Delivered in Phase 4.
+- **MCP (Model Context Protocol)** — Tool/context sharing between agents. Orchestrating agent acts as MCP client; pre-built server adapters connect calendar, GitHub, Slack, Jira, and Notion; skill agents can expose and consume MCP tools. Delivered in Phase 4 (Section 34).
 
 ---
 
@@ -280,6 +304,16 @@
 | `authlib/authlib` | OAuth 2.0 / OIDC client | OAuth flow with PKCE, JWT validation, IdP integration |
 | `mpdavis/python-jose` | JWT creation/validation | RS256 platform JWT issuance and verification |
 | `boto3` (AWS SDK) | IAM role provisioning, Secrets Manager | Per-user IAM roles, secret CRUD, S3 prefix policies |
+
+### Phase 4 — Agent Interop & MCP
+
+| Repo/Library | Purpose | How it helps |
+|---|---|---|
+| `google/A2A` | Agent-to-Agent protocol | Standard interop protocol for external agents |
+| `modelcontextprotocol/python-sdk` | MCP client + server SDK | Orchestrating agent as MCP client; skill agents expose MCP tools |
+| `mcp-server-calendar` (Google) | Google Calendar MCP server | Calendar awareness for scheduling and deadline reasoning |
+| `mcp-server-github` | GitHub MCP server | PR status, issue tracking, commit context in task graph |
+| `mcp-server-slack` | Slack MCP server | Read Slack threads, post updates from task context |
 
 ### Phase 5 — Enterprise & Observability
 

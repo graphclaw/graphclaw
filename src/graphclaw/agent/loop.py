@@ -13,7 +13,7 @@ Design Patterns
 ---------------
 - Facade: ``AgentLoop`` hides the complexity of fetching, context-building, scoring,
   and formatting behind a simple ``run_cycle()`` call.
-- Dependency Injection: GraphRepository, ScoringEngine, and StateMachine are
+- Dependency Injection: GraphStore, ScoringEngine, and StateMachine are
   injected at construction time, making the loop fully testable with stubs.
 
 Public API
@@ -24,7 +24,7 @@ Public API
 
 Dependencies
 ------------
-- graphclaw.db.graph_repository: GraphRepository (TYPE_CHECKING only for type hints).
+- graphclaw.db.base: GraphStore ABC (TYPE_CHECKING only for type hints).
 - graphclaw.state.machine: StateMachine (TYPE_CHECKING only for type hints).
 - graphclaw.scoring.engine: ScoringEngine, ScoringContext.
 - graphclaw.models.nodes: GoalNode, ResourceNode, TaskNode.
@@ -41,7 +41,7 @@ from graphclaw.models.scoring import ActionQueueEntry
 from graphclaw.scoring.engine import ScoringContext, ScoringEngine
 
 if TYPE_CHECKING:
-    from graphclaw.db.graph_repository import GraphRepository
+    from graphclaw.db.base import GraphStore
     from graphclaw.state.machine import StateMachine
 
 logger = logging.getLogger(__name__)
@@ -53,7 +53,7 @@ class AgentLoop:
     Parameters
     ----------
     graph_repo:
-        GraphRepository instance for reading nodes and edges.
+        GraphStore instance for reading nodes and edges.
     scoring_engine:
         ScoringEngine instance used to score tasks.
     state_machine:
@@ -63,7 +63,7 @@ class AgentLoop:
 
     def __init__(
         self,
-        graph_repo: GraphRepository,
+        graph_repo: GraphStore,
         scoring_engine: ScoringEngine,
         state_machine: StateMachine,
     ) -> None:
