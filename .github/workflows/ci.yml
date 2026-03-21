@@ -94,6 +94,7 @@ jobs:
         run: pytest tests/test_db/ -x -q --tb=short --timeout=60
         env:
           DATABASE_URL: postgresql://postgres:graphclaw@localhost:5432/graphclaw
+          TEST_DATABASE_URL: postgresql://postgres:graphclaw@localhost:5432/graphclaw
           REDIS_URL: redis://localhost:6379/0
           SECRETS_BACKEND: env_file
 
