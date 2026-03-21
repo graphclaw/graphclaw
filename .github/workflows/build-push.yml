@@ -1,0 +1,49 @@
+name: Build & Push
+
+on:
+  push:
+    branches: ["master", "main"]
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
+
+jobs:
+  build-push:
+    name: Build and push Docker images
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    strategy:
+      matrix:
+        service:
+          - name: api-server
+            dockerfile: docker/Dockerfile.api
+          - name: channel-gateway
+            dockerfile: docker/Dockerfile.gateway
+          - name: agent-runtime
+            dockerfile: docker/Dockerfile.agent
+          - name: trigger-engine
+            dockerfile: docker/Dockerfile.trigger
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+      - name: Build and push ${{ matrix.service.name }}
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ${{ matrix.service.dockerfile }}
+          push: true
+          tags: |
+            ${{ env.ECR_REGISTRY }}/graphclaw-${{ matrix.service.name }}:${{ github.sha }}
+            ${{ env.ECR_REGISTRY }}/graphclaw-${{ matrix.service.name }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

@@ -1,0 +1,48 @@
+name: PR Checks
+
+on:
+  pull_request:
+    branches: ["master", "main"]
+
+jobs:
+  size-check:
+    name: PR Size Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check PR diff size
+        run: |
+          CHANGED=$(git diff --stat origin/${{ github.base_ref }}...HEAD | tail -1)
+          echo "Changes: $CHANGED"
+          # Warn (not fail) if > 1000 lines changed
+          LINES=$(git diff origin/${{ github.base_ref }}...HEAD --stat | tail -1 | grep -oP '\d+(?= insertion)' || echo 0)
+          if [ "$LINES" -gt 1000 ]; then
+            echo "::warning::Large PR — $LINES lines changed. Consider splitting."
+          fi
+
+  test-coverage:
+    name: Test Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install deps
+        run: pip install -e ".[dev]" pytest-cov
+      - name: Run tests with coverage
+        run: |
+          pytest tests/ \
+            --ignore=tests/test_db \
+            --ignore=tests/test_load \
+            --cov=src/graphclaw \
+            --cov-report=term-missing \
+            --cov-fail-under=60 \
+            -q --tb=short
+        env:
+          SECRETS_BACKEND: env_file
+          JWT_PRIVATE_KEY: ""
+          JWT_PUBLIC_KEY: ""

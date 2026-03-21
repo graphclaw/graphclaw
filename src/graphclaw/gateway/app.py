@@ -52,6 +52,7 @@ adapter reads its own environment variables for credentials.
 from __future__ import annotations
 
 import logging
+import os
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -61,7 +62,9 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from graphclaw.gateway.channel_registry import build_registry
+from graphclaw.gateway.channels.email.ses_receiver import SESEmailReceiver
 from graphclaw.gateway.deps import init_services, shutdown_services
+from graphclaw.gateway.rate_limiter import RateLimitMiddleware
 from graphclaw.gateway.schemas import InboundMessage
 from graphclaw.infra.broker import INBOUND_MESSAGES, MessageBroker
 
@@ -157,6 +160,13 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
                 "name": "app-api",
                 "description": "Application settings and management API",
             },
+            {
+                "name": "webhooks",
+                "description": (
+                    "Inbound webhooks from third-party services "
+                    "(SES Lambda, etc.)."
+                ),
+            },
         ],
         contact={
             "name": "GraphClaw",
@@ -165,6 +175,15 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
         license_info={
             "name": "Proprietary",
         },
+    )
+
+    # ── Middleware ────────────────────────────────────────────────────────
+    # Rate limiting: applied after CORS so preflight OPTIONS requests are not
+    # counted against caller quotas.  Redis URL is read from the environment
+    # so that tests can override it without patching the module.
+    app.add_middleware(
+        RateLimitMiddleware,
+        redis_url=os.environ.get("REDIS_URL", "redis://localhost:6379/0"),
     )
 
     # ── Include sub-routers (Swagger-documented API) ─────────────────────
@@ -378,6 +397,128 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
             return JSONResponse(status_code=400, content={"error": "invalid JSON"})
 
         await adapter.handle_update(update)
+        return {"status": "ok"}
+
+    # ── Slack webhook routes ──────────────────────────────────────────────────
+
+    @app.post("/webhooks/slack", status_code=200, tags=["inbound"])
+    async def slack_inbound(request: Request) -> Any:
+        """Receive a Slack Events API callback (POST).
+
+        Verifies the ``X-Slack-Signature`` header before processing.
+        Handles Slack URL verification challenges transparently.
+        Returns ``{"status": "ok"}`` immediately; message processing is
+        asynchronous via the broker.
+        """
+        import json as _json
+
+        body_bytes = await request.body()
+        timestamp = request.headers.get("X-Slack-Request-Timestamp", "")
+        signature = request.headers.get("X-Slack-Signature", "")
+
+        registry = getattr(request.app.state, "registry", None)
+        adapter = registry.get("slack") if registry else None
+        if adapter is None:
+            # Channel not configured — accept silently so Slack does not retry
+            return {"status": "ok"}
+
+        # Verify signature only when signing_secret is configured
+        if not adapter.verify_webhook_signature(body_bytes, timestamp, signature):
+            logger.warning("Slack inbound: invalid signature, rejecting webhook")
+            return JSONResponse(status_code=403, content={"error": "invalid signature"})
+
+        try:
+            payload = _json.loads(body_bytes)
+        except _json.JSONDecodeError:
+            return JSONResponse(status_code=400, content={"error": "invalid JSON"})
+
+        # Respond to Slack URL verification challenge
+        if payload.get("type") == "url_verification":
+            return {"challenge": payload.get("challenge", "")}
+
+        await adapter.handle_webhook(payload)
+        return {"status": "ok"}
+
+    # ── SES inbound email webhook ─────────────────────────────────────────────
+
+    @app.post("/webhooks/email/ses", tags=["webhooks"])
+    async def ses_email_webhook(request: Request) -> dict[str, str]:
+        """SES inbound email via Lambda → Gateway POST.
+
+        Accepts a JSON payload from the Lambda function that is triggered by
+        SES receipt actions. Verifies the HMAC-SHA256 ``X-GraphClaw-Signature``
+        header, downloads the raw email from S3, normalises it to an
+        ``InboundMessage``, and publishes it to the broker.
+
+        Replaces IMAP polling in production (EMAIL_BACKEND=ses).
+        Local dev continues to use the IMAP poller (EMAIL_BACKEND=imap).
+        """
+        from fastapi import HTTPException
+
+        body = await request.body()
+        signature = request.headers.get("X-GraphClaw-Signature", "")
+
+        import json as _json
+
+        try:
+            payload = _json.loads(body)
+        except _json.JSONDecodeError:
+            return JSONResponse(status_code=400, content={"error": "invalid JSON"})
+
+        receiver = SESEmailReceiver.from_env()
+
+        if not receiver.verify_lambda_signature(body, signature):
+            logger.warning("SES webhook: invalid Lambda signature, rejecting request")
+            raise HTTPException(status_code=403, detail="Invalid Lambda signature")
+
+        msg = await receiver.handle_ses_notification(payload)
+        if msg is None:
+            return {"status": "skipped"}
+
+        # Publish to broker (same pipeline as IMAP)
+        current_broker: MessageBroker | None = getattr(request.app.state, "broker", None)
+        if current_broker is not None:
+            await current_broker.publish(INBOUND_MESSAGES, msg.model_dump_json())
+            logger.info(
+                "SES webhook: published inbound message",
+                extra={
+                    "message_id": msg.message_id,
+                    "channel": msg.channel,
+                    "session_id": msg.session_id,
+                },
+            )
+        else:
+            logger.warning(
+                "SES webhook: broker not configured, message %s dropped",
+                msg.message_id,
+            )
+        return {"status": "accepted"}
+
+    # ── Teams webhook route ───────────────────────────────────────────────────
+
+    @app.post("/webhooks/teams", status_code=200, tags=["inbound"])
+    async def teams_inbound(request: Request) -> dict[str, str]:
+        """Receive a Microsoft Teams Bot Framework Activity (POST).
+
+        Returns ``{"status": "ok"}`` immediately; message processing is
+        asynchronous via the broker.
+        """
+        import json as _json
+
+        body_bytes = await request.body()
+
+        registry = getattr(request.app.state, "registry", None)
+        adapter = registry.get("teams") if registry else None
+        if adapter is None:
+            # Channel not configured — accept silently
+            return {"status": "ok"}
+
+        try:
+            payload = _json.loads(body_bytes)
+        except _json.JSONDecodeError:
+            return JSONResponse(status_code=400, content={"error": "invalid JSON"})
+
+        await adapter.handle_activity(payload)
         return {"status": "ok"}
 
     return app

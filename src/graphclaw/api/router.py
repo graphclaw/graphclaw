@@ -27,6 +27,7 @@ from fastapi import APIRouter
 
 from graphclaw.api.a2a_keys import router as a2a_keys_router
 from graphclaw.api.approvals import router as approvals_router
+from graphclaw.api.compliance import router as compliance_router
 from graphclaw.api.mcp_registry import router as mcp_registry_router
 from graphclaw.api.settings import router as settings_router
 from graphclaw.api.skill_registry import router as skill_registry_router
@@ -37,3 +38,4 @@ app_router.include_router(approvals_router)
 app_router.include_router(skill_registry_router)
 app_router.include_router(mcp_registry_router)
 app_router.include_router(a2a_keys_router)
+app_router.include_router(compliance_router)

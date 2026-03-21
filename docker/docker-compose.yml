@@ -11,12 +11,33 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql
+    networks:
+      default:
+        aliases:
+          - graph-db
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U graphclaw -d graphclaw"]
       interval: 5s
       timeout: 5s
       retries: 5
 
+  pgbouncer:
+    image: pgbouncer/pgbouncer:1.22
+    environment:
+      - DATABASES_HOST=graph-db
+      - DATABASES_PORT=5432
+      - DATABASES_DBNAME=graphclaw
+      - PGBOUNCER_POOL_MODE=transaction
+      - PGBOUNCER_MAX_CLIENT_CONN=100
+      - PGBOUNCER_DEFAULT_POOL_SIZE=10
+      - PGBOUNCER_AUTH_TYPE=trust
+    ports:
+      - "6432:6432"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # Local dev: single node. Production: see infra/redis/ for 3-node cluster config
   redis:
     image: redis:7-alpine
     ports:

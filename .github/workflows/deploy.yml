@@ -1,0 +1,46 @@
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: ["Build & Push"]
+    types: [completed]
+    branches: [master, main]
+
+jobs:
+  deploy:
+    name: Deploy to ECS
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+      - name: Run DB migrations
+        run: |
+          pip install -e "."
+          DATABASE_URL=${{ secrets.DATABASE_URL }} python scripts/migrate.py
+      - name: Update ECS services (rolling deploy)
+        run: |
+          for SERVICE in api-server channel-gateway trigger-engine; do
+            aws ecs update-service \
+              --cluster graphclaw-prod \
+              --service graphclaw-${SERVICE} \
+              --force-new-deployment \
+              --region us-east-1
+            echo "Deployed: ${SERVICE}"
+          done
+      - name: Wait for stability
+        run: |
+          for SERVICE in api-server channel-gateway trigger-engine; do
+            aws ecs wait services-stable \
+              --cluster graphclaw-prod \
+              --services graphclaw-${SERVICE} \
+              --region us-east-1
+            echo "Stable: ${SERVICE}"
+          done
