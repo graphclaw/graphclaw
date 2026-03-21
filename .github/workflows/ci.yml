@@ -58,7 +58,7 @@ jobs:
       postgres:
         image: apache/age:latest
         env:
-          POSTGRES_USER: graphclaw
+          POSTGRES_USER: postgres
           POSTGRES_PASSWORD: graphclaw
           POSTGRES_DB: graphclaw
         ports:
@@ -87,13 +87,13 @@ jobs:
         run: pip install -e ".[dev]"
       - name: Wait for Postgres
         run: |
-          until pg_isready -h localhost -p 5432 -U graphclaw; do sleep 1; done
+          until pg_isready -h localhost -p 5432 -U postgres; do sleep 1; done
       - name: Run init-db.sql
-        run: psql postgresql://graphclaw:graphclaw@localhost:5432/graphclaw -f scripts/init-db.sql
+        run: psql postgresql://postgres:graphclaw@localhost:5432/graphclaw -f scripts/init-db.sql
       - name: Run integration tests
         run: pytest tests/test_db/ -x -q --tb=short --timeout=60
         env:
-          DATABASE_URL: postgresql://graphclaw:graphclaw@localhost:5432/graphclaw
+          DATABASE_URL: postgresql://postgres:graphclaw@localhost:5432/graphclaw
           REDIS_URL: redis://localhost:6379/0
           SECRETS_BACKEND: env_file
 
