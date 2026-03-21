@@ -1,4 +1,4 @@
-"""Tests for graphclaw.gateway.email — EmailPoller and send_email.
+"""Tests for graphclaw.gateway.channels.email — EmailPoller and send_email.
 
 All IMAP and SMTP interactions are mocked so no real network connections
 are required.
@@ -13,8 +13,24 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from graphclaw.gateway.email import EmailPoller, send_email
-from graphclaw.gateway.models import EmailConfig
+from graphclaw.gateway.channels.email.poller import EmailPoller
+from graphclaw.gateway.channels.email.sender import EmailSender
+from graphclaw.gateway.channels.email.config import EmailConfig
+
+
+async def send_email(message, config) -> None:
+    """Inline wrapper replacing the deleted gateway.email shim."""
+    if message.channel != "email":
+        raise ValueError(f"send_email only handles channel='email', got {message.channel!r}")
+    sender = EmailSender(
+        host=config.smtp_host, port=config.smtp_port,
+        username=config.username, password=config.password,
+        use_tls=(config.smtp_port == 465),
+    )
+    await sender.send(
+        recipient=message.recipient, subject=message.subject,
+        body=message.body, in_reply_to=message.in_reply_to,
+    )
 from graphclaw.gateway.schemas import InboundMessage, OutboundMessage
 from datetime import datetime, timezone
 

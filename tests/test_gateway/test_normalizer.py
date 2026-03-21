@@ -1,11 +1,11 @@
-"""Tests for graphclaw.gateway.normalizer — normalize_email function."""
+"""Tests for graphclaw.gateway.channels.email.normalizer — normalize_email function."""
 from __future__ import annotations
 
 from email.message import EmailMessage
 
 import pytest
 
-from graphclaw.gateway.normalizer import normalize_email
+from graphclaw.gateway.channels.email.normalizer import normalize_email
 from graphclaw.gateway.schemas import InboundMessage
 
 # ---------------------------------------------------------------------------

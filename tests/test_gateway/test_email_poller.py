@@ -1,4 +1,4 @@
-"""Tests for graphclaw.gateway.email_poller — EmailPoller class."""
+"""Tests for graphclaw.gateway.channels.email.poller — EmailPoller class."""
 from __future__ import annotations
 
 import asyncio
@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
-from graphclaw.gateway.email_poller import EmailPoller
+from graphclaw.gateway.channels.email.poller import EmailPoller
 from graphclaw.gateway.schemas import InboundMessage
 
 # ---------------------------------------------------------------------------
