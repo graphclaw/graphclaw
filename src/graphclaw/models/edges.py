@@ -36,13 +36,11 @@ Dependencies
 """
 
 from datetime import datetime
-from typing import Optional, Union, Annotated
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, field_validator
 
 from graphclaw.models.base import EDGE_ID_PATTERN
 from graphclaw.models.enums import EdgeCreatedBy, EdgeStrength, EdgeType, GateType
-
 
 # ---------------------------------------------------------------------------
 # Edge-specific property models
@@ -62,7 +60,7 @@ class DependsOnProps(BaseModel):
 class PartOfProps(BaseModel):
     """Properties for a PART_OF edge — carries sequential ordering within a goal."""
 
-    sequence_order: Optional[int] = None
+    sequence_order: int | None = None
 
 
 class BlocksProps(BaseModel):
@@ -74,7 +72,7 @@ class BlocksProps(BaseModel):
 class FollowUpForProps(BaseModel):
     """Properties for a FOLLOW_UP_FOR edge — carries the scheduled fire time."""
 
-    scheduled_fire_at: Optional[datetime] = None
+    scheduled_fire_at: datetime | None = None
 
 
 class SpawnedFromProps(BaseModel):
@@ -131,13 +129,13 @@ class EdgeProperties(BaseModel):
     while this model holds common metadata.
     """
 
-    gate_type: Optional[GateType] = None          # DEPENDS_ON
-    sequence_order: Optional[int] = None          # PART_OF
-    strength: Optional[EdgeStrength] = None       # BLOCKS
-    scheduled_fire_at: Optional[datetime] = None  # FOLLOW_UP_FOR
-    created_at: Optional[datetime] = None
+    gate_type: GateType | None = None  # DEPENDS_ON
+    sequence_order: int | None = None  # PART_OF
+    strength: EdgeStrength | None = None  # BLOCKS
+    scheduled_fire_at: datetime | None = None  # FOLLOW_UP_FOR
+    created_at: datetime | None = None
     created_by: EdgeCreatedBy = EdgeCreatedBy.AGENT
-    note: Optional[str] = None
+    note: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -154,8 +152,8 @@ class GraphEdge(BaseModel):
 
     id: str
     edge_type: EdgeType
-    source_id: str   # from_node
-    target_id: str   # to_node
+    source_id: str  # from_node
+    target_id: str  # to_node
     properties: EdgeProperties = EdgeProperties()
 
     @field_validator("id")

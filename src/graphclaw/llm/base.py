@@ -36,13 +36,13 @@ Dependencies
 - collections.abc: AsyncIterator (stdlib).
 - typing: Any (stdlib).
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
-
 
 # ---------------------------------------------------------------------------
 # Data Models

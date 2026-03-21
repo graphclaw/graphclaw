@@ -45,6 +45,7 @@ Notes
 The MessageBroker dependency (graphclaw.infra.broker) is injected at construction
 time so that the trigger engine can be tested with a mock broker.
 """
+
 from __future__ import annotations
 
 from graphclaw.triggers.briefing import BriefingGenerator

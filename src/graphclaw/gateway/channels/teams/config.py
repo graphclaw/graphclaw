@@ -24,6 +24,7 @@ TEAMS_CLIENT_ID        Azure AD application (client) ID.
 TEAMS_CLIENT_SECRET    Azure AD client secret for token acquisition.
 TEAMS_WEBHOOK_URL      Incoming webhook URL for sending messages (optional).
 """
+
 from __future__ import annotations
 
 import os
@@ -40,7 +41,7 @@ class TeamsConfig:
     webhook_url: str = ""
 
     @classmethod
-    def from_env(cls) -> "TeamsConfig | None":
+    def from_env(cls) -> TeamsConfig | None:
         """Build from environment variables; return None if tenant_id is missing."""
         tenant_id = os.environ.get("TEAMS_TENANT_ID", "")
         if not tenant_id:

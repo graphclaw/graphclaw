@@ -21,6 +21,7 @@ Dependencies
 - sys: Module registry for litellm injection.
 - graphclaw.skills.llm_router: LLMRouter under test.
 """
+
 from __future__ import annotations
 
 import sys
@@ -30,7 +31,6 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from graphclaw.skills.llm_router import LLMRouter
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -184,6 +184,7 @@ async def test_complete_import_error_raises_runtime_error() -> None:
     original = sys.modules.pop("litellm", None)
     try:
         import builtins
+
         real_import = builtins.__import__
 
         def blocking_import(name, *args, **kwargs):

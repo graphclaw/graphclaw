@@ -34,6 +34,7 @@ extends the gateway model surface without requiring changes to that file.
 ``EmailConfig`` has moved to ``graphclaw.gateway.channels.email.config`` and is
 re-exported here for backward compatibility.
 """
+
 from __future__ import annotations
 
 from pydantic import BaseModel, Field

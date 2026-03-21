@@ -41,6 +41,7 @@ Missing keys are handled gracefully via ``dict.get`` with safe defaults.
 The ``deadline`` value, when present, must be a timezone-aware ``datetime``
 comparable to ``utcnow()``.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -149,8 +150,7 @@ class BriefingGenerator:
         blocked = [t for t in tasks if t.get("state") == "BLOCKED"]
         if len(blocked) > 2:
             items.append(
-                f"{len(blocked)} tasks currently blocked"
-                " — may indicate systemic dependency issue"
+                f"{len(blocked)} tasks currently blocked — may indicate systemic dependency issue"
             )
 
         delayed = [t for t in tasks if t.get("state") == "DELAYED"]
@@ -174,9 +174,14 @@ class BriefingGenerator:
         items: list[str] = []
         for t in tasks:
             score = t.get("score")
-            if score is not None and score > 0.8 and t.get("state") in (
-                "ACTIVE",
-                "IN_PROGRESS",
+            if (
+                score is not None
+                and score > 0.8
+                and t.get("state")
+                in (
+                    "ACTIVE",
+                    "IN_PROGRESS",
+                )
             ):
                 tid = t.get("id", "")
                 title = t.get("title", "Untitled")

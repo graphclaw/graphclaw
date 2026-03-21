@@ -46,13 +46,14 @@ Dependencies
 - hashlib, hmac, secrets: stdlib cryptography.
 - logging, datetime: stdlib.
 """
+
 from __future__ import annotations
 
 import hashlib
 import hmac
 import logging
 import secrets
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from graphclaw.a2a.models import A2AKeyRef, A2ARegistration
@@ -214,13 +215,11 @@ class A2AKeyManager:
             key_id,
             {
                 "api_key_hash": new_hash,
-                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(UTC).isoformat(),
             },
         )
 
-        logger.info(
-            "A2AKeyManager: rotated key for key_id=%s user_id=%s", key_id, user_id
-        )
+        logger.info("A2AKeyManager: rotated key for key_id=%s user_id=%s", key_id, user_id)
         return new_plaintext, new_hash
 
     # ── Key revocation ─────────────────────────────────────────────────────────
@@ -252,13 +251,11 @@ class A2AKeyManager:
             key_id,
             {
                 "api_key_hash": None,
-                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(UTC).isoformat(),
             },
         )
 
-        logger.info(
-            "A2AKeyManager: revoked key for key_id=%s user_id=%s", key_id, user_id
-        )
+        logger.info("A2AKeyManager: revoked key for key_id=%s user_id=%s", key_id, user_id)
 
     # ── Key verification ───────────────────────────────────────────────────────
 

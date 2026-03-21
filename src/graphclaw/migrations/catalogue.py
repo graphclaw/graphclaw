@@ -132,9 +132,7 @@ MIGRATIONS: list[Migration] = [
     Migration(
         version="0004",
         name="add_age_performance_indexes",
-        description=(
-            "Add AGE indexes on vlabel, user_id, state, due_date for 1000-user scale"
-        ),
+        description=("Add AGE indexes on vlabel, user_id, state, due_date for 1000-user scale"),
         sql_up="""
             CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_graphclaw_state
                 ON graphclaw._ag_label_vertex USING btree ((properties->>'state'));

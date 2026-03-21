@@ -7,6 +7,7 @@ existing LLMRouter test suite contract is preserved.
 These tests verify backward compatibility so that SkillWorker continues
 to work unchanged.
 """
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
@@ -65,9 +66,7 @@ async def test_router_returns_content_dict():
 async def test_router_uses_default_model():
     from graphclaw.skills.llm_router import LLMRouter
 
-    mock_client = _make_mock_llm_client(
-        _make_llm_response(model="my-default")
-    )
+    mock_client = _make_mock_llm_client(_make_llm_response(model="my-default"))
     router = LLMRouter(default_model="my-default", llm_client=mock_client)
     result = await router.complete()
 
@@ -131,7 +130,6 @@ async def test_router_reraises_runtime_error():
 async def test_router_accepts_injected_client():
     """LLMRouter(llm_client=...) should use the injected client."""
     from graphclaw.skills.llm_router import LLMRouter
-    from graphclaw.llm.base import LLMClient
 
     mock_client = _make_mock_llm_client(_make_llm_response("Injected!"))
     router = LLMRouter(llm_client=mock_client)
@@ -143,7 +141,6 @@ async def test_router_accepts_injected_client():
 async def test_router_default_uses_litellm_provider():
     """LLMRouter() with no client should create LiteLLMLLMClient internally."""
     import sys
-    from contextlib import contextmanager
     from unittest.mock import AsyncMock, MagicMock
 
     # Stub litellm so router creation and complete() work
@@ -162,8 +159,8 @@ async def test_router_default_uses_litellm_provider():
     original = sys.modules.get("litellm")
     sys.modules["litellm"] = mock_litellm
     try:
-        from graphclaw.skills.llm_router import LLMRouter
         from graphclaw.llm.litellm.client import LiteLLMLLMClient
+        from graphclaw.skills.llm_router import LLMRouter
 
         router = LLMRouter()
         assert isinstance(router._client, LiteLLMLLMClient)

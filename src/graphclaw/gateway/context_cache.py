@@ -28,6 +28,7 @@ Dependencies
 - redis.asyncio: Async Redis client (install: redis[hiredis]).
 - json: stdlib serialisation.
 """
+
 from __future__ import annotations
 
 import json
@@ -63,7 +64,7 @@ class ConversationContextCache:
     # ------------------------------------------------------------------
 
     @classmethod
-    async def from_env(cls) -> "ConversationContextCache":
+    async def from_env(cls) -> ConversationContextCache:
         """Create a cache from the ``REDIS_URL`` environment variable.
 
         Returns a no-op instance (``redis_client=None``) if the env var is

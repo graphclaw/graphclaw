@@ -8,14 +8,13 @@ Tests cover:
 - Auto-complete disabled flag is respected
 - Already-resolved parent is skipped
 """
+
 from __future__ import annotations
 
-import pytest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from graphclaw.models.base import generate_task_id
 from graphclaw.models.enums import (
-    ChangedBy,
     ConfidenceLevel,
     GateType,
     TaskState,
@@ -25,14 +24,13 @@ from graphclaw.models.nodes import TaskNode
 from graphclaw.models.type_metadata import CompositeMetadata
 from graphclaw.state.cascade import check_composite_completion
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _make_task(

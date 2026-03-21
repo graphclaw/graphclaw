@@ -46,9 +46,7 @@ def _repo(rel: str) -> Path:
 
 def test_ci_workflow_exists() -> None:
     """ci.yml must exist in .github/workflows/."""
-    assert _repo(".github/workflows/ci.yml").is_file(), (
-        "Missing .github/workflows/ci.yml"
-    )
+    assert _repo(".github/workflows/ci.yml").is_file(), "Missing .github/workflows/ci.yml"
 
 
 def test_build_push_workflow_exists() -> None:
@@ -60,9 +58,7 @@ def test_build_push_workflow_exists() -> None:
 
 def test_deploy_workflow_exists() -> None:
     """deploy.yml must exist in .github/workflows/."""
-    assert _repo(".github/workflows/deploy.yml").is_file(), (
-        "Missing .github/workflows/deploy.yml"
-    )
+    assert _repo(".github/workflows/deploy.yml").is_file(), "Missing .github/workflows/deploy.yml"
 
 
 # ---------------------------------------------------------------------------

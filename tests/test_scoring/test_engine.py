@@ -3,16 +3,16 @@
 These tests exercise score_task() with known inputs and verify the
 final_score calculation, factor breakdowns, and modifiers.
 """
+
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 import pytest
-from datetime import datetime, timedelta, timezone
 
 from graphclaw.models.base import generate_task_id
 from graphclaw.models.enums import (
-    AutonomyLevel,
     GoalPriority,
-    OverrideType,
     TaskState,
     TaskType,
 )
@@ -20,14 +20,13 @@ from graphclaw.models.nodes import TaskNode
 from graphclaw.scoring.cache import ScoreCache
 from graphclaw.scoring.engine import ScoringContext, ScoringEngine
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _make_task(
@@ -92,8 +91,7 @@ class TestScoreTask:
     def test_weights_sum_to_1(self):
         engine = ScoringEngine()
         assert (
-            engine.w1 + engine.w2 + engine.w3 + engine.w4
-            + engine.w5 + engine.w6 + engine.w7
+            engine.w1 + engine.w2 + engine.w3 + engine.w4 + engine.w5 + engine.w6 + engine.w7
         ) == pytest.approx(1.0)
 
 

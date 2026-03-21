@@ -3,14 +3,12 @@
 Tests the Redis-backed context cache using a mock Redis client so no real
 Redis connection is needed.
 """
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 from graphclaw.gateway.context_cache import ConversationContextCache
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -157,6 +155,7 @@ class TestContextCacheFromEnv:
     async def test_from_env_no_redis_package_returns_noop(self, monkeypatch):
         monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
         import sys
+
         with patch.dict(sys.modules, {"redis": None, "redis.asyncio": None}):
             cache = await ConversationContextCache.from_env()
             assert cache._redis is None

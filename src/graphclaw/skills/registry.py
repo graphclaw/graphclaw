@@ -59,6 +59,7 @@ Dependencies
 - graphclaw.skills.parser: SkillParser.
 - graphclaw.skills.registry_models: domain dataclasses.
 """
+
 from __future__ import annotations
 
 import dataclasses
@@ -66,7 +67,7 @@ import hashlib
 import json
 import pathlib
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -85,9 +86,7 @@ from graphclaw.skills.registry_models import (
 # Path helpers
 # ---------------------------------------------------------------------------
 
-_LOCAL_DEFINITIONS_DIR = (
-    pathlib.Path(__file__).parent / "definitions"
-)
+_LOCAL_DEFINITIONS_DIR = pathlib.Path(__file__).parent / "definitions"
 
 
 def _sources_path(user_id: str) -> str:
@@ -108,7 +107,7 @@ def _source_hash8(uri: str) -> str:
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 # ---------------------------------------------------------------------------
@@ -118,7 +117,9 @@ def _utcnow() -> datetime:
 
 def _serialize(obj: Any) -> str:
     """Serialise a dataclass (or list of dataclasses) to a JSON string."""
-    return json.dumps(dataclasses.asdict(obj) if dataclasses.is_dataclass(obj) else obj, default=str)
+    return json.dumps(
+        dataclasses.asdict(obj) if dataclasses.is_dataclass(obj) else obj, default=str
+    )
 
 
 def _serialize_list(items: list[Any]) -> str:
@@ -225,7 +226,9 @@ def _github_marketplace_url(uri: str) -> tuple[str, str, str, str, str]:
     return marketplace_url, owner, repo, branch, subpath
 
 
-def _github_skill_file_url(owner: str, repo: str, branch: str, subpath: str, skill_file: str) -> str:
+def _github_skill_file_url(
+    owner: str, repo: str, branch: str, subpath: str, skill_file: str
+) -> str:
     """Build the raw URL for a skill file within a GitHub repo."""
     base = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}"
     # skill_file may already be a full path relative to the repo root
@@ -542,8 +545,7 @@ class SkillRegistryService:
             local_listings = self._scan_local_listings()
             # Avoid duplicates from sources that might also include LOCAL
             existing_names = {
-                li.name for li in all_listings
-                if li.source_type == SkillSourceType.LOCAL
+                li.name for li in all_listings if li.source_type == SkillSourceType.LOCAL
             }
             for li in local_listings:
                 if li.name not in existing_names:
@@ -610,8 +612,11 @@ class SkillRegistryService:
 
         listings = await self._fetch_listings(source)
         listing = next(
-            (li for li in listings
-             if li.name == skill_name and (version is None or li.version == version)),
+            (
+                li
+                for li in listings
+                if li.name == skill_name and (version is None or li.version == version)
+            ),
             None,
         )
         if listing is None:
@@ -776,7 +781,9 @@ class SkillRegistryService:
 
         if quality_score is not None:
             alpha = 0.2
-            target.avg_quality_score = alpha * quality_score + (1 - alpha) * target.avg_quality_score
+            target.avg_quality_score = (
+                alpha * quality_score + (1 - alpha) * target.avg_quality_score
+            )
 
         await self._save_installed(user_id, installed)
 

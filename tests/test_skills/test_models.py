@@ -17,11 +17,10 @@ Dependencies
 - datetime: Timestamps for SkillJob / SkillResult.
 - graphclaw.skills.models: All models under test.
 """
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
-import pytest
+from datetime import UTC, datetime
 
 from graphclaw.skills.models import (
     HeartbeatConfig,
@@ -35,7 +34,7 @@ from graphclaw.skills.models import (
 
 
 def _utc(*args, **kwargs) -> datetime:
-    return datetime(*args, **kwargs, tzinfo=timezone.utc)
+    return datetime(*args, **kwargs, tzinfo=UTC)
 
 
 # ---------------------------------------------------------------------------

@@ -20,6 +20,7 @@ Dependencies
 - dataclasses: FrozenInstanceError (Python 3.11+) or AttributeError (3.10).
 - graphclaw.infra.byok: BYOKProvider, BYOKKeyRef, BYOKService.
 """
+
 from __future__ import annotations
 
 import dataclasses
@@ -36,7 +37,6 @@ else:
 from unittest.mock import AsyncMock
 
 from graphclaw.infra.byok import BYOKKeyRef, BYOKProvider, BYOKService
-
 
 # ---------------------------------------------------------------------------
 # Helpers

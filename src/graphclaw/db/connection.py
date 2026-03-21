@@ -26,8 +26,9 @@ Notes
 New code should import directly from ``graphclaw.db.age.connection`` or use
 ``graphclaw.db.create_pool`` / ``graphclaw.db.get_connection``.
 """
+
 from __future__ import annotations
 
-from graphclaw.db.age.connection import create_pool, get_connection, _setup_age
+from graphclaw.db.age.connection import _setup_age, create_pool, get_connection
 
 __all__ = ["create_pool", "get_connection", "_setup_age"]

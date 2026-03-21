@@ -27,6 +27,7 @@ Author
 GraphClaw Project — https://graphclaw.ai
 License: Apache 2.0
 """
+
 from __future__ import annotations
 
 from abc import abstractmethod

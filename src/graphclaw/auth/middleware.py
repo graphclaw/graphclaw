@@ -29,6 +29,7 @@ Dependencies
 - fastapi.security: HTTPBearer, HTTPAuthorizationCredentials (third-party).
 - logging, os: stdlib.
 """
+
 from __future__ import annotations
 
 import logging
@@ -149,9 +150,7 @@ async def get_current_user_id(
     # Only access tokens may authenticate API requests
     token_type: str = payload.get("type", "")
     if token_type != "access":
-        logger.debug(
-            "get_current_user_id: token type '%s' not allowed for API auth", token_type
-        )
+        logger.debug("get_current_user_id: token type '%s' not allowed for API auth", token_type)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Access token required",

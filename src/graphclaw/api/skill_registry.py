@@ -33,6 +33,7 @@ Dependencies
 - fastapi: APIRouter, Depends, HTTPException, Query, status (third-party).
 - pydantic: BaseModel (third-party).
 """
+
 from __future__ import annotations
 
 import logging
@@ -130,13 +131,9 @@ async def search_skills(
     """
     all_skills = _installed_skills.get(user_id, [])
     if q:
-        all_skills = [
-            s for s in all_skills if q.lower() in s.get("skill_name", "").lower()
-        ]
+        all_skills = [s for s in all_skills if q.lower() in s.get("skill_name", "").lower()]
     if tags:
-        all_skills = [
-            s for s in all_skills if any(t in s.get("tags", []) for t in tags)
-        ]
+        all_skills = [s for s in all_skills if any(t in s.get("tags", []) for t in tags)]
     return [SkillEntry(**s) for s in all_skills]
 
 

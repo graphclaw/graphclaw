@@ -32,6 +32,7 @@ Dependencies
 - fastapi: APIRouter, Depends, HTTPException, status (third-party).
 - pydantic: BaseModel (third-party).
 """
+
 from __future__ import annotations
 
 import logging
@@ -176,12 +177,8 @@ async def rotate_key(
                     detail=f"Agent key '{key_id}' has been revoked and cannot be rotated",
                 )
             new_plaintext_key = secrets.token_urlsafe(32)
-            logger.info(
-                "a2a: rotated key '%s' for user_id=%s", key_id, user_id
-            )
-            return A2AKeyRotateResponse(
-                key_id=key_id, new_api_key=new_plaintext_key
-            )
+            logger.info("a2a: rotated key '%s' for user_id=%s", key_id, user_id)
+            return A2AKeyRotateResponse(key_id=key_id, new_api_key=new_plaintext_key)
     raise HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,
         detail=f"Agent key '{key_id}' not found",
@@ -202,9 +199,7 @@ async def revoke_key(
     for agent in agents:
         if agent.get("key_id") == key_id:
             agent["revoked"] = True
-            logger.info(
-                "a2a: revoked key '%s' for user_id=%s", key_id, user_id
-            )
+            logger.info("a2a: revoked key '%s' for user_id=%s", key_id, user_id)
             return
     raise HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,

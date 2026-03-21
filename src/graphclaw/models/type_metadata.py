@@ -38,7 +38,7 @@ Dependencies
 """
 
 from datetime import datetime
-from typing import Annotated, Literal, Optional, Union
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
 
@@ -61,10 +61,10 @@ class DelegatedMetadata(BaseModel):
 
     task_type: Literal[TaskType.DELEGATED] = TaskType.DELEGATED
     assigned_resource_id: str
-    expected_deliverable: Optional[str] = None
-    outbound_message_sent: Optional[str] = None
+    expected_deliverable: str | None = None
+    outbound_message_sent: str | None = None
     task_id_in_message: bool = False
-    follow_up_task_id: Optional[str] = None
+    follow_up_task_id: str | None = None
 
 
 class FollowUpMetadata(BaseModel):
@@ -72,12 +72,12 @@ class FollowUpMetadata(BaseModel):
 
     task_type: Literal[TaskType.FOLLOWUP] = TaskType.FOLLOWUP
     target_task_id: str
-    parent_delegated_id: Optional[str] = None
+    parent_delegated_id: str | None = None
     scheduled_fire_at: datetime
-    fire_reason: Optional[str] = None
+    fire_reason: str | None = None
     follow_up_count: int = 0
     resolved_by_proactive: bool = False
-    resolution_source: Optional[str] = None  # update_log_id
+    resolution_source: str | None = None  # update_log_id
 
 
 class ApprovalMetadata(BaseModel):
@@ -85,28 +85,26 @@ class ApprovalMetadata(BaseModel):
 
     task_type: Literal[TaskType.APPROVAL] = TaskType.APPROVAL
     approver_id: str
-    approval_criteria: Optional[str] = None
-    approved_at: Optional[datetime] = None
-    rejection_reason: Optional[str] = None
+    approval_criteria: str | None = None
+    approved_at: datetime | None = None
+    rejection_reason: str | None = None
 
     # Phase 3 — Cross-User Delegation + Approval Escalation fields
     max_wait_days: int = Field(
         default=7, ge=1, le=90, description="Days before escalation triggers"
     )
-    escalation_target_user_id: Optional[str] = Field(
+    escalation_target_user_id: str | None = Field(
         default=None, description="User to escalate to after max_wait_days"
     )
     escalation_action: str = Field(
         default="REASSIGN", description="REASSIGN | CANCEL | AUTO_APPROVE"
     )
-    delegated_by_user_id: Optional[str] = Field(
-        default=None, description="Original delegating user"
-    )
+    delegated_by_user_id: str | None = Field(default=None, description="Original delegating user")
     artifact_required: bool = Field(
         default=False, description="Whether artifact submission is required"
     )
-    artifact_submitted_at: Optional[datetime] = None
-    artifact_storage_key: Optional[str] = None
+    artifact_submitted_at: datetime | None = None
+    artifact_storage_key: str | None = None
 
 
 class CompositeMetadata(BaseModel):
@@ -123,7 +121,7 @@ class MilestoneMetadata(BaseModel):
     """Metadata for a milestone that marks a significant achievement."""
 
     task_type: Literal[TaskType.MILESTONE] = TaskType.MILESTONE
-    milestone_criteria: Optional[str] = None
+    milestone_criteria: str | None = None
     notifies: list[str] = []  # resource_ids to notify on completion
     child_task_count: int = 0
     child_tasks_complete: int = 0
@@ -134,7 +132,7 @@ class ReviewMetadata(BaseModel):
 
     task_type: Literal[TaskType.REVIEW] = TaskType.REVIEW
     review_target_id: str
-    review_criteria: Optional[str] = None
+    review_criteria: str | None = None
     confidence_level: ConfidenceLevel = ConfidenceLevel.MEDIUM
 
 
@@ -143,8 +141,8 @@ class RecurringMetadata(BaseModel):
 
     task_type: Literal[TaskType.RECURRING] = TaskType.RECURRING
     cron_expression: str  # recurrence rule in cron-like format
-    last_spawned_at: Optional[datetime] = None
-    next_spawn_at: Optional[datetime] = None
+    last_spawned_at: datetime | None = None
+    next_spawn_at: datetime | None = None
     spawn_history: list[str] = []  # list of spawned task_ids
 
 
@@ -153,8 +151,8 @@ class DecisionMetadata(BaseModel):
 
     task_type: Literal[TaskType.DECISION] = TaskType.DECISION
     options: list[str] = []
-    decision_made: Optional[str] = None
-    decision_deadline: Optional[datetime] = None
+    decision_made: str | None = None
+    decision_deadline: datetime | None = None
     branches_activated: list[str] = []  # task_ids of activated branches
     branches_pruned: list[str] = []  # task_ids of pruned branches
 
@@ -163,15 +161,15 @@ class CheckinMetadata(BaseModel):
     """Metadata for a check-in task (scheduled interaction artifact)."""
 
     task_type: Literal[TaskType.CHECKIN] = TaskType.CHECKIN
-    target_resource_id: Optional[str] = None
-    scheduled_for: Optional[datetime] = None
+    target_resource_id: str | None = None
+    scheduled_for: datetime | None = None
 
 
 class ResearchMetadata(BaseModel):
     """Metadata for a research task that gathers information to inform decisions."""
 
     task_type: Literal[TaskType.RESEARCH] = TaskType.RESEARCH
-    research_scope: Optional[str] = None  # completion_threshold / definition of done
+    research_scope: str | None = None  # completion_threshold / definition of done
     outputs: list[str] = []
     confidence_level: ConfidenceLevel = ConfidenceLevel.MEDIUM
     confidence_to_proceed: float = 0.0
@@ -182,19 +180,17 @@ class ResearchMetadata(BaseModel):
 # ---------------------------------------------------------------------------
 
 TypeMetadata = Annotated[
-    Union[
-        AtomicMetadata,
-        DelegatedMetadata,
-        FollowUpMetadata,
-        ApprovalMetadata,
-        CompositeMetadata,
-        MilestoneMetadata,
-        ReviewMetadata,
-        RecurringMetadata,
-        DecisionMetadata,
-        CheckinMetadata,
-        ResearchMetadata,
-    ],
+    AtomicMetadata
+    | DelegatedMetadata
+    | FollowUpMetadata
+    | ApprovalMetadata
+    | CompositeMetadata
+    | MilestoneMetadata
+    | ReviewMetadata
+    | RecurringMetadata
+    | DecisionMetadata
+    | CheckinMetadata
+    | ResearchMetadata,
     Field(discriminator="task_type"),
 ]
 

@@ -14,9 +14,10 @@ Author
 GraphClaw Project — https://graphclaw.ai
 License: Apache 2.0
 """
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -25,7 +26,6 @@ import pytest
 from graphclaw.connectors.base import ConnectorConfig
 from graphclaw.connectors.import_.asana.adapter import AsanaImportConnector
 from graphclaw.connectors.import_.models import ImportBatch, ImportItem
-
 
 # ---------------------------------------------------------------------------
 # Helpers / fixtures
@@ -180,9 +180,7 @@ class TestAsanaFetchItems:
     async def test_fetch_items_returns_import_batch(self) -> None:
         """fetch_items should return an ImportBatch."""
         connector = _make_connector()
-        connector._client.get = AsyncMock(
-            return_value=_make_mock_response(_ASANA_TASKS_RESPONSE)
-        )
+        connector._client.get = AsyncMock(return_value=_make_mock_response(_ASANA_TASKS_RESPONSE))
         batch = await connector.fetch_items("proj-001")
         assert isinstance(batch, ImportBatch)
 
@@ -190,9 +188,7 @@ class TestAsanaFetchItems:
     async def test_fetch_items_item_count(self) -> None:
         """All tasks in the response data array should be returned as ImportItems."""
         connector = _make_connector()
-        connector._client.get = AsyncMock(
-            return_value=_make_mock_response(_ASANA_TASKS_RESPONSE)
-        )
+        connector._client.get = AsyncMock(return_value=_make_mock_response(_ASANA_TASKS_RESPONSE))
         batch = await connector.fetch_items("proj-001")
         assert len(batch.items) == 2
 
@@ -200,9 +196,7 @@ class TestAsanaFetchItems:
     async def test_fetch_items_source_system(self) -> None:
         """ImportBatch.source_system should be 'asana'."""
         connector = _make_connector()
-        connector._client.get = AsyncMock(
-            return_value=_make_mock_response(_ASANA_TASKS_RESPONSE)
-        )
+        connector._client.get = AsyncMock(return_value=_make_mock_response(_ASANA_TASKS_RESPONSE))
         batch = await connector.fetch_items("proj-001")
         assert batch.source_system == "asana"
 
@@ -210,9 +204,7 @@ class TestAsanaFetchItems:
     async def test_fetch_items_project_id(self) -> None:
         """ImportBatch.project_id should match the requested project."""
         connector = _make_connector()
-        connector._client.get = AsyncMock(
-            return_value=_make_mock_response(_ASANA_TASKS_RESPONSE)
-        )
+        connector._client.get = AsyncMock(return_value=_make_mock_response(_ASANA_TASKS_RESPONSE))
         batch = await connector.fetch_items("proj-001")
         assert batch.project_id == "proj-001"
 
@@ -220,9 +212,7 @@ class TestAsanaFetchItems:
     async def test_fetch_items_maps_title(self) -> None:
         """The first item's title should come from the Asana task 'name' field."""
         connector = _make_connector()
-        connector._client.get = AsyncMock(
-            return_value=_make_mock_response(_ASANA_TASKS_RESPONSE)
-        )
+        connector._client.get = AsyncMock(return_value=_make_mock_response(_ASANA_TASKS_RESPONSE))
         batch = await connector.fetch_items("proj-001")
         assert batch.items[0].title == "Fix the login screen"
 
@@ -230,9 +220,7 @@ class TestAsanaFetchItems:
     async def test_fetch_items_maps_external_id(self) -> None:
         """The external_id should come from the Asana task 'gid' field."""
         connector = _make_connector()
-        connector._client.get = AsyncMock(
-            return_value=_make_mock_response(_ASANA_TASKS_RESPONSE)
-        )
+        connector._client.get = AsyncMock(return_value=_make_mock_response(_ASANA_TASKS_RESPONSE))
         batch = await connector.fetch_items("proj-001")
         assert batch.items[0].external_id == "task-001"
 
@@ -240,9 +228,7 @@ class TestAsanaFetchItems:
     async def test_fetch_items_open_status_for_incomplete(self) -> None:
         """An uncompleted Asana task should have status='open'."""
         connector = _make_connector()
-        connector._client.get = AsyncMock(
-            return_value=_make_mock_response(_ASANA_TASKS_RESPONSE)
-        )
+        connector._client.get = AsyncMock(return_value=_make_mock_response(_ASANA_TASKS_RESPONSE))
         batch = await connector.fetch_items("proj-001")
         assert batch.items[0].status == "open"
 
@@ -250,9 +236,7 @@ class TestAsanaFetchItems:
     async def test_fetch_items_done_status_for_completed(self) -> None:
         """A completed Asana task should have status='done'."""
         connector = _make_connector()
-        connector._client.get = AsyncMock(
-            return_value=_make_mock_response(_ASANA_TASKS_RESPONSE)
-        )
+        connector._client.get = AsyncMock(return_value=_make_mock_response(_ASANA_TASKS_RESPONSE))
         batch = await connector.fetch_items("proj-001")
         assert batch.items[1].status == "done"
 
@@ -260,9 +244,7 @@ class TestAsanaFetchItems:
     async def test_fetch_items_maps_tags_to_labels(self) -> None:
         """Asana task tags should be mapped to ImportItem.labels."""
         connector = _make_connector()
-        connector._client.get = AsyncMock(
-            return_value=_make_mock_response(_ASANA_TASKS_RESPONSE)
-        )
+        connector._client.get = AsyncMock(return_value=_make_mock_response(_ASANA_TASKS_RESPONSE))
         batch = await connector.fetch_items("proj-001")
         assert "bug" in batch.items[0].labels
         assert "ios" in batch.items[0].labels
@@ -282,9 +264,7 @@ class TestAsanaFetchItems:
     async def test_fetch_items_no_more_without_pagination(self) -> None:
         """has_more should be False when next_page is None."""
         connector = _make_connector()
-        connector._client.get = AsyncMock(
-            return_value=_make_mock_response(_ASANA_TASKS_RESPONSE)
-        )
+        connector._client.get = AsyncMock(return_value=_make_mock_response(_ASANA_TASKS_RESPONSE))
         batch = await connector.fetch_items("proj-001")
         assert batch.has_more is False
         assert batch.next_cursor is None
@@ -293,9 +273,7 @@ class TestAsanaFetchItems:
     async def test_fetch_items_all_items_are_import_items(self) -> None:
         """All items in the batch should be ImportItem instances."""
         connector = _make_connector()
-        connector._client.get = AsyncMock(
-            return_value=_make_mock_response(_ASANA_TASKS_RESPONSE)
-        )
+        connector._client.get = AsyncMock(return_value=_make_mock_response(_ASANA_TASKS_RESPONSE))
         batch = await connector.fetch_items("proj-001")
         for item in batch.items:
             assert isinstance(item, ImportItem)
@@ -316,7 +294,7 @@ class TestAsanaToTaskNodes:
             description="Users report that the login fails on iOS.",
             status="open",
             priority="medium",
-            due_date=datetime(2025, 5, 1, tzinfo=timezone.utc),
+            due_date=datetime(2025, 5, 1, tzinfo=UTC),
             assignee="Alice",
             labels=["bug", "ios"],
             url="https://app.asana.com/0/proj-001/task-001",

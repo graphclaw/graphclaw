@@ -33,6 +33,7 @@ node ID values are escaped via ``_escape()`` before embedding.  For very deep
 dependency graphs (depth > 100), consider adding an ``*..N`` upper bound to
 the variable-length path patterns to avoid excessive traversal time.
 """
+
 from __future__ import annotations
 
 import logging
@@ -76,9 +77,7 @@ async def get_downstream_dependents(
         rows = await result.fetchall()
 
     dependents = [_row_to_dict(row, ["id", "state", "title"]) for row in rows]
-    logger.debug(
-        "get_downstream_dependents: %d results for %s", len(dependents), node_id
-    )
+    logger.debug("get_downstream_dependents: %d results for %s", len(dependents), node_id)
     return dependents
 
 
@@ -108,9 +107,7 @@ async def get_upstream_blockers(
         rows = await result.fetchall()
 
     blockers = [_row_to_dict(row, ["id", "state", "title"]) for row in rows]
-    logger.debug(
-        "get_upstream_blockers: %d results for %s", len(blockers), node_id
-    )
+    logger.debug("get_upstream_blockers: %d results for %s", len(blockers), node_id)
     return blockers
 
 

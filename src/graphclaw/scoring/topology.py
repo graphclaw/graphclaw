@@ -36,12 +36,13 @@ look-up, parent node fetch, siblings look-up, sibling DEPENDS_ON look-up).  For
 Phase 0 with small graphs this is acceptable.  Future phases should batch these
 queries or cache the results across the scoring cycle.
 """
+
 from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING
 
-from graphclaw.models.enums import BreakdownStrategy, TaskState, TaskType
+from graphclaw.models.enums import BreakdownStrategy, TaskState
 from graphclaw.models.nodes import TaskNode
 from graphclaw.models.type_metadata import CompositeMetadata
 
@@ -146,9 +147,7 @@ async def analyze_chain_topology(
 
     is_sequential = False
     if isinstance(parent_task.type_metadata, CompositeMetadata):
-        is_sequential = (
-            parent_task.type_metadata.breakdown_strategy == BreakdownStrategy.SEQUENTIAL
-        )
+        is_sequential = parent_task.type_metadata.breakdown_strategy == BreakdownStrategy.SEQUENTIAL
 
     if not is_sequential:
         return ChainTopology(
@@ -160,9 +159,7 @@ async def analyze_chain_topology(
         )
 
     # Find all siblings in the chain.
-    sibling_edges = await graph_repo.get_edges(
-        parent_id, direction="in", edge_type="PART_OF"
-    )
+    sibling_edges = await graph_repo.get_edges(parent_id, direction="in", edge_type="PART_OF")
     sibling_ids = [e.get("_start_id") for e in sibling_edges if e.get("_start_id")]
     chain_length = len(sibling_ids)
 
@@ -184,9 +181,7 @@ async def analyze_chain_topology(
         if state in (TaskState.ACTIVE, TaskState.PENDING, TaskState.IN_PROGRESS):
             # Check if this sibling has any incomplete DEPENDS_ON predecessors
             # within the same chain.
-            dep_edges = await graph_repo.get_edges(
-                sid, direction="out", edge_type="DEPENDS_ON"
-            )
+            dep_edges = await graph_repo.get_edges(sid, direction="out", edge_type="DEPENDS_ON")
             incomplete_preds = False
             for dep in dep_edges:
                 pred_id = dep.get("_end_id")
@@ -286,18 +281,14 @@ async def urgency_rollup(
             continue
 
         # Find all siblings via the parent.
-        part_of_edges = await graph_repo.get_edges(
-            task.id, direction="out", edge_type="PART_OF"
-        )
+        part_of_edges = await graph_repo.get_edges(task.id, direction="out", edge_type="PART_OF")
         if not part_of_edges:
             continue
         parent_id = part_of_edges[0].get("_end_id", "")
         if not parent_id:
             continue
 
-        sibling_edges = await graph_repo.get_edges(
-            parent_id, direction="in", edge_type="PART_OF"
-        )
+        sibling_edges = await graph_repo.get_edges(parent_id, direction="in", edge_type="PART_OF")
         sibling_ids = {e.get("_start_id") for e in sibling_edges if e.get("_start_id")}
         sibling_ids.discard(task.id)  # exclude the chain head itself
 

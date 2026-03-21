@@ -27,6 +27,7 @@ Dependencies
 - typer: CLI framework.
 - rich: Console output with status spinners.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -34,7 +35,6 @@ import asyncio
 import typer
 from rich.console import Console
 
-from graphclaw.cli._shared import cli_pool
 from graphclaw.cli.formatters import format_action_queue, format_briefing
 
 app = typer.Typer(help="Agent reasoning loop commands")
@@ -52,13 +52,14 @@ async def _build_agent_loop():
 
     Returns (pool, AgentLoop).  Raises SystemExit on any setup failure.
     """
+    import os
+
     from graphclaw.agent.loop import AgentLoop
-    from graphclaw.db.connection import create_pool
     from graphclaw.db.age import AgeGraphStore
+    from graphclaw.db.connection import create_pool
     from graphclaw.scoring.engine import ScoringEngine
     from graphclaw.state.machine import StateMachine
 
-    import os
     dsn = os.environ.get("DATABASE_URL")
     if not dsn:
         err_console.print(

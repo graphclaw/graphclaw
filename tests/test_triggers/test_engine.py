@@ -6,19 +6,17 @@ Verifies that the engine dispatches trigger events through the broker, deduplica
 events by idempotency key, handles on-demand triggers, and that the scheduled and
 consumer loops function correctly with mocked collaborators.
 """
+
 from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
-
-import pytest
 
 from graphclaw.triggers.engine import TriggerEngine
 from graphclaw.triggers.models import TriggerConfig, TriggerEvent, TriggerType
 from graphclaw.triggers.scheduler import TriggerScheduler
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -26,7 +24,7 @@ from graphclaw.triggers.scheduler import TriggerScheduler
 
 
 def _utc(*args, **kwargs) -> datetime:
-    return datetime(*args, **kwargs, tzinfo=timezone.utc)
+    return datetime(*args, **kwargs, tzinfo=UTC)
 
 
 def _make_mock_broker() -> MagicMock:

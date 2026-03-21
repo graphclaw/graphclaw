@@ -13,12 +13,13 @@ The test database must have:
 The DSN is read from the ``TEST_DATABASE_URL`` environment variable, falling
 back to the default Docker Compose service address.
 """
+
 from __future__ import annotations
 
 import os
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -28,7 +29,6 @@ from graphclaw.db.connection import create_pool, get_connection
 from graphclaw.db.graph_repository import GraphRepository
 from graphclaw.db.queries.dependencies import (
     get_downstream_dependents,
-    get_upstream_blockers,
 )
 
 # ---------------------------------------------------------------------------
@@ -47,6 +47,7 @@ pytestmark = pytest.mark.integration
 # Minimal stub node models (no dependency on graphclaw.models)
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class _StubNode:
     """Minimal node stub that satisfies GraphRepository.create_node()."""
@@ -56,9 +57,7 @@ class _StubNode:
     title: str
     state: str = "PENDING"
     estimated_effort_hours: float = 4.0
-    created_at: str = field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
-    )
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     def model_dump(self, *, mode: str = "json") -> dict:  # noqa: ARG002
         return {
@@ -101,12 +100,15 @@ def _make_goal(title: str = "Test Goal") -> _StubNode:
 # Session-scoped fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(scope="session")
 def event_loop_policy():
     """Use SelectorEventLoop on Windows for psycopg async compatibility."""
     import sys
+
     if sys.platform == "win32":
         import asyncio
+
         return asyncio.WindowsSelectorEventLoopPolicy()
     return None
 
@@ -129,13 +131,13 @@ async def repo(db_pool):
 # Per-test graph cleanup
 # ---------------------------------------------------------------------------
 
+
 @pytest_asyncio.fixture(autouse=True)
 async def clean_graph(db_pool):
     """Delete all vertices (and their edges) before each test."""
     async with get_connection(db_pool) as conn:
         await conn.execute(
-            "SELECT * FROM cypher('graphclaw', $$ MATCH (n) DETACH DELETE n $$)"
-            " as (v agtype)"
+            "SELECT * FROM cypher('graphclaw', $$ MATCH (n) DETACH DELETE n $$) as (v agtype)"
         )
     yield
 
@@ -143,6 +145,7 @@ async def clean_graph(db_pool):
 # ---------------------------------------------------------------------------
 # Tests: Node CRUD
 # ---------------------------------------------------------------------------
+
 
 class TestCreateAndRetrieveNode:
     """Verify that a node can be inserted and then retrieved by id."""
@@ -189,6 +192,7 @@ class TestCreateAndRetrieveNode:
 # ---------------------------------------------------------------------------
 # Tests: Edge CRUD
 # ---------------------------------------------------------------------------
+
 
 class TestEdgeCreation:
     """Verify that directed edges can be created between two nodes."""
@@ -243,6 +247,7 @@ class TestEdgeCreation:
 # Tests: list_nodes with filters
 # ---------------------------------------------------------------------------
 
+
 class TestListNodes:
     """Verify list_nodes returns the correct subset of vertices."""
 
@@ -264,20 +269,14 @@ class TestListNodes:
         await repo.create_node(active_task)
         await repo.create_node(pending_task)
 
-        results = await repo.list_nodes(
-            label="TaskAtomic", filters={"state": "ACTIVE"}
-        )
+        results = await repo.list_nodes(label="TaskAtomic", filters={"state": "ACTIVE"})
 
         ids = [r["id"] for r in results]
         assert active_task.id in ids
         assert pending_task.id not in ids
 
-    async def test_list_nodes_empty_when_none_match(
-        self, repo: GraphRepository
-    ) -> None:
-        results = await repo.list_nodes(
-            label="TaskAtomic", filters={"state": "NONEXISTENT_STATE"}
-        )
+    async def test_list_nodes_empty_when_none_match(self, repo: GraphRepository) -> None:
+        results = await repo.list_nodes(label="TaskAtomic", filters={"state": "NONEXISTENT_STATE"})
         assert results == []
 
 
@@ -285,12 +284,11 @@ class TestListNodes:
 # Tests: downstream dependent query
 # ---------------------------------------------------------------------------
 
+
 class TestDownstreamDependents:
     """Verify get_downstream_dependents follows DEPENDS_ON edges correctly."""
 
-    async def test_direct_dependent(
-        self, repo: GraphRepository, db_pool: Any
-    ) -> None:
+    async def test_direct_dependent(self, repo: GraphRepository, db_pool: Any) -> None:
         """A task that directly depends on the anchor should appear."""
         blocker = _make_task(title="Blocker")
         dependent = _make_task(title="Direct Dependent")
@@ -308,9 +306,7 @@ class TestDownstreamDependents:
         ids = [r["id"] for r in results]
         assert dependent.id in ids
 
-    async def test_transitive_dependent(
-        self, repo: GraphRepository, db_pool: Any
-    ) -> None:
+    async def test_transitive_dependent(self, repo: GraphRepository, db_pool: Any) -> None:
         """A task two hops away should also appear (recursive traversal)."""
         root = _make_task(title="Root blocker")
         middle = _make_task(title="Middle task")
@@ -329,9 +325,7 @@ class TestDownstreamDependents:
         assert middle.id in ids
         assert leaf.id in ids
 
-    async def test_no_dependents(
-        self, repo: GraphRepository, db_pool: Any
-    ) -> None:
+    async def test_no_dependents(self, repo: GraphRepository, db_pool: Any) -> None:
         """A standalone node should have no dependents."""
         task = _make_task(title="Standalone")
         await repo.create_node(task)
@@ -340,9 +334,7 @@ class TestDownstreamDependents:
 
         assert results == []
 
-    async def test_anchor_not_in_results(
-        self, repo: GraphRepository, db_pool: Any
-    ) -> None:
+    async def test_anchor_not_in_results(self, repo: GraphRepository, db_pool: Any) -> None:
         """The queried node itself must not appear in the results."""
         anchor = _make_task(title="Anchor")
         child = _make_task(title="Child")

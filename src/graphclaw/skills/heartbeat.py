@@ -43,6 +43,7 @@ The loop runs until ``_running`` is set to ``False`` by ``stop()``.  Unlike
 callers are expected to wrap ``start()`` in ``asyncio.create_task()`` if they
 want it to run concurrently.
 """
+
 from __future__ import annotations
 
 import asyncio

@@ -21,13 +21,12 @@ Dependencies
 - graphclaw.skills.worker: SkillWorker, WorkerPool.
 - graphclaw.skills.models: SkillDefinition, SkillJob, SkillStatus, ThreadState, WorkerStatus.
 """
+
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
-
-import pytest
 
 from graphclaw.skills.models import (
     SkillDefinition,
@@ -37,14 +36,13 @@ from graphclaw.skills.models import (
 )
 from graphclaw.skills.worker import SkillWorker, WorkerPool
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
 def _utc(*args, **kwargs) -> datetime:
-    return datetime(*args, **kwargs, tzinfo=timezone.utc)
+    return datetime(*args, **kwargs, tzinfo=UTC)
 
 
 def _make_router(content: str = "LLM output", tokens: int = 50) -> MagicMock:
@@ -278,12 +276,20 @@ async def test_pool_priority_ordering() -> None:
     await pool.start()
 
     low_job = SkillJob(
-        job_id="low", skill_name="s", task_id="TSK-AB-0001-ATM",
-        session_id="SES-1", created_at=_utc(2026, 3, 18, 9, 0), priority=1,
+        job_id="low",
+        skill_name="s",
+        task_id="TSK-AB-0001-ATM",
+        session_id="SES-1",
+        created_at=_utc(2026, 3, 18, 9, 0),
+        priority=1,
     )
     high_job = SkillJob(
-        job_id="high", skill_name="s", task_id="TSK-AB-0002-ATM",
-        session_id="SES-2", created_at=_utc(2026, 3, 18, 9, 0), priority=10,
+        job_id="high",
+        skill_name="s",
+        task_id="TSK-AB-0002-ATM",
+        session_id="SES-2",
+        created_at=_utc(2026, 3, 18, 9, 0),
+        priority=10,
     )
 
     await pool.submit(low_job)

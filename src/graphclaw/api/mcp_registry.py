@@ -33,6 +33,7 @@ Dependencies
 - fastapi: APIRouter, Depends, HTTPException, Query, status (third-party).
 - pydantic: BaseModel (third-party).
 """
+
 from __future__ import annotations
 
 import logging
@@ -185,7 +186,9 @@ async def search_mcp_registry(
         ),
     ]
     if q:
-        prebuilt = [r for r in prebuilt if q.lower() in r.name.lower() or q.lower() in r.description.lower()]
+        prebuilt = [
+            r for r in prebuilt if q.lower() in r.name.lower() or q.lower() in r.description.lower()
+        ]
     return prebuilt
 
 
@@ -229,9 +232,7 @@ async def update_mcp_server(
                 server["trust_tier"] = body.trust_tier
             if body.enabled is not None:
                 server["enabled"] = body.enabled
-            logger.debug(
-                "mcp-servers: updated '%s' for user_id=%s", server_id, user_id
-            )
+            logger.debug("mcp-servers: updated '%s' for user_id=%s", server_id, user_id)
             return MCPServerEntry(**server)
     raise HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,
@@ -257,6 +258,4 @@ async def delete_mcp_server(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"MCP server '{server_id}' not found",
         )
-    logger.info(
-        "mcp-servers: deregistered '%s' for user_id=%s", server_id, user_id
-    )
+    logger.info("mcp-servers: deregistered '%s' for user_id=%s", server_id, user_id)

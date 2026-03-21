@@ -31,14 +31,15 @@ Author
 GraphClaw Project — https://graphclaw.ai
 License: Apache 2.0
 """
+
 from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
-from graphclaw.connectors.base import ConnectorABC, ConnectorConfig
+from graphclaw.connectors.base import ConnectorConfig
 from graphclaw.connectors.calendar.base import CalendarConnector
 from graphclaw.connectors.calendar.models import CalendarEvent, FreeBusySlot
 
@@ -56,8 +57,9 @@ def _parse_datetime(dt_str: str | None, date_str: str | None) -> datetime:
     if date_str:
         # All-day event: "2024-01-15"
         from datetime import date  # noqa: PLC0415
+
         d = date.fromisoformat(date_str)
-        return datetime(d.year, d.month, d.day, tzinfo=timezone.utc)
+        return datetime(d.year, d.month, d.day, tzinfo=UTC)
     raise ValueError("Both dateTime and date are None in Google Calendar response")
 
 
@@ -67,11 +69,7 @@ def _google_event_to_calendar_event(raw: dict) -> CalendarEvent:
     end_raw = raw.get("end", {})
     is_all_day = "date" in start_raw and "dateTime" not in start_raw
 
-    attendees = [
-        a.get("email", "")
-        for a in raw.get("attendees", [])
-        if a.get("email")
-    ]
+    attendees = [a.get("email", "") for a in raw.get("attendees", []) if a.get("email")]
 
     return CalendarEvent(
         event_id=raw.get("id"),
@@ -171,6 +169,7 @@ class GoogleCalendarConnector(CalendarConnector):
     async def health_check(self) -> bool:
         """Return True if the calendar list endpoint responds successfully."""
         try:
+
             def _check() -> bool:
                 result = self._service.calendarList().list(maxResults=1).execute()
                 return "items" in result or "kind" in result
@@ -187,8 +186,8 @@ class GoogleCalendarConnector(CalendarConnector):
         calendar_id: str = "primary",
     ) -> list[CalendarEvent]:
         """List all events in the given time window from the specified calendar."""
-        time_min = since.isoformat() if since.tzinfo else since.replace(tzinfo=timezone.utc).isoformat()
-        time_max = until.isoformat() if until.tzinfo else until.replace(tzinfo=timezone.utc).isoformat()
+        time_min = since.isoformat() if since.tzinfo else since.replace(tzinfo=UTC).isoformat()
+        time_max = until.isoformat() if until.tzinfo else until.replace(tzinfo=UTC).isoformat()
 
         def _fetch() -> list[dict]:
             events_result = (
@@ -228,11 +227,7 @@ class GoogleCalendarConnector(CalendarConnector):
         body = _calendar_event_to_google_body(event)
 
         def _create() -> dict:
-            return (
-                self._service.events()
-                .insert(calendarId=calendar_id, body=body)
-                .execute()
-            )
+            return self._service.events().insert(calendarId=calendar_id, body=body).execute()
 
         result = await asyncio.to_thread(_create)
         return result["id"]
@@ -271,8 +266,8 @@ class GoogleCalendarConnector(CalendarConnector):
         calendar_id: str = "primary",
     ) -> list[FreeBusySlot]:
         """Query the free/busy information for the given time range."""
-        time_min = since.isoformat() if since.tzinfo else since.replace(tzinfo=timezone.utc).isoformat()
-        time_max = until.isoformat() if until.tzinfo else until.replace(tzinfo=timezone.utc).isoformat()
+        time_min = since.isoformat() if since.tzinfo else since.replace(tzinfo=UTC).isoformat()
+        time_max = until.isoformat() if until.tzinfo else until.replace(tzinfo=UTC).isoformat()
 
         body = {
             "timeMin": time_min,

@@ -22,6 +22,7 @@ Dependencies
 - fastapi: FastAPI (third-party).
 - pytest: test runner.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -147,9 +148,7 @@ def test_patch_mcp_server_trust_tier(client: TestClient) -> None:
     """PATCH /app/v1/mcp-servers/{id} updates the trust tier."""
     reg = client.post("/app/v1/mcp-servers", json=_REGISTER_PAYLOAD).json()
     server_id = reg["server_id"]
-    response = client.patch(
-        f"/app/v1/mcp-servers/{server_id}", json={"trust_tier": "AUTO"}
-    )
+    response = client.patch(f"/app/v1/mcp-servers/{server_id}", json={"trust_tier": "AUTO"})
     assert response.status_code == 200
     assert response.json()["trust_tier"] == "AUTO"
 
@@ -158,18 +157,14 @@ def test_patch_mcp_server_enabled_flag(client: TestClient) -> None:
     """PATCH /app/v1/mcp-servers/{id} can disable a server."""
     reg = client.post("/app/v1/mcp-servers", json=_REGISTER_PAYLOAD).json()
     server_id = reg["server_id"]
-    response = client.patch(
-        f"/app/v1/mcp-servers/{server_id}", json={"enabled": False}
-    )
+    response = client.patch(f"/app/v1/mcp-servers/{server_id}", json={"enabled": False})
     assert response.status_code == 200
     assert response.json()["enabled"] is False
 
 
 def test_patch_mcp_server_not_found(client: TestClient) -> None:
     """PATCH /app/v1/mcp-servers/{id} returns 404 for unknown server."""
-    response = client.patch(
-        "/app/v1/mcp-servers/MCP-nonexistent", json={"trust_tier": "AUTO"}
-    )
+    response = client.patch("/app/v1/mcp-servers/MCP-nonexistent", json={"trust_tier": "AUTO"})
     assert response.status_code == 404
 
 

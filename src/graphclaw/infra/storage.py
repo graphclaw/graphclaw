@@ -34,6 +34,7 @@ S3 file layout convention: ``{bucket}/{agents,workspaces,skills}/{user_id}/...``
 This module does not enforce the layout — callers are responsible for
 building correct path strings.
 """
+
 from __future__ import annotations
 
 import asyncio

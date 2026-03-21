@@ -23,12 +23,12 @@ Dependencies
 - graphclaw.gateway.deps: get_broker.
 - pytest: test runner.
 """
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -37,7 +37,6 @@ from graphclaw.a2a.models import A2AKeyRef
 from graphclaw.a2a.routes import a2a_router, task_update_router
 from graphclaw.auth.middleware import get_current_user_id
 from graphclaw.gateway.deps import get_broker
-
 
 # ---------------------------------------------------------------------------
 # Helpers / stubs
@@ -71,7 +70,7 @@ def _make_mock_key_manager(
         key_id=key_id,
         agent_name="TestAgent",
         user_id=_TEST_USER,
-        created_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
+        created_at=datetime(2025, 1, 1, tzinfo=UTC),
         resource_node_id=key_id,
     )
     km.register_agent = AsyncMock(return_value=(key_ref, plaintext))

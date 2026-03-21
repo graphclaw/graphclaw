@@ -25,6 +25,7 @@ The ``_OVERRIDE_VALUES`` dict includes both canonical PRD names (PRIORITIZE,
 DEPRIORITIZE, SNOOZE) and legacy aliases (PRIORITY, TOP, WATCH, WAIT, SNOOZED)
 to ensure backward compatibility during the Phase 0 migration period.
 """
+
 from __future__ import annotations
 
 from graphclaw.models.enums import OverrideType
@@ -32,9 +33,9 @@ from graphclaw.models.enums import OverrideType
 # Mapping of override type to score adjustment.
 # ``None`` means the task is excluded from scoring entirely (SNOOZE).
 _OVERRIDE_VALUES: dict[str, float | None] = {
-    "PRIORITIZE": +1.0,   # "Make this a priority"
-    "DEPRIORITIZE": -0.3, # "This can wait"
-    "SNOOZE": None,       # Excluded from scoring entirely
+    "PRIORITIZE": +1.0,  # "Make this a priority"
+    "DEPRIORITIZE": -0.3,  # "This can wait"
+    "SNOOZE": None,  # Excluded from scoring entirely
     # Internal canonical names from PRD skill (kept for reference):
     "PRIORITY": +1.0,
     "TOP": +1.0,

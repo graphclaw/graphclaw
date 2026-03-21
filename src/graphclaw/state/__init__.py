@@ -1,4 +1,5 @@
 """GraphClaw state machine package."""
+
 from __future__ import annotations
 
 from graphclaw.state.cascade import activate_next_in_chain, check_composite_completion

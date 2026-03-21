@@ -19,11 +19,12 @@ Dependencies
 - graphclaw.skills.registry: SkillRegistryService under test.
 - graphclaw.skills.registry_models: Domain dataclasses.
 """
+
 from __future__ import annotations
 
 import dataclasses
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -39,12 +40,11 @@ from graphclaw.skills.registry_models import (
     SkillSourceType,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-_NOW = datetime(2026, 3, 20, 12, 0, 0, tzinfo=timezone.utc)
+_NOW = datetime(2026, 3, 20, 12, 0, 0, tzinfo=UTC)
 
 _SAMPLE_SKILL_MD = (
     "---\n"
@@ -209,9 +209,7 @@ async def test_search_by_query() -> None:
         await service.add_source("user-1", source)
 
         # Reload with sources registered
-        sources_json = json.dumps(
-            [dataclasses.asdict(source)], default=str
-        ).encode()
+        sources_json = json.dumps([dataclasses.asdict(source)], default=str).encode()
 
         def _side_effect(path: str) -> bytes:
             if "sources.json" in path:
@@ -251,9 +249,7 @@ async def test_search_by_tags() -> None:
         mock_get_http.return_value = mock_client
         await service.add_source("user-1", source)
 
-        sources_json = json.dumps(
-            [dataclasses.asdict(source)], default=str
-        ).encode()
+        sources_json = json.dumps([dataclasses.asdict(source)], default=str).encode()
 
         def _side_effect(path: str) -> bytes:
             if "sources.json" in path:
@@ -294,9 +290,7 @@ async def test_search_by_source_uri() -> None:
         mock_get_http.return_value = mock_client
         await service.add_source("user-1", github_source)
 
-        sources_json = json.dumps(
-            [dataclasses.asdict(github_source)], default=str
-        ).encode()
+        sources_json = json.dumps([dataclasses.asdict(github_source)], default=str).encode()
 
         def _side_effect(path: str) -> bytes:
             if "sources.json" in path:
@@ -378,7 +372,10 @@ async def test_install_from_github() -> None:
     )
     assert cache_write is not None, "Expected a write call for SKILL.md"
     assert cache_write.args[0] == expected_path
-    assert _SAMPLE_SKILL_MD.encode() in cache_write.args[1] or cache_write.args[1] == _SAMPLE_SKILL_MD.encode()
+    assert (
+        _SAMPLE_SKILL_MD.encode() in cache_write.args[1]
+        or cache_write.args[1] == _SAMPLE_SKILL_MD.encode()
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -646,8 +643,7 @@ def test_github_raw_url_conversion() -> None:
         "https://github.com/my-org/my-skills/tree/develop/skill-packs"
     )
     assert url2 == (
-        "https://raw.githubusercontent.com/my-org/my-skills/develop/"
-        "skill-packs/marketplace.json"
+        "https://raw.githubusercontent.com/my-org/my-skills/develop/skill-packs/marketplace.json"
     )
     assert owner2 == "my-org"
     assert repo2 == "my-skills"

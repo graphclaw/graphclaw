@@ -22,6 +22,7 @@ Dependencies
 - fastapi: FastAPI (third-party).
 - pytest: test runner.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -193,9 +194,7 @@ def test_deny_task_updates_stored_status(client: TestClient) -> None:
     _seed_approval("TASK-DENY-STATUS-CHK")
     client.post("/app/v1/approvals/TASK-DENY-STATUS-CHK/deny")
     tasks = approvals_module._pending_approvals.get(_TEST_USER, [])
-    task = next(
-        (t for t in tasks if t["task_id"] == "TASK-DENY-STATUS-CHK"), None
-    )
+    task = next((t for t in tasks if t["task_id"] == "TASK-DENY-STATUS-CHK"), None)
     assert task is not None
     assert task["status"] == "CANCELLED"
 

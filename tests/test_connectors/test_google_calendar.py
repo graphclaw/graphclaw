@@ -14,11 +14,12 @@ Author
 GraphClaw Project — https://graphclaw.ai
 License: Apache 2.0
 """
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -29,7 +30,6 @@ from graphclaw.connectors.calendar.google.adapter import (
     _google_event_to_calendar_event,
 )
 from graphclaw.connectors.calendar.models import CalendarEvent
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -102,8 +102,8 @@ class TestGoogleEventToCalendarEvent:
     def test_start_end_datetimes_parsed(self) -> None:
         """Start and end dateTime strings should be parsed to datetime objects."""
         event = _google_event_to_calendar_event(_GOOGLE_EVENT_RAW)
-        assert event.start == datetime(2024, 3, 1, 9, 0, tzinfo=timezone.utc)
-        assert event.end == datetime(2024, 3, 1, 9, 30, tzinfo=timezone.utc)
+        assert event.start == datetime(2024, 3, 1, 9, 0, tzinfo=UTC)
+        assert event.end == datetime(2024, 3, 1, 9, 30, tzinfo=UTC)
 
     def test_attendees_extracted(self) -> None:
         """Attendee email addresses should be extracted into a list."""
@@ -137,8 +137,8 @@ class TestGoogleEventToCalendarEvent:
 class TestCalendarEventToGoogleBody:
     """Tests for the CalendarEvent→Google API body mapping function."""
 
-    _now = datetime(2024, 3, 1, 9, 0, tzinfo=timezone.utc)
-    _later = datetime(2024, 3, 1, 9, 30, tzinfo=timezone.utc)
+    _now = datetime(2024, 3, 1, 9, 0, tzinfo=UTC)
+    _later = datetime(2024, 3, 1, 9, 30, tzinfo=UTC)
 
     def _make_event(self, **kwargs) -> CalendarEvent:
         defaults = dict(event_id=None, title="Meeting", start=self._now, end=self._later)
@@ -206,8 +206,8 @@ class TestCalendarEventToGoogleBody:
 class TestGoogleCalendarConnectorListEvents:
     """Tests for GoogleCalendarConnector.list_events with mocked API calls."""
 
-    _since = datetime(2024, 3, 1, 0, 0, tzinfo=timezone.utc)
-    _until = datetime(2024, 3, 31, 23, 59, tzinfo=timezone.utc)
+    _since = datetime(2024, 3, 1, 0, 0, tzinfo=UTC)
+    _until = datetime(2024, 3, 31, 23, 59, tzinfo=UTC)
 
     @pytest.mark.asyncio
     async def test_list_events_maps_response_correctly(self) -> None:
@@ -216,7 +216,9 @@ class TestGoogleCalendarConnectorListEvents:
         api_response = [_GOOGLE_EVENT_RAW, _GOOGLE_ALL_DAY_EVENT_RAW]
 
         # Mock asyncio.to_thread to return the API response directly
-        with patch("graphclaw.connectors.calendar.google.adapter.asyncio.to_thread") as mock_to_thread:
+        with patch(
+            "graphclaw.connectors.calendar.google.adapter.asyncio.to_thread"
+        ) as mock_to_thread:
             mock_to_thread.return_value = api_response
             events = await connector.list_events(self._since, self._until)
 
@@ -253,7 +255,9 @@ class TestGoogleCalendarConnectorListEvents:
         """list_events should return an empty list when no events are found."""
         connector = _make_connector()
 
-        with patch("graphclaw.connectors.calendar.google.adapter.asyncio.to_thread") as mock_to_thread:
+        with patch(
+            "graphclaw.connectors.calendar.google.adapter.asyncio.to_thread"
+        ) as mock_to_thread:
             mock_to_thread.return_value = []
             events = await connector.list_events(self._since, self._until)
 
@@ -264,7 +268,9 @@ class TestGoogleCalendarConnectorListEvents:
         """list_events should return CalendarEvent instances, not raw dicts."""
         connector = _make_connector()
 
-        with patch("graphclaw.connectors.calendar.google.adapter.asyncio.to_thread") as mock_to_thread:
+        with patch(
+            "graphclaw.connectors.calendar.google.adapter.asyncio.to_thread"
+        ) as mock_to_thread:
             mock_to_thread.return_value = [_GOOGLE_EVENT_RAW]
             events = await connector.list_events(self._since, self._until)
 
@@ -279,8 +285,8 @@ class TestGoogleCalendarConnectorListEvents:
 class TestGoogleCalendarConnectorCreateEvent:
     """Tests for GoogleCalendarConnector.create_event with mocked API calls."""
 
-    _now = datetime(2024, 3, 1, 9, 0, tzinfo=timezone.utc)
-    _later = datetime(2024, 3, 1, 9, 30, tzinfo=timezone.utc)
+    _now = datetime(2024, 3, 1, 9, 0, tzinfo=UTC)
+    _later = datetime(2024, 3, 1, 9, 30, tzinfo=UTC)
 
     def _make_event(self, **kwargs) -> CalendarEvent:
         defaults = dict(
@@ -299,7 +305,9 @@ class TestGoogleCalendarConnectorCreateEvent:
         """create_event should return the event ID from the API response."""
         connector = _make_connector()
 
-        with patch("graphclaw.connectors.calendar.google.adapter.asyncio.to_thread") as mock_to_thread:
+        with patch(
+            "graphclaw.connectors.calendar.google.adapter.asyncio.to_thread"
+        ) as mock_to_thread:
             mock_to_thread.return_value = {"id": "new_evt_id"}
             event_id = await connector.create_event(self._make_event())
 
@@ -332,7 +340,9 @@ class TestGoogleCalendarConnectorCreateEvent:
         """create_event should call asyncio.to_thread exactly once."""
         connector = _make_connector()
 
-        with patch("graphclaw.connectors.calendar.google.adapter.asyncio.to_thread") as mock_to_thread:
+        with patch(
+            "graphclaw.connectors.calendar.google.adapter.asyncio.to_thread"
+        ) as mock_to_thread:
             mock_to_thread.return_value = {"id": "evt_xyz"}
             await connector.create_event(self._make_event())
 
@@ -354,7 +364,9 @@ class TestGoogleCalendarConnectorConnect:
         connector = GoogleCalendarConnector(config)
         connector._service = None  # ensure not pre-connected
 
-        with patch.dict("sys.modules", {"google.oauth2.credentials": None, "googleapiclient.discovery": None}):
+        with patch.dict(
+            "sys.modules", {"google.oauth2.credentials": None, "googleapiclient.discovery": None}
+        ):
             with patch("builtins.__import__", side_effect=ImportError("No module named 'google'")):
                 with pytest.raises(ImportError, match="google-api-python-client"):
                     await connector.connect()

@@ -22,6 +22,7 @@ Both enum values (``EdgeStrength.HARD``) and plain strings (``"HARD"``) are
 accepted because the scoring context may carry either form depending on how the
 BLOCKS edge strength was retrieved from the AGE property graph.
 """
+
 from __future__ import annotations
 
 from graphclaw.models.enums import EdgeStrength

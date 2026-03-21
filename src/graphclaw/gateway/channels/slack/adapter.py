@@ -40,6 +40,7 @@ Dependencies
 - graphclaw.infra.broker: MessageBroker.
 - graphclaw.infra.storage: StorageClient.
 """
+
 from __future__ import annotations
 
 import logging
@@ -53,7 +54,6 @@ from graphclaw.gateway.schemas import InboundMessage, OutboundMessage
 
 if TYPE_CHECKING:
     from graphclaw.infra.broker import MessageBroker
-    from graphclaw.infra.storage import StorageClient
 
 logger = logging.getLogger(__name__)
 
@@ -74,9 +74,7 @@ class SlackAdapter(ChannelAdapter):
         """Load config from environment; log ready status (Slack uses webhooks)."""
         self._config = SlackConfig.from_env()
         if self._config is None:
-            logger.warning(
-                "Slack channel: SLACK_BOT_TOKEN not set — channel disabled"
-            )
+            logger.warning("Slack channel: SLACK_BOT_TOKEN not set — channel disabled")
             return
         self._sender = SlackSender(self._config)
         self._broker = broker
@@ -119,9 +117,7 @@ class SlackAdapter(ChannelAdapter):
             return
         await self._sender.send(channel=recipient, text=text)
 
-    def verify_webhook_signature(
-        self, body: bytes, timestamp: str, signature: str
-    ) -> bool:
+    def verify_webhook_signature(self, body: bytes, timestamp: str, signature: str) -> bool:
         """Verify a Slack webhook request signature using HMAC-SHA256.
 
         Slack signs each request with a signature derived from the signing secret,
@@ -176,6 +172,8 @@ class SlackAdapter(ChannelAdapter):
             await self._broker.publish("inbound_messages", msg.model_dump(mode="json"))
             logger.info("Slack channel: published inbound message %s", msg.message_id)
         else:
-            logger.warning("Slack channel: broker not available, dropping message %s", msg.message_id)
+            logger.warning(
+                "Slack channel: broker not available, dropping message %s", msg.message_id
+            )
 
         return msg

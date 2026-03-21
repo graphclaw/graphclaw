@@ -28,7 +28,6 @@ from infra.observability.log_groups import (
 from infra.observability.metric_filters import METRIC_FILTERS
 from infra.observability.stack import build_observability_stack
 
-
 # ---------------------------------------------------------------------------
 # Log group tests
 # ---------------------------------------------------------------------------
@@ -186,17 +185,13 @@ def test_alarm_configs_all_tiers() -> None:
     """ALARM_CONFIGS must include at least one alarm for each of P1, P2, P3."""
     tiers_present = {alarm.tier for alarm in ALARM_CONFIGS}
     for tier in AlarmTier:
-        assert tier in tiers_present, (
-            f"Alarm tier {tier.value} has no alarms in ALARM_CONFIGS"
-        )
+        assert tier in tiers_present, f"Alarm tier {tier.value} has no alarms in ALARM_CONFIGS"
 
 
 def test_p1_alarms_exist() -> None:
     """At least 2 P1 alarms must be defined (state-at-risk scenarios)."""
     p1_alarms = [a for a in ALARM_CONFIGS if a.tier == AlarmTier.P1]
-    assert len(p1_alarms) >= 2, (
-        f"Expected at least 2 P1 alarms, got {len(p1_alarms)}"
-    )
+    assert len(p1_alarms) >= 2, f"Expected at least 2 P1 alarms, got {len(p1_alarms)}"
 
 
 def test_alarm_configs_have_descriptions() -> None:
@@ -272,9 +267,7 @@ def test_build_observability_stack_dashboards_non_empty() -> None:
 
 def test_dashboards_count() -> None:
     """Exactly 5 dashboards must be defined per PRD Sec 32.11."""
-    assert len(DASHBOARDS) == 5, (
-        f"Expected 5 dashboards, got {len(DASHBOARDS)}: {DASHBOARDS}"
-    )
+    assert len(DASHBOARDS) == 5, f"Expected 5 dashboards, got {len(DASHBOARDS)}: {DASHBOARDS}"
 
 
 def test_dashboards_expected_names() -> None:

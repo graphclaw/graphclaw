@@ -19,10 +19,11 @@ Dependencies
 - unittest.mock: MagicMock, patch, AsyncMock.
 - graphclaw.infra.storage: S3StorageClient under test.
 """
+
 from __future__ import annotations
 
 from io import BytesIO
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -68,9 +69,7 @@ async def test_read_calls_get_object() -> None:
     result = await client.read("agents/user1/state.json")
 
     assert result == b"hello"
-    mock_s3.get_object.assert_called_once_with(
-        Bucket="test-bucket", Key="agents/user1/state.json"
-    )
+    mock_s3.get_object.assert_called_once_with(Bucket="test-bucket", Key="agents/user1/state.json")
 
 
 # ---------------------------------------------------------------------------
@@ -112,9 +111,7 @@ async def test_list_objects_returns_keys() -> None:
         "agents/user1/c.json",
     ]
     mock_s3.get_paginator.assert_called_once_with("list_objects_v2")
-    mock_paginator.paginate.assert_called_once_with(
-        Bucket="test-bucket", Prefix="agents/user1/"
-    )
+    mock_paginator.paginate.assert_called_once_with(Bucket="test-bucket", Prefix="agents/user1/")
 
 
 async def test_list_objects_empty_prefix() -> None:
@@ -143,9 +140,7 @@ async def test_exists_returns_true_when_object_present() -> None:
     result = await client.exists("agents/user1/state.json")
 
     assert result is True
-    mock_s3.head_object.assert_called_once_with(
-        Bucket="test-bucket", Key="agents/user1/state.json"
-    )
+    mock_s3.head_object.assert_called_once_with(Bucket="test-bucket", Key="agents/user1/state.json")
 
 
 async def test_exists_returns_false_when_object_missing() -> None:

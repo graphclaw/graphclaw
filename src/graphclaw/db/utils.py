@@ -26,8 +26,9 @@ Notes
 -----
 New code should import directly from ``graphclaw.db.age.utils``.
 """
+
 from __future__ import annotations
 
-from graphclaw.db.age.utils import GRAPH_NAME, _parse_agtype, _escape, _extract_properties
+from graphclaw.db.age.utils import GRAPH_NAME, _escape, _extract_properties, _parse_agtype
 
 __all__ = ["GRAPH_NAME", "_parse_agtype", "_escape", "_extract_properties"]

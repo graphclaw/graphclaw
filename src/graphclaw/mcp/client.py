@@ -37,7 +37,7 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from graphclaw.mcp.models import MCPTool, MCPToolCall, MCPToolResult
 from graphclaw.models.enums import MCPTransport, TrustTier
@@ -137,9 +137,7 @@ class MCPClient:
             (``endpoint_url`` / ``command``) are missing.
         """
         if not _MCP_AVAILABLE:
-            raise ImportError(
-                "MCP SDK is not installed. Install it with: pip install mcp>=1.0.0"
-            )
+            raise ImportError("MCP SDK is not installed. Install it with: pip install mcp>=1.0.0")
 
         self._server = server
 
@@ -173,9 +171,7 @@ class MCPClient:
             try:
                 await self._session.__aexit__(None, None, None)
             except Exception as exc:
-                logger.warning(
-                    "mcp.client.disconnect.error", extra={"error": str(exc)}
-                )
+                logger.warning("mcp.client.disconnect.error", extra={"error": str(exc)})
             finally:
                 self._session = None
                 self._server = None
@@ -256,7 +252,7 @@ class MCPClient:
             If ``connect()`` has not been called.
         """
         call_id = str(uuid.uuid4())
-        requested_at = datetime.now(timezone.utc)
+        requested_at = datetime.now(UTC)
 
         call = MCPToolCall(
             call_id=call_id,
@@ -280,9 +276,7 @@ class MCPClient:
                 ),
             )
             await self._log_tool_call(call, blocked_result)
-            raise MCPToolBlockedError(
-                f"Server '{server_id}' is BLOCKED. Tool call rejected."
-            )
+            raise MCPToolBlockedError(f"Server '{server_id}' is BLOCKED. Tool call rejected.")
 
         # GATED — require user approval first
         if trust_tier == TrustTier.GATED:
@@ -306,9 +300,7 @@ class MCPClient:
                     error_message=f"Tool '{tool_name}' approval was denied by user '{user_id}'.",
                 )
                 await self._log_tool_call(call, denied_result)
-                raise MCPApprovalDeniedError(
-                    f"Tool '{tool_name}' call denied by user '{user_id}'."
-                )
+                raise MCPApprovalDeniedError(f"Tool '{tool_name}' call denied by user '{user_id}'.")
 
         # AUTO or approved GATED — execute
         result = await self._execute_tool(tool_name, arguments)
@@ -319,9 +311,7 @@ class MCPClient:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    async def _execute_tool(
-        self, tool_name: str, arguments: dict
-    ) -> MCPToolResult:
+    async def _execute_tool(self, tool_name: str, arguments: dict) -> MCPToolResult:
         """Send a ``tools/call`` request to the connected MCP server.
 
         Parameters
@@ -372,9 +362,7 @@ class MCPClient:
                 latency_ms=latency_ms,
             )
 
-    async def _log_tool_call(
-        self, call: MCPToolCall, result: MCPToolResult | None
-    ) -> None:
+    async def _log_tool_call(self, call: MCPToolCall, result: MCPToolResult | None) -> None:
         """Emit a structured log event for an MCP tool call.
 
         Parameters

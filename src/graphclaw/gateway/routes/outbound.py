@@ -34,6 +34,7 @@ The outbound queue is consumed by ``EmailSender.start_consumer`` or future
 channel-specific consumers.  This endpoint does not differentiate by channel;
 routing to the correct sender is the responsibility of the consumer layer.
 """
+
 from __future__ import annotations
 
 import logging

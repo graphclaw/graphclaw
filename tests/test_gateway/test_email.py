@@ -3,9 +3,9 @@
 All IMAP and SMTP interactions are mocked so no real network connections
 are required.
 """
+
 from __future__ import annotations
 
-import asyncio
 import imaplib
 from collections.abc import AsyncIterator
 from email.message import EmailMessage
@@ -13,9 +13,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from graphclaw.gateway.channels.email.config import EmailConfig
 from graphclaw.gateway.channels.email.poller import EmailPoller
 from graphclaw.gateway.channels.email.sender import EmailSender
-from graphclaw.gateway.channels.email.config import EmailConfig
 
 
 async def send_email(message, config) -> None:
@@ -23,17 +23,23 @@ async def send_email(message, config) -> None:
     if message.channel != "email":
         raise ValueError(f"send_email only handles channel='email', got {message.channel!r}")
     sender = EmailSender(
-        host=config.smtp_host, port=config.smtp_port,
-        username=config.username, password=config.password,
+        host=config.smtp_host,
+        port=config.smtp_port,
+        username=config.username,
+        password=config.password,
         use_tls=(config.smtp_port == 465),
     )
     await sender.send(
-        recipient=message.recipient, subject=message.subject,
-        body=message.body, in_reply_to=message.in_reply_to,
+        recipient=message.recipient,
+        subject=message.subject,
+        body=message.body,
+        in_reply_to=message.in_reply_to,
     )
-from graphclaw.gateway.schemas import InboundMessage, OutboundMessage
-from datetime import datetime, timezone
 
+
+from datetime import UTC, datetime
+
+from graphclaw.gateway.schemas import InboundMessage, OutboundMessage
 
 # ---------------------------------------------------------------------------
 # Mock broker
@@ -224,7 +230,7 @@ class TestSendCallsAiosmtplib:
     async def test_send_calls_aiosmtplib(self):
         """send_email should call aiosmtplib.send with correct parameters."""
         config = _make_config(smtp_host="smtp.example.com", smtp_port=587)
-        _NOW = datetime(2024, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
+        _NOW = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
         message = OutboundMessage(
             message_id="out-001",
             channel="email",
@@ -247,7 +253,7 @@ class TestSendCallsAiosmtplib:
     async def test_send_raises_for_non_email_channel(self):
         """send_email should raise ValueError for non-email channels."""
         config = _make_config()
-        _NOW = datetime(2024, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
+        _NOW = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
         message = OutboundMessage(
             message_id="out-002",
             channel="api",
@@ -262,7 +268,7 @@ class TestSendCallsAiosmtplib:
     async def test_send_sets_in_reply_to_header(self):
         """When in_reply_to is set, the email headers should reflect it."""
         config = _make_config()
-        _NOW = datetime(2024, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
+        _NOW = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
         message = OutboundMessage(
             message_id="out-003",
             channel="email",

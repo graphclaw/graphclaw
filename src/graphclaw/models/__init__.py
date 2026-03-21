@@ -5,34 +5,6 @@ internal organisation can evolve without breaking callers.
 """
 
 # Enumerations
-from graphclaw.models.enums import (
-    AutonomyLevel,
-    AvailabilityStatus,
-    BreakdownStrategy,
-    ChangedBy,
-    CheckinState,
-    CompletionSignal,
-    ConfidenceLevel,
-    ConstraintScope,
-    ConstraintType,
-    EdgeCreatedBy,
-    EdgeStrength,
-    EdgeType,
-    GateType,
-    GoalOrigin,
-    GoalPriority,
-    GoalState,
-    MatchedBy,
-    MCPTransport,
-    OverrideType,
-    ResourceType,
-    RiskLevel,
-    TaskState,
-    TaskType,
-    TrustTier,
-    VisibilityScope,
-)
-
 # Base / ID utilities
 from graphclaw.models.base import (
     CHECKIN_NODE_ID_PATTERN,
@@ -65,20 +37,48 @@ from graphclaw.models.base import (
     validate_user_id,
 )
 
-# Type-metadata models
-from graphclaw.models.type_metadata import (
-    ApprovalMetadata,
-    AtomicMetadata,
-    CheckinMetadata,
-    CompositeMetadata,
-    DecisionMetadata,
-    DelegatedMetadata,
-    FollowUpMetadata,
-    MilestoneMetadata,
-    RecurringMetadata,
-    ResearchMetadata,
-    ReviewMetadata,
-    TypeMetadata,
+# Edge models
+from graphclaw.models.edges import (
+    AppliesToProps,
+    AssignedToProps,
+    BatchedInProps,
+    BlocksProps,
+    BranchedFromProps,
+    DependsOnProps,
+    EdgeProperties,
+    FollowUpForProps,
+    GraphEdge,
+    InformsProps,
+    OwnedByProps,
+    PartOfProps,
+    SpawnedFromProps,
+)
+from graphclaw.models.enums import (
+    AutonomyLevel,
+    AvailabilityStatus,
+    BreakdownStrategy,
+    ChangedBy,
+    CheckinState,
+    CompletionSignal,
+    ConfidenceLevel,
+    ConstraintScope,
+    ConstraintType,
+    EdgeCreatedBy,
+    EdgeStrength,
+    EdgeType,
+    GateType,
+    GoalOrigin,
+    GoalPriority,
+    GoalState,
+    MatchedBy,
+    MCPTransport,
+    OverrideType,
+    ResourceType,
+    RiskLevel,
+    TaskState,
+    TaskType,
+    TrustTier,
+    VisibilityScope,
 )
 
 # Node models
@@ -117,6 +117,14 @@ from graphclaw.models.nodes import (
     WorkspaceNode,
 )
 
+# Scoring / explainability models
+from graphclaw.models.scoring import (
+    ActionQueueEntry,
+    ScoreExplanation,
+    ScoreFactor,
+    ScoreModifier,
+)
+
 # Scoring weight learner
 from graphclaw.models.scoring_weights import (
     DEFAULT_SCORING_WEIGHTS,
@@ -124,29 +132,20 @@ from graphclaw.models.scoring_weights import (
     ScoringWeightUpdate,
 )
 
-# Edge models
-from graphclaw.models.edges import (
-    AppliesToProps,
-    AssignedToProps,
-    BatchedInProps,
-    BlocksProps,
-    BranchedFromProps,
-    DependsOnProps,
-    EdgeProperties,
-    FollowUpForProps,
-    GraphEdge,
-    InformsProps,
-    OwnedByProps,
-    PartOfProps,
-    SpawnedFromProps,
-)
-
-# Scoring / explainability models
-from graphclaw.models.scoring import (
-    ActionQueueEntry,
-    ScoreExplanation,
-    ScoreFactor,
-    ScoreModifier,
+# Type-metadata models
+from graphclaw.models.type_metadata import (
+    ApprovalMetadata,
+    AtomicMetadata,
+    CheckinMetadata,
+    CompositeMetadata,
+    DecisionMetadata,
+    DelegatedMetadata,
+    FollowUpMetadata,
+    MilestoneMetadata,
+    RecurringMetadata,
+    ResearchMetadata,
+    ReviewMetadata,
+    TypeMetadata,
 )
 
 __all__ = [

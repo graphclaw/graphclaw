@@ -41,11 +41,11 @@ If the broker yields a message for a non-email channel (``msg.channel != "email"
 it is silently skipped by ``start_consumer``; routing to other senders is the
 responsibility of the channel router (a future component).
 """
+
 from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
 from email.message import EmailMessage
 
 import aiosmtplib

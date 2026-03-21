@@ -131,9 +131,7 @@ class OfficialMCPRegistry:
         list[MCPServerVersion]
             Versions sorted by ``released_at`` descending (newest first).
         """
-        response = await self._http.get(
-            f"{self.BASE_URL}/servers/{server_name}/versions"
-        )
+        response = await self._http.get(f"{self.BASE_URL}/servers/{server_name}/versions")
         response.raise_for_status()
         payload = response.json()
 
@@ -216,18 +214,8 @@ class OfficialMCPRegistry:
             return None
 
         # The registry may use different key names; try common variants.
-        publisher = (
-            raw.get("publisher")
-            or raw.get("author")
-            or raw.get("vendor")
-            or ""
-        )
-        version = (
-            raw.get("version")
-            or raw.get("latestVersion")
-            or raw.get("latest_version")
-            or ""
-        )
+        publisher = raw.get("publisher") or raw.get("author") or raw.get("vendor") or ""
+        version = raw.get("version") or raw.get("latestVersion") or raw.get("latest_version") or ""
         transport_raw = (
             raw.get("transport")
             or raw.get("defaultTransport")

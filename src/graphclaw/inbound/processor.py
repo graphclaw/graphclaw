@@ -41,6 +41,7 @@ The broker message published on status updates follows the schema:
 Consumers on the STATUS_UPDATES queue are expected to handle state transitions
 and any downstream cascade logic.
 """
+
 from __future__ import annotations
 
 import json

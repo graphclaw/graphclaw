@@ -37,6 +37,7 @@ Notes
 ``TaskResolver``, ``StatusExtractor``, and optional ``MessageBroker`` /
 ``AsyncLogger`` to configure the pipeline.
 """
+
 from __future__ import annotations
 
 from graphclaw.inbound.extractor import StatusExtractor

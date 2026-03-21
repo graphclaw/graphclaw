@@ -23,6 +23,7 @@ The ``_PRIORITY_MULTIPLIER`` lookup accepts both ``GoalPriority`` enum values an
 plain strings (e.g. ``"P1"``) because the scoring context may carry either form
 depending on how the goal priority was retrieved from the graph.
 """
+
 from __future__ import annotations
 
 from graphclaw.models.enums import GoalPriority

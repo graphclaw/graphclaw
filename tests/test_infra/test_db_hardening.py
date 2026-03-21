@@ -17,15 +17,13 @@
 Covers PgBouncerConfig, ReadReplicaConfig, AGE index catalogue,
 query timeout constants, and the build_db_hardening_config factory.
 """
-from __future__ import annotations
 
-import pytest
+from __future__ import annotations
 
 from infra.db.hardening import DatabaseHardeningConfig, build_db_hardening_config
 from infra.db.indexes import AGE_PRODUCTION_INDEXES, QUERY_TIMEOUT_MS, get_set_timeout_sql
 from infra.db.pgbouncer import PRODUCTION_PGBOUNCER, PgBouncerConfig
 from infra.db.read_replica import ReadReplicaConfig, should_use_replica
-
 
 # ---------------------------------------------------------------------------
 # PgBouncerConfig tests

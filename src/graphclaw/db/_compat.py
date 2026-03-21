@@ -26,6 +26,7 @@ This module exists solely to preserve backward compatibility.  New code should
 import ``AgeGraphStore`` directly from ``graphclaw.db.age`` or use the
 ``create_graph_store`` factory.
 """
+
 from __future__ import annotations
 
 from graphclaw.db.age.repository import AgeGraphStore

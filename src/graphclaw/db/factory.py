@@ -29,9 +29,10 @@ Notes
 Backend implementations are imported lazily (inside the if-branch) so that
 unused backends do not pull in their dependencies at module import time.
 """
+
 from __future__ import annotations
 
-from graphclaw.db.base import GraphStore, GraphQueryEngine
+from graphclaw.db.base import GraphQueryEngine, GraphStore
 
 
 def create_graph_store(backend: str = "age", **kwargs) -> GraphStore:
@@ -57,6 +58,7 @@ def create_graph_store(backend: str = "age", **kwargs) -> GraphStore:
     """
     if backend == "age":
         from graphclaw.db.age import AgeGraphStore
+
         return AgeGraphStore(pool=kwargs["pool"], graph_name=kwargs.get("graph_name", "graphclaw"))
     raise ValueError(f"Unknown database backend: {backend!r}. Available: 'age'")
 
@@ -84,5 +86,8 @@ def create_query_engine(backend: str = "age", **kwargs) -> GraphQueryEngine:
     """
     if backend == "age":
         from graphclaw.db.age import AgeGraphQueryEngine
-        return AgeGraphQueryEngine(pool=kwargs["pool"], graph_name=kwargs.get("graph_name", "graphclaw"))
+
+        return AgeGraphQueryEngine(
+            pool=kwargs["pool"], graph_name=kwargs.get("graph_name", "graphclaw")
+        )
     raise ValueError(f"Unknown database backend: {backend!r}. Available: 'age'")

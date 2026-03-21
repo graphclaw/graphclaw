@@ -50,7 +50,7 @@ class MigrationStatus(str, Enum):
     PENDING = "PENDING"
     APPLIED = "APPLIED"
     FAILED = "FAILED"
-    SKIPPED = "SKIPPED"   # already applied (idempotent re-run)
+    SKIPPED = "SKIPPED"  # already applied (idempotent re-run)
 
 
 class MigrationError(Exception):
@@ -91,10 +91,10 @@ class Migration:
         in the catalogue definition.
     """
 
-    version: str           # e.g. "0001", "0002" — zero-padded 4 digits
-    name: str              # e.g. "add_visibility_grant_node"
+    version: str  # e.g. "0001", "0002" — zero-padded 4 digits
+    name: str  # e.g. "add_visibility_grant_node"
     description: str
-    sql_up: str            # forward-only DDL
+    sql_up: str  # forward-only DDL
     # No sql_down — PRD requires forward-only, non-destructive migrations
-    is_destructive: bool = False   # must be False; raise if True at apply time
+    is_destructive: bool = False  # must be False; raise if True at apply time
     applied_at: datetime | None = None

@@ -38,6 +38,7 @@ to a degraded-mode response if needed.
 A missing ``session_id`` is assigned here (not in the model) so that the
 model remains a pure value object without side effects.
 """
+
 from __future__ import annotations
 
 import logging

@@ -25,6 +25,7 @@ Notes
 New code should import ``AgeGraphStore`` from ``graphclaw.db.age`` or use the
 ``create_graph_store`` factory from ``graphclaw.db``.
 """
+
 from __future__ import annotations
 
 from graphclaw.db._compat import GraphRepository

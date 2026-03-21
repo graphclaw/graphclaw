@@ -3,6 +3,7 @@
 Uses sys.modules patching to stub the litellm SDK so no real API calls
 are made.
 """
+
 from __future__ import annotations
 
 import sys

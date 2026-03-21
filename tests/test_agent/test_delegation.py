@@ -21,10 +21,12 @@ Dependencies
   _extract_initials.
 - graphclaw.models.enums: TaskState, TaskType, EdgeType.
 """
+
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 import pytest
-from unittest.mock import AsyncMock, call
 
 from graphclaw.agent.delegation import (
     DelegationError,
@@ -32,8 +34,7 @@ from graphclaw.agent.delegation import (
     DelegationService,
     _extract_initials,
 )
-from graphclaw.models.enums import EdgeType, TaskState, TaskType
-
+from graphclaw.models.enums import TaskState, TaskType
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -127,7 +128,7 @@ class TestDelegatePreconditions:
         with pytest.raises(DelegationError, match="not the owner"):
             await svc.delegate_task(
                 "TSK-AB-0001-ATM",
-                from_user_id="USER-carol",   # not the owner
+                from_user_id="USER-carol",  # not the owner
                 to_user_id="USER-bob",
             )
 
@@ -170,8 +171,7 @@ class TestDelegateVisibilityGrant:
         )
 
         edge_types_used = [
-            str(c.kwargs.get("edge_type") or c.args[2])
-            for c in store.create_edge.call_args_list
+            str(c.kwargs.get("edge_type") or c.args[2]) for c in store.create_edge.call_args_list
         ]
         assert any("GRANTS_ACCESS_TO" in et for et in edge_types_used)
 
@@ -231,8 +231,7 @@ class TestDelegateApprovalTask:
         )
 
         edge_types_used = [
-            str(c.kwargs.get("edge_type") or c.args[2])
-            for c in store.create_edge.call_args_list
+            str(c.kwargs.get("edge_type") or c.args[2]) for c in store.create_edge.call_args_list
         ]
         assert any("SPAWNED_FROM" in et for et in edge_types_used)
 

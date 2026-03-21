@@ -18,21 +18,19 @@ Dependencies
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from graphclaw.mcp.client import (
     MCPApprovalDeniedError,
-    MCPApprovalTimeoutError,
     MCPClient,
     MCPToolBlockedError,
 )
 from graphclaw.mcp.models import MCPToolResult
 from graphclaw.models.enums import MCPTransport, TrustTier
 from graphclaw.models.nodes import MCPServerNode
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -43,7 +41,7 @@ def make_server_node(
     transport: MCPTransport = MCPTransport.HTTP,
     endpoint_url: str = "https://example.com/mcp",
 ) -> MCPServerNode:
-    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    now = datetime(2026, 1, 1, tzinfo=UTC)
     return MCPServerNode(
         id="MCP-AAAABBBB",
         name="Test Server",

@@ -12,10 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """graphclaw.gateway.channels.slack — Slack Events API channel plugin."""
+
 from __future__ import annotations
 
-from graphclaw.gateway.channels.slack.adapter import SlackAdapter as Adapter
 from graphclaw.gateway.channels.slack.adapter import SlackAdapter
+from graphclaw.gateway.channels.slack.adapter import SlackAdapter as Adapter
 from graphclaw.gateway.channels.slack.config import SlackConfig
 from graphclaw.gateway.channels.slack.normalizer import normalize_slack as SlackNormalizer
 from graphclaw.gateway.channels.slack.sender import SlackSender

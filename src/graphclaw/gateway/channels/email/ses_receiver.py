@@ -36,6 +36,7 @@ SESEmailReceiver is only instantiated in production (EMAIL_BACKEND=ses).
 The Lambda generates a pre-signed S3 URL (1-hour expiry) so the gateway
 never needs AWS credentials at runtime — only an IAM role or the URL itself.
 """
+
 # Copyright 2024 GraphClaw Contributors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -158,18 +159,14 @@ class SESEmailReceiver:
         recipient = payload.get("recipient", "")
 
         if presigned_url:
-            logger.debug(
-                "SESEmailReceiver: downloading email via presigned URL, key=%s", s3_key
-            )
+            logger.debug("SESEmailReceiver: downloading email via presigned URL, key=%s", s3_key)
             async with httpx.AsyncClient(timeout=30.0) as client:
                 resp = await client.get(presigned_url)
                 resp.raise_for_status()
                 raw_bytes = resp.content
         else:
             # Fallback: construct S3 URL (requires public bucket or IAM role)
-            url = (
-                f"https://{self.s3_bucket}.s3.{self.aws_region}.amazonaws.com/{s3_key}"
-            )
+            url = f"https://{self.s3_bucket}.s3.{self.aws_region}.amazonaws.com/{s3_key}"
             logger.debug(
                 "SESEmailReceiver: no presigned URL, falling back to S3 path url=%s",
                 url,
@@ -200,7 +197,7 @@ class SESEmailReceiver:
         return inbound
 
     @classmethod
-    def from_env(cls) -> "SESEmailReceiver":
+    def from_env(cls) -> SESEmailReceiver:
         """Construct from environment variables.
 
         Environment variables

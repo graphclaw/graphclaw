@@ -1,4 +1,5 @@
 """GraphClaw scoring factor functions — re-exported for convenience."""
+
 from __future__ import annotations
 
 from graphclaw.scoring.factors.blocker import blocker_score

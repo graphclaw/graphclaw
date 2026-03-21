@@ -15,7 +15,7 @@ Dependencies
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -26,7 +26,6 @@ from graphclaw.mcp.models import (
     MCPToolCall,
     MCPToolResult,
 )
-
 
 # ---------------------------------------------------------------------------
 # MCPTool
@@ -86,7 +85,7 @@ class TestMCPToolCall:
             arguments={"calendar_id": "primary"},
             trust_tier="AUTO",
             user_id="USER-alice",
-            requested_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            requested_at=datetime(2026, 1, 1, tzinfo=UTC),
         )
         defaults.update(kwargs)
         return MCPToolCall(**defaults)
@@ -216,7 +215,7 @@ class TestMCPServerVersion:
         v = MCPServerVersion(
             server_name="io.example/my-server",
             version="2.0.0",
-            released_at=datetime(2026, 3, 1, tzinfo=timezone.utc),
+            released_at=datetime(2026, 3, 1, tzinfo=UTC),
             changelog="Major release",
         )
         assert v.server_name == "io.example/my-server"

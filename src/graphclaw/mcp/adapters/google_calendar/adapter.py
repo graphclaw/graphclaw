@@ -20,6 +20,7 @@ Dependencies
 ------------
 - graphclaw.mcp.adapters.base: MCPAdapterABC (stdlib-like ABC layer).
 """
+
 from __future__ import annotations
 
 from typing import ClassVar

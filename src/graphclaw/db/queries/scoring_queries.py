@@ -30,6 +30,7 @@ Notes
 separate ``<>`` comparisons in Cypher because AGE does not support the ``NOT IN``
 list syntax inside ``$$ ... $$`` blocks.  This is an AGE compatibility workaround.
 """
+
 from __future__ import annotations
 
 import logging
@@ -94,9 +95,7 @@ async def get_active_tasks_for_scoring(
         rows = await result.fetchall()
 
     tasks = [_extract_properties(row[0]) for row in rows]
-    logger.debug(
-        "get_active_tasks_for_scoring: %d tasks for user %s", len(tasks), user_id
-    )
+    logger.debug("get_active_tasks_for_scoring: %d tasks for user %s", len(tasks), user_id)
     return tasks
 
 

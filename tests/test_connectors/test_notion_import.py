@@ -15,18 +15,18 @@ Author
 GraphClaw Project — https://graphclaw.ai
 License: Apache 2.0
 """
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from graphclaw.connectors.base import ConnectorConfig
-from graphclaw.connectors.import_.notion.adapter import NotionImportConnector
 from graphclaw.connectors.import_.models import ImportBatch, ImportItem
-
+from graphclaw.connectors.import_.notion.adapter import NotionImportConnector
 
 # ---------------------------------------------------------------------------
 # Helpers / fixtures
@@ -57,12 +57,8 @@ _NOTION_PAGE_FULL: dict[str, Any] = {
     "object": "page",
     "url": "https://notion.so/page-001",
     "properties": {
-        "Name": {
-            "title": [{"plain_text": "Implement dark mode", "type": "text"}]
-        },
-        "Notes": {
-            "rich_text": [{"plain_text": "Add a toggle to settings page.", "type": "text"}]
-        },
+        "Name": {"title": [{"plain_text": "Implement dark mode", "type": "text"}]},
+        "Notes": {"rich_text": [{"plain_text": "Add a toggle to settings page.", "type": "text"}]},
         "Status": {
             "select": {"name": "In Progress"},
         },
@@ -86,9 +82,7 @@ _NOTION_PAGE_MINIMAL: dict[str, Any] = {
     "object": "page",
     "url": "https://notion.so/page-002",
     "properties": {
-        "Title": {
-            "title": [{"plain_text": "Quick fix", "type": "text"}]
-        },
+        "Title": {"title": [{"plain_text": "Quick fix", "type": "text"}]},
     },
 }
 
@@ -200,9 +194,7 @@ class TestNotionFetchItems:
     async def test_fetch_items_returns_import_batch(self) -> None:
         """fetch_items should return an ImportBatch."""
         connector = _make_connector()
-        connector._client.post = AsyncMock(
-            return_value=_make_mock_response(_NOTION_QUERY_RESPONSE)
-        )
+        connector._client.post = AsyncMock(return_value=_make_mock_response(_NOTION_QUERY_RESPONSE))
         batch = await connector.fetch_items("db-001")
         assert isinstance(batch, ImportBatch)
 
@@ -210,9 +202,7 @@ class TestNotionFetchItems:
     async def test_fetch_items_item_count(self) -> None:
         """All pages in 'results' should be converted to ImportItems."""
         connector = _make_connector()
-        connector._client.post = AsyncMock(
-            return_value=_make_mock_response(_NOTION_QUERY_RESPONSE)
-        )
+        connector._client.post = AsyncMock(return_value=_make_mock_response(_NOTION_QUERY_RESPONSE))
         batch = await connector.fetch_items("db-001")
         assert len(batch.items) == 2
 
@@ -220,9 +210,7 @@ class TestNotionFetchItems:
     async def test_fetch_items_source_system(self) -> None:
         """ImportBatch.source_system should be 'notion'."""
         connector = _make_connector()
-        connector._client.post = AsyncMock(
-            return_value=_make_mock_response(_NOTION_QUERY_RESPONSE)
-        )
+        connector._client.post = AsyncMock(return_value=_make_mock_response(_NOTION_QUERY_RESPONSE))
         batch = await connector.fetch_items("db-001")
         assert batch.source_system == "notion"
 
@@ -230,9 +218,7 @@ class TestNotionFetchItems:
     async def test_fetch_items_project_id(self) -> None:
         """ImportBatch.project_id should match the database ID queried."""
         connector = _make_connector()
-        connector._client.post = AsyncMock(
-            return_value=_make_mock_response(_NOTION_QUERY_RESPONSE)
-        )
+        connector._client.post = AsyncMock(return_value=_make_mock_response(_NOTION_QUERY_RESPONSE))
         batch = await connector.fetch_items("db-001")
         assert batch.project_id == "db-001"
 
@@ -240,9 +226,7 @@ class TestNotionFetchItems:
     async def test_fetch_items_maps_title(self) -> None:
         """The first item's title should come from the 'Name' title property."""
         connector = _make_connector()
-        connector._client.post = AsyncMock(
-            return_value=_make_mock_response(_NOTION_QUERY_RESPONSE)
-        )
+        connector._client.post = AsyncMock(return_value=_make_mock_response(_NOTION_QUERY_RESPONSE))
         batch = await connector.fetch_items("db-001")
         assert batch.items[0].title == "Implement dark mode"
 
@@ -250,9 +234,7 @@ class TestNotionFetchItems:
     async def test_fetch_items_maps_external_id(self) -> None:
         """external_id should come from the Notion page 'id' field."""
         connector = _make_connector()
-        connector._client.post = AsyncMock(
-            return_value=_make_mock_response(_NOTION_QUERY_RESPONSE)
-        )
+        connector._client.post = AsyncMock(return_value=_make_mock_response(_NOTION_QUERY_RESPONSE))
         batch = await connector.fetch_items("db-001")
         assert batch.items[0].external_id == "page-001"
 
@@ -260,9 +242,7 @@ class TestNotionFetchItems:
     async def test_fetch_items_maps_status_in_progress(self) -> None:
         """An 'In Progress' Notion page status should map to 'in_progress'."""
         connector = _make_connector()
-        connector._client.post = AsyncMock(
-            return_value=_make_mock_response(_NOTION_QUERY_RESPONSE)
-        )
+        connector._client.post = AsyncMock(return_value=_make_mock_response(_NOTION_QUERY_RESPONSE))
         batch = await connector.fetch_items("db-001")
         assert batch.items[0].status == "in_progress"
 
@@ -281,9 +261,7 @@ class TestNotionFetchItems:
     async def test_fetch_items_no_more_when_complete(self) -> None:
         """has_more should be False when has_more is False in the response."""
         connector = _make_connector()
-        connector._client.post = AsyncMock(
-            return_value=_make_mock_response(_NOTION_QUERY_RESPONSE)
-        )
+        connector._client.post = AsyncMock(return_value=_make_mock_response(_NOTION_QUERY_RESPONSE))
         batch = await connector.fetch_items("db-001")
         assert batch.has_more is False
         assert batch.next_cursor is None
@@ -292,9 +270,7 @@ class TestNotionFetchItems:
     async def test_fetch_items_all_items_are_import_items(self) -> None:
         """Every element in batch.items should be an ImportItem."""
         connector = _make_connector()
-        connector._client.post = AsyncMock(
-            return_value=_make_mock_response(_NOTION_QUERY_RESPONSE)
-        )
+        connector._client.post = AsyncMock(return_value=_make_mock_response(_NOTION_QUERY_RESPONSE))
         batch = await connector.fetch_items("db-001")
         for item in batch.items:
             assert isinstance(item, ImportItem)
@@ -326,7 +302,7 @@ class TestNotionToTaskNodes:
             description="Add a toggle to settings page.",
             status="in_progress",
             priority="high",
-            due_date=datetime(2025, 6, 15, tzinfo=timezone.utc),
+            due_date=datetime(2025, 6, 15, tzinfo=UTC),
             assignee="Bob",
             labels=["ui", "design"],
             url="https://notion.so/page-001",

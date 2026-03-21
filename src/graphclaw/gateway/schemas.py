@@ -33,6 +33,7 @@ API endpoint that first creates the message, not by these models directly.
 ``message_id`` for email messages is taken from the ``Message-ID`` header;
 for API/CLI messages it is a caller-supplied UUID string.
 """
+
 from __future__ import annotations
 
 from datetime import datetime

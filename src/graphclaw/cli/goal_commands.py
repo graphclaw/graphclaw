@@ -24,6 +24,7 @@ Dependencies
 - typer: CLI framework.
 - rich: Console output.
 """
+
 from __future__ import annotations
 
 import asyncio

@@ -27,6 +27,7 @@ Author
 GraphClaw Project — https://graphclaw.ai
 License: Apache 2.0
 """
+
 from __future__ import annotations
 
 from graphclaw.connectors.base import ConnectorABC, ConnectorConfig
@@ -93,13 +94,11 @@ def create_connector(connector_type: str, config: ConnectorConfig) -> ConnectorA
     entry = _CONNECTOR_MAP.get(connector_type)
     if entry is None:
         available = ", ".join(sorted(_CONNECTOR_MAP.keys()))
-        raise ValueError(
-            f"Unknown connector type {connector_type!r}. "
-            f"Available types: {available}"
-        )
+        raise ValueError(f"Unknown connector type {connector_type!r}. Available types: {available}")
 
     module_path, class_name = entry
     import importlib  # noqa: PLC0415
+
     module = importlib.import_module(module_path)
     cls: type[ConnectorABC] = getattr(module, class_name)
     return cls(config)

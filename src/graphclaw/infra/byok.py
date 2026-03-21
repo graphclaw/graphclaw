@@ -36,6 +36,7 @@ Dependencies
 - dataclasses: dataclass, field.
 - enum: Enum.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

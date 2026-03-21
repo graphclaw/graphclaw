@@ -30,6 +30,7 @@ Dependencies
 - fastapi: APIRouter, Depends, HTTPException, status (third-party).
 - pydantic: BaseModel (third-party).
 """
+
 from __future__ import annotations
 
 import logging

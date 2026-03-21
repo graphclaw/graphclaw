@@ -45,7 +45,6 @@ Dependencies
 
 from __future__ import annotations
 
-
 from enum import Enum
 
 
@@ -88,10 +87,10 @@ class EdgeType(str, Enum):
     INFORMS = "INFORMS"
     BRANCHED_FROM = "BRANCHED_FROM"
     BATCHED_IN = "BATCHED_IN"
-    MEMBER_OF = "MEMBER_OF"          # UserNode → OrganizationNode / WorkspaceNode
-    ADMIN_OF = "ADMIN_OF"            # UserNode → OrganizationNode / WorkspaceNode
+    MEMBER_OF = "MEMBER_OF"  # UserNode → OrganizationNode / WorkspaceNode
+    ADMIN_OF = "ADMIN_OF"  # UserNode → OrganizationNode / WorkspaceNode
     BELONGS_TO_ORG = "BELONGS_TO_ORG"  # WorkspaceNode → OrganizationNode
-    SCOPED_TO_WS = "SCOPED_TO_WS"   # TaskNode / GoalNode → WorkspaceNode
+    SCOPED_TO_WS = "SCOPED_TO_WS"  # TaskNode / GoalNode → WorkspaceNode
     GRANTS_ACCESS_TO = "GRANTS_ACCESS_TO"  # VisibilityGrantNode → target node
     GRANTS_ACCESS_TO_MCP = "GRANTS_ACCESS_TO_MCP"  # UserNode → MCPServerNode
 
@@ -239,17 +238,17 @@ class MembershipStatus(str, Enum):
 class WorkspaceVisibility(str, Enum):
     """Who can see tasks/goals within a workspace."""
 
-    PRIVATE = "PRIVATE"      # Only explicit members
-    INTERNAL = "INTERNAL"    # All org members
-    PUBLIC = "PUBLIC"        # Readable by any authenticated user
+    PRIVATE = "PRIVATE"  # Only explicit members
+    INTERNAL = "INTERNAL"  # All org members
+    PUBLIC = "PUBLIC"  # Readable by any authenticated user
 
 
 class VisibilityScope(str, Enum):
     """Access level granted to a user on a specific node."""
 
-    VIEWER = "VIEWER"    # read-only
-    EDITOR = "EDITOR"    # can update node properties and state
-    OWNER = "OWNER"      # full control including revoking grants
+    VIEWER = "VIEWER"  # read-only
+    EDITOR = "EDITOR"  # can update node properties and state
+    OWNER = "OWNER"  # full control including revoking grants
 
 
 # ---------------------------------------------------------------------------

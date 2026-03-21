@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -18,7 +18,6 @@ import pytest
 from graphclaw.compliance.audit import AuditLogger
 from graphclaw.compliance.export import DataExportService
 from graphclaw.compliance.models import DataExport
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -137,7 +136,7 @@ async def test_export_expires_in_7_days() -> None:
 
 
 def test_data_export_frozen() -> None:
-    now = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    now = datetime(2024, 1, 1, tzinfo=UTC)
     export = DataExport(
         user_id="USER-frozen",
         export_id="EXPORT-aabbccddee",

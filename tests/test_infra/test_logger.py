@@ -20,15 +20,12 @@ Dependencies
 - asyncio: Queue, sleep for timing control.
 - graphclaw.infra.logger: AsyncLogger, generate_session_id under test.
 """
+
 from __future__ import annotations
 
-import asyncio
 import re
 
-import pytest
-
 from graphclaw.infra.logger import AsyncLogger, generate_session_id
-
 
 # ---------------------------------------------------------------------------
 # Capturing logger helper

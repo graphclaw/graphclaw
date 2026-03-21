@@ -38,6 +38,7 @@ column 0 with ``---``.  Trailing whitespace after the closing ``---`` is
 tolerated.  The body section (everything after the closing fence) is stripped
 of leading/trailing whitespace before being stored as ``system_prompt``.
 """
+
 from __future__ import annotations
 
 import re

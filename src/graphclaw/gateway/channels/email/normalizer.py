@@ -39,11 +39,12 @@ empty string.
 that it can be reliably used as a key.  Missing subjects are normalized to the
 empty string rather than ``None``.
 """
+
 from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from email.message import EmailMessage
 from email.utils import parseaddr, parsedate_to_datetime
 from typing import TYPE_CHECKING
@@ -126,11 +127,11 @@ def _parse_received_at(msg: EmailMessage) -> datetime:
             dt = parsedate_to_datetime(date_str)
             # Ensure timezone-aware
             if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
+                dt = dt.replace(tzinfo=UTC)
             return dt
         except Exception:  # noqa: BLE001
             logger.debug("Failed to parse Date header %r, using now()", date_str)
-    return datetime.now(tz=timezone.utc)
+    return datetime.now(tz=UTC)
 
 
 def normalize_email(raw_email: EmailMessage) -> InboundMessage:

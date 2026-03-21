@@ -7,15 +7,13 @@ dicts, that the CRITICAL section caps at 3 items, that the full
 ``generate()`` method returns a well-formed ``DailyBriefing``, and that an
 empty task list produces sections with no items.
 """
+
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
-
-import pytest
+from datetime import UTC, datetime, timedelta
 
 from graphclaw.triggers.briefing import BriefingGenerator
 from graphclaw.triggers.models import DailyBriefing
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -24,7 +22,7 @@ from graphclaw.triggers.models import DailyBriefing
 
 def _utc(**kwargs) -> datetime:
     """Return a UTC datetime relative to a fixed anchor."""
-    anchor = datetime(2026, 3, 18, 12, 0, tzinfo=timezone.utc)
+    anchor = datetime(2026, 3, 18, 12, 0, tzinfo=UTC)
     return anchor + timedelta(**kwargs)
 
 
@@ -211,9 +209,7 @@ async def test_ahead_of_curve_low_score_excluded() -> None:
 async def test_deferred_snoozed_tasks() -> None:
     """SNOOZED tasks appear in the DEFERRED section."""
     generator = BriefingGenerator()
-    tasks = [
-        {"id": "TSK-AB-0030-ATM", "title": "Snoozed task", "state": "SNOOZED"}
-    ]
+    tasks = [{"id": "TSK-AB-0030-ATM", "title": "Snoozed task", "state": "SNOOZED"}]
     briefing = await generator.generate(tasks)
     assert len(briefing.deferred.items) == 1
     assert "snoozed" in briefing.deferred.items[0]
@@ -259,8 +255,7 @@ async def test_inferences_blocked_pattern() -> None:
     """More than 2 blocked tasks triggers a systemic inference."""
     generator = BriefingGenerator()
     tasks = [
-        {"id": f"TSK-AB-{i:04d}-ATM", "title": f"Blocked {i}", "state": "BLOCKED"}
-        for i in range(3)
+        {"id": f"TSK-AB-{i:04d}-ATM", "title": f"Blocked {i}", "state": "BLOCKED"} for i in range(3)
     ]
     briefing = await generator.generate(tasks)
     assert len(briefing.inferences.items) >= 1
@@ -270,9 +265,7 @@ async def test_inferences_blocked_pattern() -> None:
 async def test_inferences_delayed_pattern() -> None:
     """At least one DELAYED task triggers a delayed inference."""
     generator = BriefingGenerator()
-    tasks = [
-        {"id": "TSK-AB-0040-ATM", "title": "Delayed task", "state": "DELAYED"}
-    ]
+    tasks = [{"id": "TSK-AB-0040-ATM", "title": "Delayed task", "state": "DELAYED"}]
     briefing = await generator.generate(tasks)
     assert any("delayed" in item.lower() for item in briefing.inferences.items)
 
@@ -281,8 +274,7 @@ async def test_inferences_two_blocked_no_systemic() -> None:
     """Exactly 2 blocked tasks does NOT trigger systemic inference."""
     generator = BriefingGenerator()
     tasks = [
-        {"id": f"TSK-AB-{i:04d}-ATM", "title": f"Blocked {i}", "state": "BLOCKED"}
-        for i in range(2)
+        {"id": f"TSK-AB-{i:04d}-ATM", "title": f"Blocked {i}", "state": "BLOCKED"} for i in range(2)
     ]
     briefing = await generator.generate(tasks)
     # No systemic message — 2 is not > 2

@@ -4,6 +4,7 @@ Verifies that all frozen dataclasses instantiate correctly, that field
 defaults behave as expected, and that LLMClient cannot be instantiated
 directly (abstract methods enforced).
 """
+
 from __future__ import annotations
 
 import pytest
@@ -16,7 +17,6 @@ from graphclaw.llm.base import (
     ToolCall,
     ToolDefinition,
 )
-
 
 # ---------------------------------------------------------------------------
 # LLMMessage
@@ -145,8 +145,7 @@ def test_llm_client_subclass_must_implement_all_methods():
     """A partial implementation should not be instantiable."""
 
     class PartialClient(LLMClient):
-        async def complete(self, messages, **kwargs):
-            ...
+        async def complete(self, messages, **kwargs): ...
 
         # Missing stream, count_tokens, close
 

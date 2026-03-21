@@ -35,6 +35,7 @@ Notes
 requires the provider implementation to calculate it; the default LiteLLM
 and Anthropic implementations currently return 0.0.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
@@ -73,14 +74,15 @@ class LLMRouter:
     def __init__(
         self,
         default_model: str = "claude-sonnet-4-20250514",
-        llm_client: "LLMClient | None" = None,
+        llm_client: LLMClient | None = None,
         provider: str = "litellm",
     ) -> None:
         self._default_model = default_model
         if llm_client is not None:
-            self._client: "LLMClient" = llm_client
+            self._client: LLMClient = llm_client
         else:
             from graphclaw.llm.factory import create_llm_client
+
             self._client = create_llm_client(provider, default_model=default_model)
 
     async def complete(

@@ -23,12 +23,12 @@ Dependencies
 - graphclaw.models.nodes: TaskNode.
 - graphclaw.models.scoring: ActionQueueEntry, ScoreExplanation.
 """
+
 from __future__ import annotations
 
 from graphclaw.models.enums import AutonomyLevel, TaskState, TaskType
 from graphclaw.models.nodes import TaskNode
 from graphclaw.models.scoring import ActionQueueEntry, ScoreExplanation
-
 
 # ---------------------------------------------------------------------------
 # Recommended action vocabulary

@@ -10,14 +10,11 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
-
-import pytest
 
 from graphclaw.compliance.audit import AuditLogger
 from graphclaw.compliance.models import AuditEvent
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -38,7 +35,7 @@ def _make_event(
         action=action,
         resource_type=resource_type,
         resource_id=resource_id,
-        timestamp=ts or datetime(2024, 6, 15, 10, 0, 0, tzinfo=timezone.utc),
+        timestamp=ts or datetime(2024, 6, 15, 10, 0, 0, tzinfo=UTC),
         metadata=metadata or {},
     )
 
@@ -146,8 +143,8 @@ async def test_get_events_filters_by_action() -> None:
     logger = AuditLogger(storage=storage)
 
     user_id = "USER-filter-test"
-    ts_login = datetime(2024, 6, 10, 9, 0, 0, tzinfo=timezone.utc)
-    ts_task = datetime(2024, 6, 12, 11, 0, 0, tzinfo=timezone.utc)
+    ts_login = datetime(2024, 6, 10, 9, 0, 0, tzinfo=UTC)
+    ts_task = datetime(2024, 6, 12, 11, 0, 0, tzinfo=UTC)
 
     login_event = AuditEvent(
         event_id="AUDIT-login00001",
@@ -173,38 +170,44 @@ async def test_get_events_filters_by_action() -> None:
     login_key = _make_key(login_event)
     task_key = _make_key(task_event)
 
-    login_payload = json.dumps({
-        "event_id": login_event.event_id,
-        "user_id": login_event.user_id,
-        "action": login_event.action,
-        "resource_type": login_event.resource_type,
-        "resource_id": login_event.resource_id,
-        "timestamp": login_event.timestamp.isoformat(),
-        "ip_address": None,
-        "metadata": {},
-    }).encode()
+    login_payload = json.dumps(
+        {
+            "event_id": login_event.event_id,
+            "user_id": login_event.user_id,
+            "action": login_event.action,
+            "resource_type": login_event.resource_type,
+            "resource_id": login_event.resource_id,
+            "timestamp": login_event.timestamp.isoformat(),
+            "ip_address": None,
+            "metadata": {},
+        }
+    ).encode()
 
-    task_payload = json.dumps({
-        "event_id": task_event.event_id,
-        "user_id": task_event.user_id,
-        "action": task_event.action,
-        "resource_type": task_event.resource_type,
-        "resource_id": task_event.resource_id,
-        "timestamp": task_event.timestamp.isoformat(),
-        "ip_address": None,
-        "metadata": {},
-    }).encode()
+    task_payload = json.dumps(
+        {
+            "event_id": task_event.event_id,
+            "user_id": task_event.user_id,
+            "action": task_event.action,
+            "resource_type": task_event.resource_type,
+            "resource_id": task_event.resource_id,
+            "timestamp": task_event.timestamp.isoformat(),
+            "ip_address": None,
+            "metadata": {},
+        }
+    ).encode()
 
     storage.list_objects.return_value = [login_key, task_key]
     storage.read.side_effect = AsyncMock(
         side_effect=lambda key: login_payload if key == login_key else task_payload
     )
 
-    start = datetime(2024, 6, 1, tzinfo=timezone.utc)
-    end = datetime(2024, 7, 1, tzinfo=timezone.utc)
+    start = datetime(2024, 6, 1, tzinfo=UTC)
+    end = datetime(2024, 7, 1, tzinfo=UTC)
 
     # Filter for only "auth.login" events
-    events = await logger.get_events(user_id=user_id, start=start, end=end, action_filter="auth.login")
+    events = await logger.get_events(
+        user_id=user_id, start=start, end=end, action_filter="auth.login"
+    )
     assert len(events) == 1
     assert events[0].action == "auth.login"
     assert events[0].event_id == "AUDIT-login00001"

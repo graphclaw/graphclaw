@@ -8,10 +8,11 @@ required fields, that optional fields carry expected defaults, that TriggerType
 values match the expected strings, and that round-trip JSON serialisation is
 lossless.
 """
+
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -28,7 +29,7 @@ from graphclaw.triggers.models import (
 
 
 def _utc(year: int = 2026, month: int = 3, day: int = 18) -> datetime:
-    return datetime(year, month, day, tzinfo=timezone.utc)
+    return datetime(year, month, day, tzinfo=UTC)
 
 
 # ---------------------------------------------------------------------------

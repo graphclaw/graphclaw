@@ -23,6 +23,7 @@ Dependencies
 - graphclaw.gateway.schemas: OutboundMessage.
 - graphclaw.infra.broker: MessageBroker.
 """
+
 from __future__ import annotations
 
 import importlib
@@ -65,7 +66,11 @@ class ChannelRegistry:
     async def route_outbound(self, message: OutboundMessage) -> bool:
         adapter = self._adapters.get(message.channel)
         if adapter is None:
-            logger.warning("No adapter for channel %r, dropping message %s", message.channel, message.message_id)
+            logger.warning(
+                "No adapter for channel %r, dropping message %s",
+                message.channel,
+                message.message_id,
+            )
             return False
         await adapter.send(message)
         return True

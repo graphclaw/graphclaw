@@ -40,6 +40,7 @@ Dependencies
 - redis.asyncio: State and code_verifier storage with TTL.
 - os, hashlib, secrets, base64: stdlib.
 """
+
 from __future__ import annotations
 
 import base64
@@ -261,9 +262,7 @@ class OAuthService:
             else:
                 # Determine which provider this is for logging
                 name = factory.__name__.replace("_PROVIDER", "").lower()
-                logger.debug(
-                    "OAuthService: provider '%s' not configured (env vars not set)", name
-                )
+                logger.debug("OAuthService: provider '%s' not configured (env vars not set)", name)
 
     @classmethod
     def from_env(cls) -> OAuthService:
@@ -353,9 +352,7 @@ class OAuthService:
             params.pop("code_challenge", None)
             params.pop("code_challenge_method", None)
 
-        query_string = "&".join(
-            f"{k}={_url_encode(v)}" for k, v in params.items()
-        )
+        query_string = "&".join(f"{k}={_url_encode(v)}" for k, v in params.items())
         authorization_url = f"{provider.authorize_url}?{query_string}"
 
         logger.debug(
@@ -525,9 +522,7 @@ class OAuthService:
             # Generic fallback
             return {
                 "provider": provider_name,
-                "provider_user_id": str(
-                    userinfo.get("sub") or userinfo.get("id") or ""
-                ),
+                "provider_user_id": str(userinfo.get("sub") or userinfo.get("id") or ""),
                 "email": userinfo.get("email", ""),
                 "name": userinfo.get("name", ""),
             }

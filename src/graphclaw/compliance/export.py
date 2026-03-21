@@ -26,12 +26,13 @@ Dependencies
 - graphclaw.db.base: GraphStore ABC.
 - graphclaw.infra.storage: StorageClient ABC.
 """
+
 from __future__ import annotations
 
 import json
 import logging
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from graphclaw.compliance.audit import AuditLogger
 from graphclaw.compliance.models import AuditEvent, DataExport
@@ -100,7 +101,7 @@ class DataExportService:
             Manifest with the storage key, export ID, and expiry timestamp.
         """
         export_id = f"EXPORT-{uuid.uuid4().hex[:12]}"
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         expires_at = now + timedelta(days=_EXPORT_TTL_DAYS)
 
         # Collect TaskNodes
@@ -117,9 +118,7 @@ class DataExportService:
         try:
             user_node = await self._graph.get_node(user_id)
         except Exception:  # noqa: BLE001
-            logger.warning(
-                "export: failed to get UserNode for user_id=%s", user_id, exc_info=True
-            )
+            logger.warning("export: failed to get UserNode for user_id=%s", user_id, exc_info=True)
 
         # Collect VisibilityGrantNodes
         grants: list[dict] = []
@@ -138,9 +137,7 @@ class DataExportService:
         audit_events_raw: list[dict] = []
         try:
             audit_start = now - timedelta(days=_AUDIT_HISTORY_DAYS)
-            audit_events = await self._audit.get_events(
-                user_id=user_id, start=audit_start, end=now
-            )
+            audit_events = await self._audit.get_events(user_id=user_id, start=audit_start, end=now)
             audit_events_raw = [
                 {
                     "event_id": e.event_id,
@@ -161,10 +158,7 @@ class DataExportService:
             )
 
         record_count = (
-            len(tasks)
-            + (1 if user_node is not None else 0)
-            + len(grants)
-            + len(audit_events_raw)
+            len(tasks) + (1 if user_node is not None else 0) + len(grants) + len(audit_events_raw)
         )
 
         export_payload: dict = {

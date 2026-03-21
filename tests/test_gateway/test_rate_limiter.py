@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Tests for graphclaw.gateway.rate_limiter — rate limiting middleware.
 
 Covers:
@@ -6,11 +7,11 @@ Covers:
 - RateLimiter.is_allowed logic (under limit, over limit, remaining never negative).
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from graphclaw.gateway.rate_limiter import RATE_LIMITS, RateLimiter
+import pytest
 
+from graphclaw.gateway.rate_limiter import RATE_LIMITS, RateLimiter
 
 # ---------------------------------------------------------------------------
 # RATE_LIMITS config tests
@@ -62,7 +63,9 @@ async def test_is_allowed_under_limit(rate_limiter: RateLimiter) -> None:
     mock_client.pipeline = MagicMock(return_value=mock_pipeline)
 
     with patch.object(rate_limiter, "_get_client", AsyncMock(return_value=mock_client)):
-        allowed, remaining = await rate_limiter.is_allowed("ip:1.2.3.4", limit=30, window_seconds=60)
+        allowed, remaining = await rate_limiter.is_allowed(
+            "ip:1.2.3.4", limit=30, window_seconds=60
+        )
 
     assert allowed is True
     assert remaining == 25
@@ -76,7 +79,9 @@ async def test_is_allowed_over_limit(rate_limiter: RateLimiter) -> None:
     mock_client.pipeline = MagicMock(return_value=mock_pipeline)
 
     with patch.object(rate_limiter, "_get_client", AsyncMock(return_value=mock_client)):
-        allowed, remaining = await rate_limiter.is_allowed("ip:1.2.3.4", limit=30, window_seconds=60)
+        allowed, remaining = await rate_limiter.is_allowed(
+            "ip:1.2.3.4", limit=30, window_seconds=60
+        )
 
     assert allowed is False
     assert remaining == 0
@@ -90,7 +95,9 @@ async def test_remaining_never_negative(rate_limiter: RateLimiter) -> None:
     mock_client.pipeline = MagicMock(return_value=mock_pipeline)
 
     with patch.object(rate_limiter, "_get_client", AsyncMock(return_value=mock_client)):
-        allowed, remaining = await rate_limiter.is_allowed("ip:1.2.3.4", limit=30, window_seconds=60)
+        allowed, remaining = await rate_limiter.is_allowed(
+            "ip:1.2.3.4", limit=30, window_seconds=60
+        )
 
     assert allowed is False
     assert remaining == 0

@@ -20,13 +20,13 @@ Dependencies
 - graphclaw.skills.parser: SkillParser under test.
 - graphclaw.skills.models: SkillDefinition (return type assertions).
 """
+
 from __future__ import annotations
 
 import pytest
 
 from graphclaw.skills.models import SkillDefinition
 from graphclaw.skills.parser import SkillParser
-
 
 # ---------------------------------------------------------------------------
 # Helpers

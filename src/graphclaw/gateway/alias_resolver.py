@@ -30,6 +30,7 @@ Dependencies
 ------------
 - redis.asyncio: Async Redis client (install: redis[hiredis]).
 """
+
 from __future__ import annotations
 
 import logging
@@ -61,7 +62,7 @@ class AliasResolver:
     # ------------------------------------------------------------------
 
     @classmethod
-    async def from_env(cls) -> "AliasResolver":
+    async def from_env(cls) -> AliasResolver:
         """Create a resolver from the ``REDIS_URL`` environment variable.
 
         Returns a no-op instance when Redis is unavailable.
@@ -133,9 +134,7 @@ class AliasResolver:
             pipe.set(forward_key, user_id)
             pipe.sadd(reverse_key, alias_member)
             await pipe.execute()
-            logger.debug(
-                "AliasResolver: registered %s:%s → %s", channel, sender_id, user_id
-            )
+            logger.debug("AliasResolver: registered %s:%s → %s", channel, sender_id, user_id)
         except Exception as exc:  # noqa: BLE001
             logger.warning("AliasResolver.register failed: %s", exc)
 

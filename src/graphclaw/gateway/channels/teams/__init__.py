@@ -12,10 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """graphclaw.gateway.channels.teams — Microsoft Teams Bot Framework channel plugin."""
+
 from __future__ import annotations
 
-from graphclaw.gateway.channels.teams.adapter import TeamsAdapter as Adapter
 from graphclaw.gateway.channels.teams.adapter import TeamsAdapter
+from graphclaw.gateway.channels.teams.adapter import TeamsAdapter as Adapter
 from graphclaw.gateway.channels.teams.config import TeamsConfig
 from graphclaw.gateway.channels.teams.normalizer import normalize_teams as TeamsNormalizer
 from graphclaw.gateway.channels.teams.sender import TeamsSender

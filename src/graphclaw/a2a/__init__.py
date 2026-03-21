@@ -18,6 +18,7 @@ Dependencies
 - graphclaw.a2a.key_manager: A2AKeyManager.
 - graphclaw.a2a.routes: a2a_router, task_update_router.
 """
+
 from __future__ import annotations
 
 from graphclaw.a2a.key_manager import A2AKeyManager

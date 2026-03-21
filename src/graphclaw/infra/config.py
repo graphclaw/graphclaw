@@ -31,6 +31,7 @@ These models intentionally carry defaults that match the local Docker Compose
 environment (MinIO on port 9000, Redis on port 6379).  Production deployments
 override them via environment-specific configuration injection.
 """
+
 from __future__ import annotations
 
 from pydantic import BaseModel

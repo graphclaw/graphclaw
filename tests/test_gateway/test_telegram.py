@@ -3,9 +3,10 @@
 Tests the normalizer, config, sender, and adapter independently.
 No real Telegram API calls are made.
 """
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 
 import pytest
@@ -16,7 +17,6 @@ from graphclaw.gateway.channels.telegram.normalizer import (
     normalize_telegram,
 )
 from graphclaw.gateway.schemas import InboundMessage
-
 
 # ---------------------------------------------------------------------------
 # Config tests
@@ -86,7 +86,7 @@ class TestNormalizeTelegram:
 
     def test_received_at_from_date(self):
         msgs = normalize_telegram(_SAMPLE_UPDATE)
-        assert msgs[0].received_at == datetime.fromtimestamp(1700000000, tz=timezone.utc)
+        assert msgs[0].received_at == datetime.fromtimestamp(1700000000, tz=UTC)
 
     def test_session_id_set(self):
         msgs = normalize_telegram(_SAMPLE_UPDATE)
@@ -219,6 +219,7 @@ class TestTelegramChannelAdapter:
 
         # Patch _poll_loop to prevent it from actually running
         import asyncio
+
         adapter._poll_task = asyncio.create_task(asyncio.sleep(0))
 
         await adapter.start(broker)

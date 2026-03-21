@@ -3,6 +3,7 @@
 Each factor function is pure — no DB, no side effects — so these are
 straightforward unit tests with expected outputs from PRD Section 9 / SKILL.md.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -17,7 +18,6 @@ from graphclaw.scoring.factors import (
     resource_risk,
     timeline_urgency,
 )
-
 
 # ---------------------------------------------------------------------------
 # Factor 1: Timeline Urgency
@@ -208,10 +208,12 @@ class TestConstraintPressure:
 
     def test_multiple_constraints(self):
         # Two constraints: 0.5 + 0.2 = 0.7
-        result = constraint_pressure([
-            {"threshold": 100, "current_value": 50},  # 0.5
-            {"threshold": 50, "current_value": 10},   # 0.2
-        ])
+        result = constraint_pressure(
+            [
+                {"threshold": 100, "current_value": 50},  # 0.5
+                {"threshold": 50, "current_value": 10},  # 0.2
+            ]
+        )
         assert result == pytest.approx(0.7)
 
     def test_zero_threshold_skipped(self):

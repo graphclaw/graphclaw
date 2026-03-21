@@ -14,10 +14,11 @@ Author
 GraphClaw Project — https://graphclaw.ai
 License: Apache 2.0
 """
+
 from __future__ import annotations
 
 import dataclasses
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -26,7 +27,6 @@ from graphclaw.connectors.calendar.models import CalendarEvent, FreeBusySlot
 from graphclaw.connectors.factory import create_connector
 from graphclaw.connectors.import_.models import ImportBatch, ImportItem
 from graphclaw.connectors.registry import ConnectorRegistry, default_registry
-
 
 # ---------------------------------------------------------------------------
 # ConnectorRegistry
@@ -40,9 +40,7 @@ class TestConnectorRegistry:
         """The default registry must include all five built-in connector types."""
         types = default_registry.list_types()
         expected = {"google_calendar", "outlook_calendar", "jira", "asana", "notion"}
-        assert expected.issubset(set(types)), (
-            f"Missing connector types. Got: {types}"
-        )
+        assert expected.issubset(set(types)), f"Missing connector types. Got: {types}"
 
     def test_list_types_returns_sorted_list(self) -> None:
         """list_types() should return types in sorted order."""
@@ -52,6 +50,7 @@ class TestConnectorRegistry:
     def test_get_known_type_returns_class(self) -> None:
         """get() should return the registered class for a known type."""
         from graphclaw.connectors.calendar.google.adapter import GoogleCalendarConnector
+
         cls = default_registry.get("google_calendar")
         assert cls is GoogleCalendarConnector
 
@@ -63,7 +62,6 @@ class TestConnectorRegistry:
 
     def test_register_custom_connector(self) -> None:
         """register() should add a new connector type to the registry."""
-        from graphclaw.connectors.base import ConnectorABC  # noqa: PLC0415
 
         class DummyConnector(ConnectorABC):
             connector_type = "dummy_test"
@@ -107,7 +105,9 @@ class TestCreateConnector:
 
     def test_creates_google_calendar_connector(self) -> None:
         """create_connector should return a GoogleCalendarConnector for 'google_calendar'."""
-        from graphclaw.connectors.calendar.google.adapter import GoogleCalendarConnector  # noqa: PLC0415
+        from graphclaw.connectors.calendar.google.adapter import (
+            GoogleCalendarConnector,  # noqa: PLC0415
+        )
 
         config = ConnectorConfig(
             connector_type="google_calendar",
@@ -148,7 +148,9 @@ class TestCreateConnector:
 
     def test_creates_notion_connector(self) -> None:
         """create_connector should return a NotionImportConnector for 'notion'."""
-        from graphclaw.connectors.import_.notion.adapter import NotionImportConnector  # noqa: PLC0415
+        from graphclaw.connectors.import_.notion.adapter import (
+            NotionImportConnector,  # noqa: PLC0415
+        )
 
         config = ConnectorConfig(
             connector_type="notion",
@@ -204,8 +206,8 @@ class TestConnectorConfig:
 class TestCalendarEvent:
     """Tests for the CalendarEvent frozen dataclass."""
 
-    _now = datetime(2024, 1, 15, 10, 0, tzinfo=timezone.utc)
-    _later = datetime(2024, 1, 15, 11, 0, tzinfo=timezone.utc)
+    _now = datetime(2024, 1, 15, 10, 0, tzinfo=UTC)
+    _later = datetime(2024, 1, 15, 11, 0, tzinfo=UTC)
 
     def _make_event(self, **kwargs) -> CalendarEvent:
         defaults = dict(
@@ -226,7 +228,7 @@ class TestCalendarEvent:
     def test_frozen_cannot_mutate_start(self) -> None:
         """CalendarEvent.start should be immutable."""
         event = self._make_event()
-        new_dt = datetime(2024, 1, 20, 9, 0, tzinfo=timezone.utc)
+        new_dt = datetime(2024, 1, 20, 9, 0, tzinfo=UTC)
         with pytest.raises((dataclasses.FrozenInstanceError, TypeError)):
             event.start = new_dt  # type: ignore[misc]
 
@@ -268,8 +270,8 @@ class TestFreeBusySlot:
     def test_frozen(self) -> None:
         """FreeBusySlot should be immutable."""
         slot = FreeBusySlot(
-            start=datetime(2024, 1, 15, 9, 0, tzinfo=timezone.utc),
-            end=datetime(2024, 1, 15, 10, 0, tzinfo=timezone.utc),
+            start=datetime(2024, 1, 15, 9, 0, tzinfo=UTC),
+            end=datetime(2024, 1, 15, 10, 0, tzinfo=UTC),
             status="busy",
         )
         with pytest.raises((dataclasses.FrozenInstanceError, TypeError)):
@@ -278,8 +280,8 @@ class TestFreeBusySlot:
     def test_status_values(self) -> None:
         """All three status values should be storable."""
         base = dict(
-            start=datetime(2024, 1, 15, 9, 0, tzinfo=timezone.utc),
-            end=datetime(2024, 1, 15, 10, 0, tzinfo=timezone.utc),
+            start=datetime(2024, 1, 15, 9, 0, tzinfo=UTC),
+            end=datetime(2024, 1, 15, 10, 0, tzinfo=UTC),
         )
         for status in ("busy", "free", "tentative"):
             slot = FreeBusySlot(status=status, **base)
@@ -328,7 +330,7 @@ class TestImportBatch:
             items=[],
             source_system="jira",
             project_id="PROJ",
-            fetched_at=datetime.now(tz=timezone.utc),
+            fetched_at=datetime.now(tz=UTC),
         )
         assert batch.has_more is False
 
@@ -338,7 +340,7 @@ class TestImportBatch:
             items=[],
             source_system="jira",
             project_id="PROJ",
-            fetched_at=datetime.now(tz=timezone.utc),
+            fetched_at=datetime.now(tz=UTC),
         )
         assert batch.next_cursor is None
 
@@ -348,7 +350,7 @@ class TestImportBatch:
             items=[],
             source_system="jira",
             project_id="PROJ",
-            fetched_at=datetime.now(tz=timezone.utc),
+            fetched_at=datetime.now(tz=UTC),
             next_cursor="100",
             has_more=True,
         )
@@ -362,7 +364,7 @@ class TestImportBatch:
             items=[item],
             source_system="asana",
             project_id="proj-abc",
-            fetched_at=datetime.now(tz=timezone.utc),
+            fetched_at=datetime.now(tz=UTC),
         )
         assert len(batch.items) == 1
         assert batch.items[0] is item
@@ -373,7 +375,7 @@ class TestImportBatch:
             items=[],
             source_system="notion",
             project_id="db-xyz",
-            fetched_at=datetime.now(tz=timezone.utc),
+            fetched_at=datetime.now(tz=UTC),
         )
         batch.has_more = True
         batch.next_cursor = "next-page-token"

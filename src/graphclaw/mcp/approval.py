@@ -204,8 +204,7 @@ class GatedApprovalService:
             elapsed += poll_interval_seconds
 
         raise MCPApprovalTimeoutError(
-            f"Approval task '{approval_task_id}' was not resolved within "
-            f"{timeout_seconds} seconds."
+            f"Approval task '{approval_task_id}' was not resolved within {timeout_seconds} seconds."
         )
 
     async def get_pending_approvals(self, user_id: str) -> list[dict]:

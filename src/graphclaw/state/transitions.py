@@ -28,10 +28,10 @@ The COMPLETE → NEEDS_REVIEW low-confidence reopen is handled as a special-case
 guard in StateMachine, not here, because it requires inspecting the task's
 progress.confidence field rather than just the state pair.
 """
+
 from __future__ import annotations
 
 from graphclaw.models.enums import TaskState
-
 
 # ---------------------------------------------------------------------------
 # Transition table
@@ -100,9 +100,7 @@ class InvalidTransitionError(Exception):
     ) -> None:
         self.from_state = from_state
         self.to_state = to_state
-        msg = (
-            f"Cannot transition from {from_state.value} to {to_state.value}"
-        )
+        msg = f"Cannot transition from {from_state.value} to {to_state.value}"
         if reason:
             msg = f"{msg}: {reason}"
         super().__init__(msg)

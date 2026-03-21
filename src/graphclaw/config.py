@@ -34,6 +34,7 @@ absent.  All other settings have safe defaults.  The ``SECRETS_BACKEND`` variabl
 defaults to ``env_file`` for local development (Docker Compose); production
 deployments should set it to ``aws_sm`` or ``vault``.
 """
+
 from __future__ import annotations
 
 import os
@@ -49,36 +50,20 @@ load_dotenv()
 class DatabaseConfig:
     """Postgres + AGE connection configuration."""
 
-    dsn: str = field(
-        default_factory=lambda: os.environ["DATABASE_URL"]
-    )
-    min_pool_size: int = field(
-        default_factory=lambda: int(os.getenv("DB_POOL_MIN", "2"))
-    )
-    max_pool_size: int = field(
-        default_factory=lambda: int(os.getenv("DB_POOL_MAX", "10"))
-    )
-    graph_name: str = field(
-        default_factory=lambda: os.getenv("AGE_GRAPH_NAME", "graphclaw")
-    )
+    dsn: str = field(default_factory=lambda: os.environ["DATABASE_URL"])
+    min_pool_size: int = field(default_factory=lambda: int(os.getenv("DB_POOL_MIN", "2")))
+    max_pool_size: int = field(default_factory=lambda: int(os.getenv("DB_POOL_MAX", "10")))
+    graph_name: str = field(default_factory=lambda: os.getenv("AGE_GRAPH_NAME", "graphclaw"))
 
 
 @dataclass(frozen=True)
 class AppConfig:
     """Application-level configuration."""
 
-    secrets_backend: str = field(
-        default_factory=lambda: os.getenv("SECRETS_BACKEND", "env_file")
-    )
-    anthropic_api_key: str = field(
-        default_factory=lambda: os.getenv("ANTHROPIC_API_KEY", "")
-    )
-    log_level: str = field(
-        default_factory=lambda: os.getenv("LOG_LEVEL", "INFO")
-    )
-    environment: str = field(
-        default_factory=lambda: os.getenv("ENVIRONMENT", "development")
-    )
+    secrets_backend: str = field(default_factory=lambda: os.getenv("SECRETS_BACKEND", "env_file"))
+    anthropic_api_key: str = field(default_factory=lambda: os.getenv("ANTHROPIC_API_KEY", ""))
+    log_level: str = field(default_factory=lambda: os.getenv("LOG_LEVEL", "INFO"))
+    environment: str = field(default_factory=lambda: os.getenv("ENVIRONMENT", "development"))
 
 
 class Config:

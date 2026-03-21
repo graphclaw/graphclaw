@@ -31,6 +31,7 @@ Effort-slack adjustment adds up to +0.30 when effort exceeds remaining time
 (negative slack), ensuring that a near-deadline task with high effort is scored
 more urgently than one with trivial remaining work.
 """
+
 from __future__ import annotations
 
 

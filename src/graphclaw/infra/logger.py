@@ -38,6 +38,7 @@ All timestamps use UTC.  The ``session_id`` field enables distributed
 tracing across services: generate one session ID per inbound request or
 agent cycle and propagate it through all log calls.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -158,11 +159,9 @@ class AsyncLogger:
                 if remaining <= 0:
                     break
                 try:
-                    entry = await asyncio.wait_for(
-                        self._queue.get(), timeout=remaining
-                    )
+                    entry = await asyncio.wait_for(self._queue.get(), timeout=remaining)
                     batch.append(entry)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     break
             if batch:
                 await self._write_batch(batch)

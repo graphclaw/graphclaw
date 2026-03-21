@@ -22,11 +22,9 @@ from infra.redis.cluster_config import (
     CLUSTER_NODES,
     DEFAULT_CLUSTER_CONFIG,
     RedisClusterConfig,
-    RedisNodeConfig,
     build_redis_cluster_config,
 )
 from infra.redis.redis_conf import generate_redis_conf, get_cluster_meet_commands
-
 
 # ---------------------------------------------------------------------------
 # CLUSTER_NODES constant
@@ -35,9 +33,7 @@ from infra.redis.redis_conf import generate_redis_conf, get_cluster_meet_command
 
 def test_cluster_has_3_nodes() -> None:
     """CLUSTER_NODES tuple must contain exactly 3 entries."""
-    assert len(CLUSTER_NODES) == 3, (
-        f"Expected 3 nodes in CLUSTER_NODES, got {len(CLUSTER_NODES)}"
-    )
+    assert len(CLUSTER_NODES) == 3, f"Expected 3 nodes in CLUSTER_NODES, got {len(CLUSTER_NODES)}"
 
 
 def test_all_nodes_are_masters() -> None:
@@ -61,9 +57,7 @@ def test_cluster_config_node_count() -> None:
 def test_cluster_config_master_nodes() -> None:
     """DEFAULT_CLUSTER_CONFIG.master_nodes must return all 3 masters."""
     masters = DEFAULT_CLUSTER_CONFIG.master_nodes
-    assert len(masters) == 3, (
-        f"Expected 3 master nodes, got {len(masters)}"
-    )
+    assert len(masters) == 3, f"Expected 3 master nodes, got {len(masters)}"
 
 
 def test_user_hash_tag_pattern() -> None:
@@ -92,18 +86,14 @@ def test_redis_conf_has_maxmemory() -> None:
     """generate_redis_conf output must contain 'maxmemory 512mb'."""
     node = CLUSTER_NODES[0]
     conf = generate_redis_conf(node, DEFAULT_CLUSTER_CONFIG)
-    assert "maxmemory 512mb" in conf, (
-        f"redis.conf must contain 'maxmemory 512mb'; got:\n{conf}"
-    )
+    assert "maxmemory 512mb" in conf, f"redis.conf must contain 'maxmemory 512mb'; got:\n{conf}"
 
 
 def test_redis_conf_has_appendonly() -> None:
     """generate_redis_conf output must contain 'appendonly yes'."""
     node = CLUSTER_NODES[0]
     conf = generate_redis_conf(node, DEFAULT_CLUSTER_CONFIG)
-    assert "appendonly yes" in conf, (
-        "redis.conf must enable AOF persistence with 'appendonly yes'"
-    )
+    assert "appendonly yes" in conf, "redis.conf must enable AOF persistence with 'appendonly yes'"
 
 
 # ---------------------------------------------------------------------------
@@ -119,8 +109,7 @@ def test_cluster_meet_command_contains_all_nodes() -> None:
     for node in CLUSTER_NODES:
         expected_addr = f"{node.host}:{node.port}"
         assert expected_addr in cmd, (
-            f"Cluster create command missing node address {expected_addr!r}; "
-            f"command: {cmd!r}"
+            f"Cluster create command missing node address {expected_addr!r}; command: {cmd!r}"
         )
 
 
@@ -151,6 +140,4 @@ def test_build_redis_cluster_config_default() -> None:
     """build_redis_cluster_config with defaults must return a RedisClusterConfig with 3 nodes."""
     config = build_redis_cluster_config()
     assert isinstance(config, RedisClusterConfig)
-    assert config.node_count == 3, (
-        f"Expected 3 nodes from default build, got {config.node_count}"
-    )
+    assert config.node_count == 3, f"Expected 3 nodes from default build, got {config.node_count}"

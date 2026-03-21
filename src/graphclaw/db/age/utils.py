@@ -31,6 +31,7 @@ a Cypher query because AGE does not support ``$1`` bind parameters inside ``$$``
 blocks.  The order of replacements (backslash first, then single quote) is critical:
 reversing the order would cause existing backslashes to be double-escaped.
 """
+
 from __future__ import annotations
 
 import json

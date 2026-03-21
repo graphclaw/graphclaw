@@ -42,6 +42,7 @@ it does NOT persist changes to a ``.env`` file on disk.  This is intentional
 for local development convenience — production backends should use a durable
 store.
 """
+
 from __future__ import annotations
 
 import os
@@ -152,7 +153,11 @@ class AWSSecretsClient(SecretsClient):
         region: str | None = None,
         secret_prefix: str = "",
     ) -> None:
-        self._region = region or os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
+        self._region = (
+            region
+            or os.environ.get("AWS_REGION")
+            or os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
+        )
         self._prefix = secret_prefix
         self._client: object | None = None  # lazy-init boto3 client
 
@@ -192,8 +197,6 @@ class AWSSecretsClient(SecretsClient):
 
         def _fetch() -> str:
             try:
-                import botocore.exceptions  # noqa: PLC0415
-
                 response = client.get_secret_value(SecretId=full_key)  # type: ignore[attr-defined]
                 return response.get("SecretString") or ""
             except Exception as exc:  # noqa: BLE001
@@ -300,8 +303,7 @@ class HashiCorpVaultClient(SecretsClient):
         namespace: str | None = None,
     ) -> None:
         self._vault_addr = (
-            vault_addr
-            or os.environ.get("VAULT_ADDR", "http://localhost:8200")
+            vault_addr or os.environ.get("VAULT_ADDR", "http://localhost:8200")
         ).rstrip("/")
         self._token = token or os.environ.get("VAULT_TOKEN", "")
         self._mount_path = mount_path.strip("/")

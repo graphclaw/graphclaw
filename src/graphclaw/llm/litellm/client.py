@@ -27,6 +27,7 @@ Dependencies
   ToolDefinition, ToolCall.
 - litellm: Multi-provider LLM library (>= 1.50.0).
 """
+
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
@@ -107,6 +108,7 @@ class LiteLLMLLMClient(LLMClient):
         tool_calls: list[ToolCall] = []
         if choice.message.tool_calls:
             import json
+
             for tc in choice.message.tool_calls:
                 tool_calls.append(
                     ToolCall(

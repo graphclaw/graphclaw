@@ -4,10 +4,11 @@ Uses ``httpx.AsyncClient`` with ASGI transport for in-process HTTP testing.
 The broker dependency is overridden via ``app.dependency_overrides`` so no
 real Redis connection is required.
 """
+
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -85,7 +86,7 @@ def _make_test_app(mock_broker: MockBroker | None = None) -> FastAPI:
     return app
 
 
-_NOW = datetime(2024, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
+_NOW = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
 
 
 def _sample_inbound() -> dict[str, Any]:
@@ -120,9 +121,7 @@ def _sample_outbound() -> dict[str, Any]:
 class TestHealthCheck:
     async def test_health_check_returns_ok(self):
         app = _make_test_app()
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get("/health")
         assert response.status_code == 200
         data = response.json()
@@ -131,9 +130,7 @@ class TestHealthCheck:
 
     async def test_health_check_has_services_field(self):
         app = _make_test_app()
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get("/health")
         data = response.json()
         assert "services" in data
@@ -143,9 +140,7 @@ class TestReadinessCheck:
     async def test_readiness_returns_ok_with_broker(self):
         broker = MockBroker()
         app = _make_test_app(mock_broker=broker)
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get("/ready")
         assert response.status_code == 200
         data = response.json()
@@ -154,9 +149,7 @@ class TestReadinessCheck:
     async def test_readiness_returns_503_without_broker(self):
         # No broker override — get_broker will raise RuntimeError
         app = _make_test_app(mock_broker=None)
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get("/ready")
         assert response.status_code == 503
         data = response.json()
@@ -173,9 +166,7 @@ class TestInboundMessageAccepted:
         broker = MockBroker()
         app = _make_test_app(mock_broker=broker)
         payload = _sample_inbound()
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.post("/api/v1/inbound/messages", json=payload)
         assert response.status_code == 202
         data = response.json()
@@ -185,27 +176,21 @@ class TestInboundMessageAccepted:
     async def test_inbound_message_invalid_body_returns_422(self):
         broker = MockBroker()
         app = _make_test_app(mock_broker=broker)
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
-            response = await client.post(
-                "/api/v1/inbound/messages", json={"invalid": "payload"}
-            )
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post("/api/v1/inbound/messages", json={"invalid": "payload"})
         assert response.status_code == 422
 
     async def test_inbound_publishes_to_broker(self):
         broker = MockBroker()
         app = _make_test_app(mock_broker=broker)
         payload = _sample_inbound()
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             await client.post("/api/v1/inbound/messages", json=payload)
 
         assert len(broker.published) == 1
         queue, message_json = broker.published[0]
-        from graphclaw.infra.broker import INBOUND_MESSAGES
         from graphclaw.gateway.schemas import InboundMessage
+        from graphclaw.infra.broker import INBOUND_MESSAGES
 
         assert queue == INBOUND_MESSAGES
         restored = InboundMessage.model_validate_json(message_json)
@@ -218,9 +203,7 @@ class TestInboundMessageAccepted:
         # Remove session_id from payload
         payload = {k: v for k, v in _sample_inbound().items() if k != "session_id"}
         payload["session_id"] = ""  # InboundMessage requires the field
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             await client.post("/api/v1/inbound/messages", json=payload)
 
         queue, message_json = broker.published[0]
@@ -240,9 +223,7 @@ class TestOutboundMessageQueued:
         broker = MockBroker()
         app = _make_test_app(mock_broker=broker)
         payload = _sample_outbound()
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.post("/api/v1/outbound/messages", json=payload)
         assert response.status_code == 202
         data = response.json()
@@ -253,15 +234,13 @@ class TestOutboundMessageQueued:
         broker = MockBroker()
         app = _make_test_app(mock_broker=broker)
         payload = _sample_outbound()
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             await client.post("/api/v1/outbound/messages", json=payload)
 
         assert len(broker.published) == 1
         queue, message_json = broker.published[0]
-        from graphclaw.infra.broker import OUTBOUND_MESSAGES
         from graphclaw.gateway.schemas import OutboundMessage
+        from graphclaw.infra.broker import OUTBOUND_MESSAGES
 
         assert queue == OUTBOUND_MESSAGES
         restored = OutboundMessage.model_validate_json(message_json)
@@ -271,10 +250,6 @@ class TestOutboundMessageQueued:
     async def test_outbound_invalid_body_returns_422(self):
         broker = MockBroker()
         app = _make_test_app(mock_broker=broker)
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
-            response = await client.post(
-                "/api/v1/outbound/messages", json={"bad": "data"}
-            )
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post("/api/v1/outbound/messages", json={"bad": "data"})
         assert response.status_code == 422

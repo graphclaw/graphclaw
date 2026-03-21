@@ -3,6 +3,7 @@
 Configures the asyncio event loop policy for Windows compatibility
 with psycopg async connections (psycopg requires SelectorEventLoop).
 """
+
 from __future__ import annotations
 
 import asyncio

@@ -40,6 +40,7 @@ for the query text (e.g. via the Anthropic Embeddings API or a local model)
 and pass it as the ``$1`` parameter. The stub currently returns an unmatched
 ``TaskResolution`` because no embedding model is wired up by default.
 """
+
 from __future__ import annotations
 
 import re

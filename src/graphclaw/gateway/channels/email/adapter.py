@@ -22,6 +22,7 @@ Dependencies
 - graphclaw.gateway.schemas: OutboundMessage.
 - graphclaw.infra.broker: MessageBroker.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -99,7 +100,9 @@ class EmailChannelAdapter(ChannelAdapter):
 
     async def send(self, message: OutboundMessage) -> None:
         if self._sender is None:
-            logger.warning("Email channel: SMTP not configured, cannot send message %s", message.message_id)
+            logger.warning(
+                "Email channel: SMTP not configured, cannot send message %s", message.message_id
+            )
             return
         await self._sender.send(
             recipient=message.recipient,

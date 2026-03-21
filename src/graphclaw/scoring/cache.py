@@ -37,11 +37,11 @@ This implementation is not thread-safe.  Phase 0 runs single-threaded async I/O,
 so concurrent mutation is not a concern.  A Redis-backed implementation with
 atomic operations will be needed for multi-worker deployments.
 """
+
 from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Optional
 
 from graphclaw.models.base import utcnow
 from graphclaw.models.scoring import ScoreExplanation
@@ -66,13 +66,13 @@ class ScoreCache:
 
     def __init__(self) -> None:
         self._store: dict[str, ScoreExplanation] = {}
-        self._last_full_rescore: Optional[datetime] = None
+        self._last_full_rescore: datetime | None = None
 
     # ------------------------------------------------------------------
     # Read
     # ------------------------------------------------------------------
 
-    def get(self, task_id: str) -> Optional[ScoreExplanation]:
+    def get(self, task_id: str) -> ScoreExplanation | None:
         """Return the cached ScoreExplanation for *task_id*, or None if absent."""
         return self._store.get(task_id)
 
@@ -125,9 +125,7 @@ class ScoreCache:
             len(upstream_ids),
         )
 
-    def invalidate_by_resource(
-        self, resource_id: str, task_ids: list[str]
-    ) -> None:
+    def invalidate_by_resource(self, resource_id: str, task_ids: list[str]) -> None:
         """Invalidate all tasks assigned to *resource_id*.
 
         Triggered when a resource risk signal is added or removed.
@@ -164,7 +162,7 @@ class ScoreCache:
         return len(self._store)
 
     @property
-    def last_full_rescore(self) -> Optional[datetime]:
+    def last_full_rescore(self) -> datetime | None:
         """Timestamp of the last full cache clear, or None if never done."""
         return self._last_full_rescore
 

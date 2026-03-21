@@ -19,6 +19,7 @@ Environment Variables (via SlackConfig)
 ----------------------------------------
 SLACK_BOT_TOKEN   Bot token from Slack app settings.
 """
+
 from __future__ import annotations
 
 import logging
@@ -35,7 +36,7 @@ _SLACK_API_BASE = "https://slack.com/api"
 class SlackSender:
     """Delivers outbound messages and files via the Slack Web API."""
 
-    def __init__(self, config: "SlackConfig") -> None:
+    def __init__(self, config: SlackConfig) -> None:
         self._config = config
 
     async def send(
@@ -84,9 +85,7 @@ class SlackSender:
 
         data = response.json()
         if not data.get("ok"):
-            raise RuntimeError(
-                f"Slack API chat.postMessage error: {data.get('error', 'unknown')}"
-            )
+            raise RuntimeError(f"Slack API chat.postMessage error: {data.get('error', 'unknown')}")
 
         logger.info("Slack message sent to channel=%s", channel)
 
@@ -136,8 +135,6 @@ class SlackSender:
 
         data = response.json()
         if not data.get("ok"):
-            raise RuntimeError(
-                f"Slack API files.upload error: {data.get('error', 'unknown')}"
-            )
+            raise RuntimeError(f"Slack API files.upload error: {data.get('error', 'unknown')}")
 
         logger.info("Slack file uploaded to channel=%s filename=%s", channel, filename)

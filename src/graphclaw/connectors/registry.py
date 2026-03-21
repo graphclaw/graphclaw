@@ -25,6 +25,7 @@ Author
 GraphClaw Project — https://graphclaw.ai
 License: Apache 2.0
 """
+
 from __future__ import annotations
 
 import logging
@@ -83,8 +84,7 @@ class ConnectorRegistry:
         if cls is None:
             available = ", ".join(sorted(self._registry.keys()))
             raise ValueError(
-                f"Unknown connector type {connector_type!r}. "
-                f"Available types: {available}"
+                f"Unknown connector type {connector_type!r}. Available types: {available}"
             )
         return cls
 
@@ -99,13 +99,19 @@ def _build_default_registry() -> ConnectorRegistry:
 
     # Calendar connectors
     try:
-        from graphclaw.connectors.calendar.google.adapter import GoogleCalendarConnector  # noqa: PLC0415
+        from graphclaw.connectors.calendar.google.adapter import (
+            GoogleCalendarConnector,  # noqa: PLC0415
+        )
+
         registry.register(GoogleCalendarConnector)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Could not load GoogleCalendarConnector: %s", exc)
 
     try:
-        from graphclaw.connectors.calendar.outlook.adapter import OutlookCalendarConnector  # noqa: PLC0415
+        from graphclaw.connectors.calendar.outlook.adapter import (
+            OutlookCalendarConnector,  # noqa: PLC0415
+        )
+
         registry.register(OutlookCalendarConnector)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Could not load OutlookCalendarConnector: %s", exc)
@@ -113,18 +119,23 @@ def _build_default_registry() -> ConnectorRegistry:
     # Import connectors
     try:
         from graphclaw.connectors.import_.jira.adapter import JiraImportConnector  # noqa: PLC0415
+
         registry.register(JiraImportConnector)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Could not load JiraImportConnector: %s", exc)
 
     try:
         from graphclaw.connectors.import_.asana.adapter import AsanaImportConnector  # noqa: PLC0415
+
         registry.register(AsanaImportConnector)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Could not load AsanaImportConnector: %s", exc)
 
     try:
-        from graphclaw.connectors.import_.notion.adapter import NotionImportConnector  # noqa: PLC0415
+        from graphclaw.connectors.import_.notion.adapter import (
+            NotionImportConnector,  # noqa: PLC0415
+        )
+
         registry.register(NotionImportConnector)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Could not load NotionImportConnector: %s", exc)

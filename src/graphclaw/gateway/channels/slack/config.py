@@ -22,6 +22,7 @@ Environment Variables
 SLACK_BOT_TOKEN        Bot token from Slack app settings (e.g. "xoxb-...").
 SLACK_SIGNING_SECRET   Signing secret for webhook signature verification.
 """
+
 from __future__ import annotations
 
 import os
@@ -37,7 +38,7 @@ class SlackConfig:
     default_channel: str = "#general"
 
     @classmethod
-    def from_env(cls) -> "SlackConfig | None":
+    def from_env(cls) -> SlackConfig | None:
         """Build from environment variables; return None if bot token is missing."""
         token = os.environ.get("SLACK_BOT_TOKEN", "")
         if not token:

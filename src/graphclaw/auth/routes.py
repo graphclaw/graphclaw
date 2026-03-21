@@ -37,13 +37,14 @@ Dependencies
 - jose: JWTError (third-party).
 - logging, os: stdlib.
 """
+
 from __future__ import annotations
 
 import logging
 import os
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import RedirectResponse
 from jose import JWTError
 from pydantic import BaseModel

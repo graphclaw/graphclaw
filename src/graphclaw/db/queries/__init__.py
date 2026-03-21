@@ -30,6 +30,7 @@ Notes
 New code should import directly from ``graphclaw.db.age.queries`` or use the
 ``AgeGraphQueryEngine`` class.
 """
+
 from __future__ import annotations
 
 from graphclaw.db.age.queries.critical_path import find_critical_path

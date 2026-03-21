@@ -51,15 +51,14 @@ Dependencies
 ------------
 - locust>=2.20.0: Load testing framework (third-party).
 """
+
 from __future__ import annotations
 
-import json
 import random
 import string
 
 from locust import HttpUser, between, events, task
 from locust.env import Environment
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -303,9 +302,7 @@ def check_thresholds(environment: Environment, **kwargs: object) -> None:
     # P99 latency — Locust exposes response_times as a percentile method
     p99 = stats.get_response_time_percentile(0.99)
     if p99 and p99 > THRESHOLDS["p99_latency_ms"]:
-        failures.append(
-            f"P99 latency {p99}ms exceeds threshold {THRESHOLDS['p99_latency_ms']}ms"
-        )
+        failures.append(f"P99 latency {p99}ms exceeds threshold {THRESHOLDS['p99_latency_ms']}ms")
 
     # Throughput
     if stats.total_rps < THRESHOLDS["min_throughput_rps"]:

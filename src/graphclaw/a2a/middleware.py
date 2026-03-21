@@ -37,10 +37,10 @@ Dependencies
 - fastapi.security: APIKeyHeader (third-party).
 - logging, os: stdlib.
 """
+
 from __future__ import annotations
 
 import logging
-import os
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import APIKeyHeader

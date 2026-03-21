@@ -38,6 +38,7 @@ Patterns are compiled at class definition time so they are shared across all
 to avoid case-sensitivity issues without requiring case-insensitive flags on
 every pattern.
 """
+
 from __future__ import annotations
 
 import re
@@ -75,8 +76,7 @@ _RAW_PATTERNS: dict[StatusSignal, list[str]] = {
 
 # Compile all patterns once.
 _COMPILED_PATTERNS: dict[StatusSignal, list[re.Pattern[str]]] = {
-    signal: [re.compile(pat) for pat in pats]
-    for signal, pats in _RAW_PATTERNS.items()
+    signal: [re.compile(pat) for pat in pats] for signal, pats in _RAW_PATTERNS.items()
 }
 
 

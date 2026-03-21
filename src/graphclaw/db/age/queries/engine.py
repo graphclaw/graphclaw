@@ -32,23 +32,24 @@ The pool and graph_name are stored on construction and forwarded to each
 standalone function.  This avoids the need for callers to pass the pool on
 every individual query call.
 """
+
 from __future__ import annotations
 
 from psycopg_pool import AsyncConnectionPool
 
-from graphclaw.db.base import GraphQueryEngine
-from graphclaw.db.age.utils import GRAPH_NAME
+from graphclaw.db.age.queries.critical_path import find_critical_path
 from graphclaw.db.age.queries.dependencies import (
+    get_blocked_root_causes,
     get_downstream_dependents,
     get_upstream_blockers,
-    get_blocked_root_causes,
 )
-from graphclaw.db.age.queries.critical_path import find_critical_path
 from graphclaw.db.age.queries.scoring_queries import (
     get_active_tasks_for_scoring,
-    get_constraints_for_task,
     get_assigned_resource,
+    get_constraints_for_task,
 )
+from graphclaw.db.age.utils import GRAPH_NAME
+from graphclaw.db.base import GraphQueryEngine
 
 
 class AgeGraphQueryEngine(GraphQueryEngine):

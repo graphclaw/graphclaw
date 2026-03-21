@@ -7,6 +7,7 @@ Exports
 - GitHubMCPAdapter: Adapter for GitHub REST API.
 - SlackMCPAdapter: Adapter for Slack API.
 """
+
 from __future__ import annotations
 
 from graphclaw.mcp.adapters.base import MCPAdapterABC

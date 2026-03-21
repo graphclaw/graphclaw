@@ -29,12 +29,13 @@ Dependencies
 - graphclaw.infra.storage: StorageClient ABC.
 - graphclaw.infra.broker: MessageBroker ABC, AUDIT_EVENTS queue name.
 """
+
 from __future__ import annotations
 
 import json
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from graphclaw.compliance.models import AuditEvent
 from graphclaw.infra.storage import StorageClient
@@ -182,9 +183,7 @@ class AuditLogger:
             try:
                 keys = await self._storage.list_objects(prefix)
             except Exception:  # noqa: BLE001
-                logger.warning(
-                    "audit: list_objects failed for prefix=%s", prefix, exc_info=True
-                )
+                logger.warning("audit: list_objects failed for prefix=%s", prefix, exc_info=True)
                 continue
 
             for key in keys:
@@ -194,7 +193,7 @@ class AuditLogger:
                     ts = datetime.fromisoformat(payload["timestamp"])
                     # Normalise to aware UTC for comparison
                     if ts.tzinfo is None:
-                        ts = ts.replace(tzinfo=timezone.utc)
+                        ts = ts.replace(tzinfo=UTC)
                     if ts < start or ts >= end:
                         continue
                     if action_filter is not None and payload.get("action") != action_filter:
@@ -212,9 +211,7 @@ class AuditLogger:
                         )
                     )
                 except Exception:  # noqa: BLE001
-                    logger.warning(
-                        "audit: failed to parse event from key=%s", key, exc_info=True
-                    )
+                    logger.warning("audit: failed to parse event from key=%s", key, exc_info=True)
 
         events.sort(key=lambda e: e.timestamp)
         return events

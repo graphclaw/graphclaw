@@ -21,6 +21,7 @@ Dependencies
 - fastapi: FastAPI (third-party).
 - pytest: stdlib test runner.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -29,7 +30,6 @@ from fastapi.testclient import TestClient
 
 from graphclaw.api.router import app_router
 from graphclaw.auth.middleware import require_auth
-
 
 # ---------------------------------------------------------------------------
 # Test application + fixture
@@ -102,9 +102,7 @@ def test_get_settings_requires_auth(no_auth_client: TestClient) -> None:
 
 def test_patch_settings_updates_timezone(settings_client: TestClient) -> None:
     """PATCH /app/v1/settings updates timezone and returns updated settings."""
-    response = settings_client.patch(
-        "/app/v1/settings", json={"timezone": "America/New_York"}
-    )
+    response = settings_client.patch("/app/v1/settings", json={"timezone": "America/New_York"})
     assert response.status_code == 200
     data = response.json()
     assert data["timezone"] == "America/New_York"
@@ -112,9 +110,7 @@ def test_patch_settings_updates_timezone(settings_client: TestClient) -> None:
 
 def test_patch_settings_updates_llm_provider(settings_client: TestClient) -> None:
     """PATCH /app/v1/settings updates llm_provider."""
-    response = settings_client.patch(
-        "/app/v1/settings", json={"llm_provider": "anthropic"}
-    )
+    response = settings_client.patch("/app/v1/settings", json={"llm_provider": "anthropic"})
     assert response.status_code == 200
     data = response.json()
     assert data["llm_provider"] == "anthropic"
@@ -128,9 +124,7 @@ def test_patch_settings_partial_update(settings_client: TestClient) -> None:
         json={"llm_provider": "openai", "timezone": "Europe/London"},
     )
     # Then patch only llm_provider
-    response = settings_client.patch(
-        "/app/v1/settings", json={"llm_provider": "litellm"}
-    )
+    response = settings_client.patch("/app/v1/settings", json={"llm_provider": "litellm"})
     assert response.status_code == 200
     data = response.json()
     assert data["llm_provider"] == "litellm"
@@ -139,9 +133,7 @@ def test_patch_settings_partial_update(settings_client: TestClient) -> None:
 
 def test_patch_settings_requires_auth(no_auth_client: TestClient) -> None:
     """PATCH /app/v1/settings returns 401/403 without a Bearer token."""
-    response = no_auth_client.patch(
-        "/app/v1/settings", json={"timezone": "UTC"}
-    )
+    response = no_auth_client.patch("/app/v1/settings", json={"timezone": "UTC"})
     assert response.status_code in (401, 403)
 
 

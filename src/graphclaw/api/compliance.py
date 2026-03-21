@@ -31,10 +31,11 @@ Dependencies
 - fastapi: APIRouter, Depends, HTTPException, status (third-party).
 - pydantic: BaseModel (third-party).
 """
+
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -55,6 +56,7 @@ router = APIRouter(prefix="/compliance", tags=["app-api"])
 # These lightweight stubs allow the endpoints to be exercised in tests and
 # local dev without a running AGE database or S3 bucket.  In production the
 # services are wired up via dependency injection in the application factory.
+
 
 class _StubStorage:
     """Minimal in-memory StorageClient stub for the compliance API layer."""
@@ -98,10 +100,14 @@ class _StubGraphStore:
     async def list_nodes(self, label: str, filters: dict | None = None) -> list[dict]:
         return []
 
-    async def create_edge(self, source_id: str, target_id: str, edge_type: str, properties: dict | None = None) -> dict:
+    async def create_edge(
+        self, source_id: str, target_id: str, edge_type: str, properties: dict | None = None
+    ) -> dict:
         return {}
 
-    async def get_edges(self, node_id: str, direction: str = "out", edge_type: str | None = None) -> list[dict]:
+    async def get_edges(
+        self, node_id: str, direction: str = "out", edge_type: str | None = None
+    ) -> list[dict]:
         return []
 
     async def delete_edge(self, edge_id: str) -> None:

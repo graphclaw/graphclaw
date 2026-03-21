@@ -1,11 +1,9 @@
 """Tests for graphclaw.gateway.models — TaskMatch, HealthStatus, EmailConfig."""
-from __future__ import annotations
 
-import pytest
+from __future__ import annotations
 
 from graphclaw.gateway.models import EmailConfig, HealthStatus, TaskMatch
 from graphclaw.models.enums import ConfidenceLevel, MatchedBy
-
 
 # ---------------------------------------------------------------------------
 # TaskMatch

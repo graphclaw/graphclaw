@@ -32,11 +32,12 @@ Dependencies
 - graphclaw.auth.middleware: FastAPI dependency helpers.
 - graphclaw.auth.provisioning: UserProvisioningService and ProvisioningResult.
 """
+
 from __future__ import annotations
 
 from graphclaw.auth.jwt import JWTService
-from graphclaw.auth.middleware import require_auth, get_current_user_id
-from graphclaw.auth.provisioning import UserProvisioningService, ProvisioningResult
+from graphclaw.auth.middleware import get_current_user_id, require_auth
+from graphclaw.auth.provisioning import ProvisioningResult, UserProvisioningService
 
 __all__ = [
     "JWTService",

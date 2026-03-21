@@ -20,10 +20,10 @@ Dependencies
 ------------
 - graphclaw.models.scoring: ActionQueueEntry.
 """
+
 from __future__ import annotations
 
 from graphclaw.models.scoring import ActionQueueEntry
-
 
 # ---------------------------------------------------------------------------
 # Public API

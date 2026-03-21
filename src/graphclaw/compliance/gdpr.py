@@ -28,11 +28,12 @@ Dependencies
 - graphclaw.db.base: GraphStore ABC.
 - graphclaw.infra.storage: StorageClient ABC.
 """
+
 from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from graphclaw.compliance.audit import AuditLogger
 from graphclaw.compliance.models import AuditEvent, ErasureRequest, ErasureStatus
@@ -100,7 +101,7 @@ class GDPRService:
             The newly created request.
         """
         request_id = f"ERASURE-{uuid.uuid4().hex[:12]}"
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         request = ErasureRequest(
             user_id=user_id,
             requested_at=now,
@@ -180,9 +181,7 @@ class GDPRService:
                             exc_info=True,
                             extra={"task_id": task_id},
                         )
-            logger.debug(
-                "gdpr: TaskNodes deleted", extra={"count": len(tasks), "user_id": user_id}
-            )
+            logger.debug("gdpr: TaskNodes deleted", extra={"count": len(tasks), "user_id": user_id})
 
             # Step 3: Delete all VisibilityGrantNodes for user
             grants = await self._graph.list_nodes(
@@ -227,7 +226,7 @@ class GDPRService:
                 )
 
             # Step 5: Delete audit log entries older than 30 days
-            cutoff = datetime.now(timezone.utc) - timedelta(days=_AUDIT_RETENTION_DAYS)
+            cutoff = datetime.now(UTC) - timedelta(days=_AUDIT_RETENTION_DAYS)
             audit_prefix = f"audit/{user_id}/"
             try:
                 audit_keys = await self._storage.list_objects(audit_prefix)
@@ -238,11 +237,11 @@ class GDPRService:
                     if len(parts) >= 3:
                         month_str = parts[2]  # YYYY-MM
                         try:
-                            month_dt = datetime.strptime(month_str, "%Y-%m").replace(
-                                tzinfo=timezone.utc
-                            )
+                            month_dt = datetime.strptime(month_str, "%Y-%m").replace(tzinfo=UTC)
                             # If the entire month is older than the cutoff, delete.
-                            if month_dt < cutoff.replace(day=1, hour=0, minute=0, second=0, microsecond=0):
+                            if month_dt < cutoff.replace(
+                                day=1, hour=0, minute=0, second=0, microsecond=0
+                            ):
                                 try:
                                     await self._storage.delete(key)
                                 except Exception:  # noqa: BLE001
@@ -265,7 +264,7 @@ class GDPRService:
                 action="erasure.completed",
                 resource_type="UserNode",
                 resource_id=user_id,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 metadata={"request_id": request.request_id},
             )
             await self._audit.log(completion_event)
@@ -287,7 +286,9 @@ class GDPRService:
             return ErasureStatus.FAILED
 
     async def get_erasure_status(
-        self, request_id: str, user_id: str  # noqa: ARG002
+        self,
+        request_id: str,
+        user_id: str,  # noqa: ARG002
     ) -> ErasureStatus:
         """Return the current status of an erasure request.
 

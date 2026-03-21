@@ -29,6 +29,7 @@ Dependencies
 - graphclaw.models.scoring: ActionQueueEntry, ScoreExplanation.
 - rich: Console, Panel, Table.
 """
+
 from __future__ import annotations
 
 from rich.console import Console
@@ -37,7 +38,6 @@ from rich.table import Table
 
 from graphclaw.models.nodes import GoalNode, TaskNode
 from graphclaw.models.scoring import ActionQueueEntry, ScoreExplanation
-
 
 # ---------------------------------------------------------------------------
 # Module-level console instance (callers may pass their own Console)
@@ -84,9 +84,7 @@ def format_task_table(
 
     for i, task in enumerate(tasks, 1):
         deadline_str = (
-            task.timeline.deadline.strftime("%Y-%m-%d")
-            if task.timeline.deadline
-            else "—"
+            task.timeline.deadline.strftime("%Y-%m-%d") if task.timeline.deadline else "—"
         )
         score_str = f"{scores[task.id]:.3f}" if task.id in scores else "—"
         table.add_row(
@@ -115,9 +113,7 @@ def format_task_panel(task: TaskNode, console: Console | None = None) -> None:
     out = console or _console
 
     deadline_str = (
-        task.timeline.deadline.strftime("%Y-%m-%d %H:%M UTC")
-        if task.timeline.deadline
-        else "None"
+        task.timeline.deadline.strftime("%Y-%m-%d %H:%M UTC") if task.timeline.deadline else "None"
     )
     effort_str = (
         f"{task.timeline.estimated_effort_days}d"
@@ -200,9 +196,7 @@ def format_goal_table(
 
     for goal in goals:
         target_str = (
-            goal.timeline.target_date.strftime("%Y-%m-%d")
-            if goal.timeline.target_date
-            else "—"
+            goal.timeline.target_date.strftime("%Y-%m-%d") if goal.timeline.target_date else "—"
         )
         progress_str = f"{goal.progress.derived_percentage:.0f}%"
         table.add_row(
@@ -230,9 +224,7 @@ def format_goal_panel(goal: GoalNode, console: Console | None = None) -> None:
     out = console or _console
 
     target_str = (
-        goal.timeline.target_date.strftime("%Y-%m-%d")
-        if goal.timeline.target_date
-        else "None"
+        goal.timeline.target_date.strftime("%Y-%m-%d") if goal.timeline.target_date else "None"
     )
 
     lines = [
@@ -286,9 +278,7 @@ def format_score_explanation(
         "[dim]Factor breakdown:[/dim]",
     ]
 
-    for factor in sorted(
-        explanation.factors, key=lambda f: f.weighted_score, reverse=True
-    ):
+    for factor in sorted(explanation.factors, key=lambda f: f.weighted_score, reverse=True):
         bar_len = max(0, min(20, int(factor.weighted_score * 20)))
         bar = "[yellow]" + "█" * bar_len + "[/yellow]" + "░" * (20 - bar_len)
         lines.append(
@@ -302,8 +292,7 @@ def format_score_explanation(
         lines.append("[dim]Modifiers:[/dim]")
         for mod in explanation.modifiers:
             lines.append(
-                f"  {mod.modifier_type:<24} x{mod.multiplier:.2f}  "
-                f"[dim]{mod.plain_english}[/dim]"
+                f"  {mod.modifier_type:<24} x{mod.multiplier:.2f}  [dim]{mod.plain_english}[/dim]"
             )
 
     if explanation.topology_note:
@@ -362,9 +351,7 @@ def format_action_queue(
             else None
         )
         top_factor_str = (
-            f"{top_factor.factor_name} ({top_factor.weighted_score:.3f})"
-            if top_factor
-            else "—"
+            f"{top_factor.factor_name} ({top_factor.weighted_score:.3f})" if top_factor else "—"
         )
 
         table.add_row(

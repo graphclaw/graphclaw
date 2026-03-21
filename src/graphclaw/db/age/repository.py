@@ -45,6 +45,7 @@ All user-supplied string values MUST pass through ``_escape()`` before embedding
 to prevent Cypher injection.  Numeric and boolean values are safe to embed directly
 after type conversion.
 """
+
 from __future__ import annotations
 
 import json
@@ -54,9 +55,9 @@ from typing import Any
 
 from psycopg_pool import AsyncConnectionPool
 
-from graphclaw.db.base import GraphStore
 from graphclaw.db.age.connection import get_connection
 from graphclaw.db.age.utils import GRAPH_NAME, _escape, _extract_properties, _parse_agtype
+from graphclaw.db.base import GraphStore
 
 logger = logging.getLogger(__name__)
 
@@ -298,9 +299,7 @@ class AgeGraphStore(GraphStore):
         ``label``, and any edge properties.
         """
         if edge_type is not None and not _EDGE_TYPE_RE.match(edge_type):
-            raise ValueError(
-                f"Invalid edge_type {edge_type!r}: must match ^[A-Z_]+$"
-            )
+            raise ValueError(f"Invalid edge_type {edge_type!r}: must match ^[A-Z_]+$")
         type_filter = f":{edge_type}" if edge_type else ""
         enid = _escape(node_id)
 
@@ -348,9 +347,7 @@ class AgeGraphStore(GraphStore):
         Raises ``ValueError`` if ``edge_id`` is not a string of digits.
         """
         if not str(edge_id).isdigit():
-            raise ValueError(
-                f"edge_id must be a numeric string; got {edge_id!r}"
-            )
+            raise ValueError(f"edge_id must be a numeric string; got {edge_id!r}")
         async with get_connection(self._pool) as conn:
             await conn.execute(
                 f"""

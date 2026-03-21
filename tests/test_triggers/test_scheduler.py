@@ -6,15 +6,15 @@ Verifies trigger registration, due-trigger detection, disabled trigger filtering
 unregistration, advance/next_fire_at updates, and the basic cron parser for
 daily patterns.
 """
+
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime
 
 import pytest
 
 from graphclaw.triggers.models import TriggerConfig, TriggerType
 from graphclaw.triggers.scheduler import TriggerScheduler
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -22,7 +22,7 @@ from graphclaw.triggers.scheduler import TriggerScheduler
 
 
 def _utc(*args, **kwargs) -> datetime:
-    return datetime(*args, **kwargs, tzinfo=timezone.utc)
+    return datetime(*args, **kwargs, tzinfo=UTC)
 
 
 def _make_config(
@@ -205,11 +205,11 @@ def test_compute_next_cron_invalid_fields() -> None:
     """Non-wildcard day-of-month should raise ValueError."""
     scheduler = TriggerScheduler()
     with pytest.raises(ValueError, match="Unsupported cron expression"):
-        scheduler._compute_next_cron("0 8 1 * *", datetime.now(timezone.utc))
+        scheduler._compute_next_cron("0 8 1 * *", datetime.now(UTC))
 
 
 def test_compute_next_cron_wrong_field_count() -> None:
     """Wrong number of fields should raise ValueError."""
     scheduler = TriggerScheduler()
     with pytest.raises(ValueError, match="expected 5 fields"):
-        scheduler._compute_next_cron("0 8 * *", datetime.now(timezone.utc))
+        scheduler._compute_next_cron("0 8 * *", datetime.now(UTC))

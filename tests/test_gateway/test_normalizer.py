@@ -1,9 +1,8 @@
 """Tests for graphclaw.gateway.channels.email.normalizer — normalize_email function."""
+
 from __future__ import annotations
 
 from email.message import EmailMessage
-
-import pytest
 
 from graphclaw.gateway.channels.email.normalizer import normalize_email
 from graphclaw.gateway.schemas import InboundMessage
@@ -70,6 +69,7 @@ class TestNormalizePlainTextEmail:
         raw = _make_email()
         result = normalize_email(raw)
         from datetime import datetime
+
         assert isinstance(result.received_at, datetime)
         assert result.received_at.tzinfo is not None
 

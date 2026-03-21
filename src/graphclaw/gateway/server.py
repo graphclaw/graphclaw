@@ -34,6 +34,7 @@ Or via Docker Compose::
 
     docker compose up gateway
 """
+
 from __future__ import annotations
 
 import os

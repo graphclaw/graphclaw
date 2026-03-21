@@ -47,7 +47,7 @@ Dependencies
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -89,7 +89,6 @@ from graphclaw.models.enums import (
 )
 from graphclaw.models.type_metadata import TypeMetadata
 
-
 # ---------------------------------------------------------------------------
 # Sub-models shared by TaskNode
 # ---------------------------------------------------------------------------
@@ -109,14 +108,14 @@ class Timeline(BaseModel):
 class ScoringBlock(BaseModel):
     """Stores the 7 raw scoring factor values for a TaskNode."""
 
-    timeline_urgency: float = 0.0        # W1: 0.0 – 1.2
-    dependency_weight: float = 0.0       # W2
-    critical_path: float = 0.0           # W3: 0.0 or 1.0
-    blocker: float = 0.0                 # W4: 0.0, 0.6, or 1.0
-    human_override: float = 0.0          # W5: -0.3 to +1.0
-    resource_risk: float = 0.0           # W6: 0.0 – 1.0
-    constraint_pressure: float = 0.0     # W7: 0.0 – 1.0
-    computed_priority: float = 0.0       # final weighted score
+    timeline_urgency: float = 0.0  # W1: 0.0 – 1.2
+    dependency_weight: float = 0.0  # W2
+    critical_path: float = 0.0  # W3: 0.0 or 1.0
+    blocker: float = 0.0  # W4: 0.0, 0.6, or 1.0
+    human_override: float = 0.0  # W5: -0.3 to +1.0
+    resource_risk: float = 0.0  # W6: 0.0 – 1.0
+    constraint_pressure: float = 0.0  # W7: 0.0 – 1.0
+    computed_priority: float = 0.0  # final weighted score
     chain_urgency_rollup: float = 0.0
     last_scored_at: datetime | None = None
     score_reasoning: str | None = None
@@ -147,7 +146,7 @@ class OverrideBlock(BaseModel):
     is_overridden: bool = False
     override_type: OverrideType | None = None
     override_note: str | None = None
-    set_by: str | None = None            # user_id
+    set_by: str | None = None  # user_id
     set_at: datetime | None = None
     expires_at: datetime | None = None
 
@@ -165,7 +164,7 @@ class UpdateLogEntry(BaseModel):
     """Single inbound-update record attached to a TaskNode."""
 
     received_at: datetime
-    source: str                           # resource_id
+    source: str  # resource_id
     raw_text: str
     parsed_status: str | None = None
     parsed_progress: float | None = None
@@ -198,9 +197,9 @@ class TaskNode(BaseNode):
     description: str
 
     # Ownership
-    created_by: str | None = None        # user_id
-    owned_by: str | None = None          # user_id or resource_id
-    assigned_to: str | None = None       # resource_id
+    created_by: str | None = None  # user_id
+    owned_by: str | None = None  # user_id or resource_id
+    assigned_to: str | None = None  # resource_id
 
     # State machine
     state: TaskState = TaskState.PENDING
@@ -238,9 +237,7 @@ class TaskNode(BaseNode):
     @classmethod
     def validate_id(cls, v: str) -> str:
         if not TASK_ID_PATTERN.match(v):
-            raise ValueError(
-                f"Invalid task ID '{v}'. Expected TSK-<INITIALS>-<SEQ>-<TYPE_CODE>"
-            )
+            raise ValueError(f"Invalid task ID '{v}'. Expected TSK-<INITIALS>-<SEQ>-<TYPE_CODE>")
         return v
 
 
@@ -270,8 +267,8 @@ class AutonomyDefaults(BaseModel):
 
 
 class UserPreferences(BaseModel):
-    briefing_time: str | None = None     # "HH:MM"
-    briefing_style: str = "concise"      # "concise" | "detailed"
+    briefing_time: str | None = None  # "HH:MM"
+    briefing_style: str = "concise"  # "concise" | "detailed"
     default_follow_up_days: int = 3
     interrupt_threshold: float = 0.8
     autonomy_defaults: AutonomyDefaults = AutonomyDefaults()
@@ -280,13 +277,13 @@ class UserPreferences(BaseModel):
 class BehavioralModel(BaseModel):
     avg_estimate_accuracy: float = 0.0
     preferred_task_batch_size: int = 5
-    responsive_hours: list[dict] = []    # list of {start, end}
-    decision_speed: str = "variable"     # "fast" | "deliberate" | "variable"
+    responsive_hours: list[dict] = []  # list of {start, end}
+    decision_speed: str = "variable"  # "fast" | "deliberate" | "variable"
     override_frequency: float = 0.0
 
 
 class WorkingHours(BaseModel):
-    start: str | None = None             # "HH:MM"
+    start: str | None = None  # "HH:MM"
     end: str | None = None
 
 
@@ -331,13 +328,13 @@ class GoalNode(BaseNode):
 
     title: str
     description: str
-    owner: str | None = None             # user_id
+    owner: str | None = None  # user_id
     state: GoalState = GoalState.ACTIVE
     timeline: GoalTimeline = GoalTimeline()
     progress: GoalProgress = GoalProgress()
     priority: GoalPriority = GoalPriority.P2
     origin: GoalOrigin = GoalOrigin.USER_DEFINED
-    inferred_from: list[str] = []        # task_ids if agent-inferred
+    inferred_from: list[str] = []  # task_ids if agent-inferred
     inference_note: str | None = None
     confirmed_by_user: bool = True
 
@@ -358,9 +355,9 @@ class ConstraintRule(BaseModel):
     """The rule body of a ConstraintNode."""
 
     hard_limit: bool = False
-    threshold: str | None = None         # e.g. "$50,000" or "2024-12-31"
+    threshold: str | None = None  # e.g. "$50,000" or "2024-12-31"
     current_value: str | None = None
-    pressure_score: float = 0.0          # 0.0 – 1.0
+    pressure_score: float = 0.0  # 0.0 – 1.0
     breached: bool = False
 
 
@@ -372,7 +369,7 @@ class ConstraintNode(BaseNode):
     description: str
     rule: ConstraintRule = ConstraintRule()
     scope: ConstraintScope = ConstraintScope.TASK
-    applies_to: list[str] = []           # node_ids
+    applies_to: list[str] = []  # node_ids
     origin: GoalOrigin = GoalOrigin.USER_DEFINED
     confirmed_by_user: bool = True
 
@@ -380,9 +377,7 @@ class ConstraintNode(BaseNode):
     @classmethod
     def validate_id(cls, v: str) -> str:
         if not CONSTRAINT_ID_PATTERN.match(v):
-            raise ValueError(
-                f"Invalid constraint ID '{v}'. Expected CON-<identifier>"
-            )
+            raise ValueError(f"Invalid constraint ID '{v}'. Expected CON-<identifier>")
         return v
 
 
@@ -412,7 +407,7 @@ class ReliabilityModel(BaseModel):
 class RiskSignal(BaseModel):
     signal: str
     inferred_at: datetime
-    source_node: str | None = None       # node_id
+    source_node: str | None = None  # node_id
     expires_at: datetime | None = None
 
 
@@ -424,7 +419,7 @@ class CurrentRisk(BaseModel):
 
 
 class CommunicationPreferences(BaseModel):
-    preferred_channel: str = "email"    # "email" | "slack" | "api" | "chat"
+    preferred_channel: str = "email"  # "email" | "slack" | "api" | "chat"
     batch_messages: bool = False
     batch_window_hours: int = 24
 
@@ -434,7 +429,7 @@ class ResourceNode(BaseNode):
 
     resource_type: ResourceType
     name: str
-    contact: str | None = None           # email address or endpoint URL
+    contact: str | None = None  # email address or endpoint URL
     timezone: str | None = None
     capacity: CapacityModel = CapacityModel()
     reliability: ReliabilityModel = ReliabilityModel()
@@ -445,9 +440,7 @@ class ResourceNode(BaseNode):
     @classmethod
     def validate_id(cls, v: str) -> str:
         if not RESOURCE_ID_PATTERN.match(v):
-            raise ValueError(
-                f"Invalid resource ID '{v}'. Expected RES-<identifier>"
-            )
+            raise ValueError(f"Invalid resource ID '{v}'. Expected RES-<identifier>")
         return v
 
 
@@ -465,9 +458,9 @@ class CheckinResolution(BaseModel):
 class CheckinNode(BaseNode):
     """Batched communication artifact — not a task itself."""
 
-    target_resource: str                  # resource_id
+    target_resource: str  # resource_id
     created_by: str = "AGENT"
-    task_refs: list[str] = []             # task_ids batched into this check-in
+    task_refs: list[str] = []  # task_ids batched into this check-in
     state: CheckinState = CheckinState.SCHEDULED
     scheduled_for: datetime | None = None
     sent_at: datetime | None = None
@@ -508,8 +501,8 @@ class OrganizationNode(BaseNode):
     """
 
     name: str
-    domain: str | None = None             # e.g. "acme.com" for SSO matching
-    owner_id: str                          # USER-{uuid} of the founding user
+    domain: str | None = None  # e.g. "acme.com" for SSO matching
+    owner_id: str  # USER-{uuid} of the founding user
     members: list[OrgMember] = []
     settings: OrgSettings = OrgSettings()
 
@@ -534,13 +527,13 @@ class WorkspaceNode(BaseNode):
     SCOPED_TO_WS this node are only visible to workspace members.
     """
 
-    org_id: str                            # ORG-{uuid} of the parent org
+    org_id: str  # ORG-{uuid} of the parent org
     name: str
     description: str = ""
     visibility: WorkspaceVisibility = WorkspaceVisibility.INTERNAL
-    task_prefix: str = ""                  # User-initials prefix for task IDs in this workspace
-    member_ids: list[str] = []             # USER-{uuid} list (subset of org members)
-    is_default: bool = False               # True for the org's default workspace
+    task_prefix: str = ""  # User-initials prefix for task IDs in this workspace
+    member_ids: list[str] = []  # USER-{uuid} list (subset of org members)
+    is_default: bool = False  # True for the org's default workspace
 
     @field_validator("id")
     @classmethod
@@ -566,13 +559,9 @@ class VisibilityGrantNode(BaseNode):
     grantor_user_id: str = Field(..., description="USER-{id} of user granting access.")
     granted_to_user_id: str = Field(..., description="USER-{id} receiving the grant.")
     target_node_id: str = Field(..., description="ID of the node being shared.")
-    target_node_type: str = Field(
-        ..., description="Node label (e.g. 'TaskNode', 'GoalNode')."
-    )
+    target_node_type: str = Field(..., description="Node label (e.g. 'TaskNode', 'GoalNode').")
     scope: VisibilityScope = VisibilityScope.VIEWER
-    granted_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    granted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     revoked_at: datetime | None = None
     revoked_by: str | None = None
     reason: str = ""
@@ -602,32 +591,20 @@ class MCPServerNode(BaseNode):
     node_type: str = Field(default="MCPServerNode", frozen=True)
     name: str = Field(..., description="Human-readable name, e.g. 'Google Calendar'")
     transport: MCPTransport = Field(default=MCPTransport.HTTP)
-    endpoint_url: str | None = Field(
-        default=None, description="URL for sse/http transports"
-    )
-    command: str | None = Field(
-        default=None, description="Command for stdio transport"
-    )
+    endpoint_url: str | None = Field(default=None, description="URL for sse/http transports")
+    command: str | None = Field(default=None, description="Command for stdio transport")
     trust_tier: TrustTier = Field(default=TrustTier.GATED)
-    scope: list[str] = Field(
-        default_factory=list, description="Declared capability scopes"
-    )
-    secret_ref: str | None = Field(
-        default=None, description="Secrets Manager key ID for auth"
-    )
+    scope: list[str] = Field(default_factory=list, description="Declared capability scopes")
+    secret_ref: str | None = Field(default=None, description="Secrets Manager key ID for auth")
     enabled: bool = Field(default=True)
-    registered_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    registered_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     last_used_at: datetime | None = Field(default=None)
 
     @field_validator("id")
     @classmethod
     def validate_id(cls, v: str) -> str:
         if not MCP_SERVER_ID_PATTERN.match(v):
-            raise ValueError(
-                f"Invalid MCP server ID '{v}'. Expected MCP-<identifier>"
-            )
+            raise ValueError(f"Invalid MCP server ID '{v}'. Expected MCP-<identifier>")
         return v
 
 

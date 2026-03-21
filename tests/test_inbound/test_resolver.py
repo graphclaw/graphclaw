@@ -6,6 +6,7 @@ Verifies regex task ID extraction, ID-based resolution with and without a
 GraphRepository mock, no-match fallback, and vector search confidence
 assignment at HIGH, MEDIUM, and below-threshold levels.
 """
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
@@ -14,7 +15,6 @@ import pytest
 
 from graphclaw.inbound.resolver import TASK_ID_REGEX, TaskResolver
 from graphclaw.models.enums import ConfidenceLevel, MatchedBy
-
 
 # ---------------------------------------------------------------------------
 # _extract_task_id
@@ -140,10 +140,12 @@ async def test_resolve_vector_search_high_confidence() -> None:
     mock_conn = AsyncMock()
     mock_row = {"task_id": "TSK-VV-1111-DEL", "title": "Deploy service", "similarity": 0.85}
     mock_conn.fetchrow = AsyncMock(return_value=mock_row)
-    mock_pool.connection = MagicMock(return_value=AsyncMock(
-        __aenter__=AsyncMock(return_value=mock_conn),
-        __aexit__=AsyncMock(return_value=False),
-    ))
+    mock_pool.connection = MagicMock(
+        return_value=AsyncMock(
+            __aenter__=AsyncMock(return_value=mock_conn),
+            __aexit__=AsyncMock(return_value=False),
+        )
+    )
 
     resolver = TaskResolver(pool=mock_pool)
     result = await resolver.resolve("Deploy the new service to production")
@@ -161,10 +163,12 @@ async def test_resolve_vector_search_medium_confidence() -> None:
     mock_conn = AsyncMock()
     mock_row = {"task_id": "TSK-MM-2222-ATM", "title": "Medium match task", "similarity": 0.55}
     mock_conn.fetchrow = AsyncMock(return_value=mock_row)
-    mock_pool.connection = MagicMock(return_value=AsyncMock(
-        __aenter__=AsyncMock(return_value=mock_conn),
-        __aexit__=AsyncMock(return_value=False),
-    ))
+    mock_pool.connection = MagicMock(
+        return_value=AsyncMock(
+            __aenter__=AsyncMock(return_value=mock_conn),
+            __aexit__=AsyncMock(return_value=False),
+        )
+    )
 
     resolver = TaskResolver(pool=mock_pool)
     result = await resolver.resolve("Some vaguely related update message")
@@ -181,10 +185,12 @@ async def test_resolve_vector_search_below_threshold() -> None:
     mock_conn = AsyncMock()
     mock_row = {"task_id": "TSK-LL-3333-CHK", "title": "Low match task", "similarity": 0.25}
     mock_conn.fetchrow = AsyncMock(return_value=mock_row)
-    mock_pool.connection = MagicMock(return_value=AsyncMock(
-        __aenter__=AsyncMock(return_value=mock_conn),
-        __aexit__=AsyncMock(return_value=False),
-    ))
+    mock_pool.connection = MagicMock(
+        return_value=AsyncMock(
+            __aenter__=AsyncMock(return_value=mock_conn),
+            __aexit__=AsyncMock(return_value=False),
+        )
+    )
 
     resolver = TaskResolver(pool=mock_pool)
     result = await resolver.resolve("Completely unrelated message")
@@ -199,10 +205,12 @@ async def test_resolve_vector_search_no_row() -> None:
     mock_pool = MagicMock()
     mock_conn = AsyncMock()
     mock_conn.fetchrow = AsyncMock(return_value=None)
-    mock_pool.connection = MagicMock(return_value=AsyncMock(
-        __aenter__=AsyncMock(return_value=mock_conn),
-        __aexit__=AsyncMock(return_value=False),
-    ))
+    mock_pool.connection = MagicMock(
+        return_value=AsyncMock(
+            __aenter__=AsyncMock(return_value=mock_conn),
+            __aexit__=AsyncMock(return_value=False),
+        )
+    )
 
     resolver = TaskResolver(pool=mock_pool)
     result = await resolver.resolve("Message with no database match at all")

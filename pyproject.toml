@@ -96,11 +96,16 @@ packages = ["src/graphclaw"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py312"
+target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
-ignore = ["E501"]
+ignore = [
+    "E501",   # line too long — handled by formatter
+    "E402",   # module-level import not at top — occurs in files with __future__ + docstring ordering
+    "F841",   # local variable assigned but never used — common in test scaffolding
+    "UP042",  # str+Enum → StrEnum — valid pre-3.11 pattern; migration is out of scope
+]
 
 [tool.ruff.lint.isort]
 known-first-party = ["graphclaw"]

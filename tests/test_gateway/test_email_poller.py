@@ -1,13 +1,11 @@
 """Tests for graphclaw.gateway.channels.email.poller — EmailPoller class."""
+
 from __future__ import annotations
 
-import asyncio
 import imaplib
 from collections.abc import AsyncIterator
 from email.message import EmailMessage
-from unittest.mock import AsyncMock, MagicMock, call, patch
-
-import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from graphclaw.gateway.channels.email.poller import EmailPoller
 from graphclaw.gateway.schemas import InboundMessage

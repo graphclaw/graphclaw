@@ -15,11 +15,12 @@ Author
 GraphClaw Project — https://graphclaw.ai
 License: Apache 2.0
 """
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -31,7 +32,6 @@ from graphclaw.connectors.import_.jira.adapter import (
     _raw_issue_to_import_item,
 )
 from graphclaw.connectors.import_.models import ImportBatch, ImportItem
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -171,7 +171,7 @@ class TestRawIssueToImportItem:
     def test_due_date_parsed(self) -> None:
         """Due date string should be parsed into a datetime."""
         item = _raw_issue_to_import_item(_JIRA_ISSUE_RAW, _SERVER_URL)
-        assert item.due_date == datetime(2024, 4, 1, tzinfo=timezone.utc)
+        assert item.due_date == datetime(2024, 4, 1, tzinfo=UTC)
 
     def test_labels_include_labels_and_components(self) -> None:
         """Both Jira labels and component names should appear in ImportItem.labels."""
@@ -283,9 +283,7 @@ class TestJiraImportConnectorFetchItems:
         """has_more should be False when all results fit in one page."""
         connector = _make_connector()
         all_in_one = {**_JIRA_SEARCH_RESPONSE, "total": 2}  # total == returned
-        connector._client.post = AsyncMock(
-            return_value=self._make_mock_response(all_in_one)
-        )
+        connector._client.post = AsyncMock(return_value=self._make_mock_response(all_in_one))
 
         batch = await connector.fetch_items("PROJ")
         assert batch.has_more is False
@@ -326,9 +324,9 @@ class TestJiraImportConnectorFetchItems:
             return_value=self._make_mock_response(_JIRA_SEARCH_RESPONSE)
         )
 
-        before = datetime.now(tz=timezone.utc)
+        before = datetime.now(tz=UTC)
         batch = await connector.fetch_items("PROJ")
-        after = datetime.now(tz=timezone.utc)
+        after = datetime.now(tz=UTC)
 
         assert before <= batch.fetched_at <= after
 
@@ -348,7 +346,7 @@ class TestJiraImportConnectorToTaskNodes:
             description="Users cannot log in",
             status="in_progress",
             priority="high",
-            due_date=datetime(2024, 4, 1, tzinfo=timezone.utc),
+            due_date=datetime(2024, 4, 1, tzinfo=UTC),
             assignee="Alice Smith",
             labels=["mobile", "auth"],
             url=f"{_SERVER_URL}/browse/PROJ-1",
@@ -400,7 +398,7 @@ class TestJiraImportConnectorToTaskNodes:
     async def test_due_date_preserved(self) -> None:
         """due_date should be preserved (including None)."""
         connector = _make_connector()
-        due = datetime(2024, 6, 1, tzinfo=timezone.utc)
+        due = datetime(2024, 6, 1, tzinfo=UTC)
         item = self._make_item(due_date=due)
         result = await connector.to_task_nodes([item])
         assert result[0]["due_date"] == due

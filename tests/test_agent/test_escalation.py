@@ -21,12 +21,13 @@ Dependencies
 - graphclaw.models.enums: TaskState, TaskType.
 - graphclaw.models.type_metadata: ApprovalMetadata.
 """
+
 from __future__ import annotations
 
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
 
 from graphclaw.agent.delegation import DelegationResult
 from graphclaw.agent.escalation import (
@@ -36,7 +37,6 @@ from graphclaw.agent.escalation import (
 )
 from graphclaw.models.enums import TaskState, TaskType
 from graphclaw.models.type_metadata import ApprovalMetadata
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -59,7 +59,7 @@ def make_approval_task_dict(
         escalation_target_user_id=target,
         delegated_by_user_id="USER-alice",
     )
-    old_time = datetime.now(timezone.utc) - timedelta(days=days_old)
+    old_time = datetime.now(UTC) - timedelta(days=days_old)
     return {
         "id": "TSK-AB-0002-APR",
         "task_type": TaskType.APPROVAL,
@@ -147,10 +147,7 @@ class TestCheckAndEscalateOverdue:
 
         # update_node must have been called with CANCELLED state
         update_calls = store.update_node.call_args_list
-        assert any(
-            TaskState.CANCELLED in str(c) or "CANCELLED" in str(c)
-            for c in update_calls
-        )
+        assert any(TaskState.CANCELLED in str(c) or "CANCELLED" in str(c) for c in update_calls)
 
     @pytest.mark.asyncio
     async def test_auto_approve_action_calls_update_node_with_complete_state(self):
@@ -164,10 +161,7 @@ class TestCheckAndEscalateOverdue:
         assert events[0].action_taken == "AUTO_APPROVED"
 
         update_calls = store.update_node.call_args_list
-        assert any(
-            TaskState.COMPLETE in str(c) or "COMPLETE" in str(c)
-            for c in update_calls
-        )
+        assert any(TaskState.COMPLETE in str(c) or "COMPLETE" in str(c) for c in update_calls)
 
     @pytest.mark.asyncio
     async def test_reassign_action_calls_delegation_service(self):

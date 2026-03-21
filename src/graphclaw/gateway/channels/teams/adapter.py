@@ -38,6 +38,7 @@ Dependencies
 - graphclaw.gateway.schemas: OutboundMessage.
 - graphclaw.infra.broker: MessageBroker.
 """
+
 from __future__ import annotations
 
 import logging
@@ -71,9 +72,7 @@ class TeamsAdapter(ChannelAdapter):
         """Load config from environment; log ready status (Teams uses webhooks)."""
         self._config = TeamsConfig.from_env()
         if self._config is None:
-            logger.warning(
-                "Teams channel: TEAMS_TENANT_ID not set — channel disabled"
-            )
+            logger.warning("Teams channel: TEAMS_TENANT_ID not set — channel disabled")
             return
         self._sender = TeamsSender()
         self._broker = broker

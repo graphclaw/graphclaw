@@ -41,6 +41,7 @@ Dependencies
 - graphclaw.models.nodes: TaskNode.
 - graphclaw.models.type_metadata: ApprovalMetadata.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -52,7 +53,6 @@ from graphclaw.models.base import utcnow
 from graphclaw.models.enums import TaskState, TaskType
 from graphclaw.models.nodes import TaskNode
 from graphclaw.models.type_metadata import ApprovalMetadata
-
 
 # ---------------------------------------------------------------------------
 # Result dataclass
@@ -173,9 +173,7 @@ class EscalationService:
             if now < deadline:
                 continue  # Not yet overdue
 
-            event = await self.escalate_task(
-                task.id, approval_meta.model_dump()
-            )
+            event = await self.escalate_task(task.id, approval_meta.model_dump())
             events.append(event)
 
         return events
@@ -215,9 +213,7 @@ class EscalationService:
         task = TaskNode.model_validate(raw_task)
         now = utcnow()
 
-        escalation_action = (
-            approval_metadata.get("escalation_action") or "REASSIGN"
-        ).upper()
+        escalation_action = (approval_metadata.get("escalation_action") or "REASSIGN").upper()
         escalation_target = approval_metadata.get("escalation_target_user_id")
         owner_id = task.owned_by or task.created_by or "SYSTEM"
 

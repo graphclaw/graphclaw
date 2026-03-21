@@ -52,6 +52,7 @@ processing a job.  The ``FAILED`` and ``TIMED_OUT`` states are intentionally
 excluded so that permanently broken workers are not re-used until
 ``HeartbeatMonitor`` respawns them.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -165,7 +166,7 @@ class SkillWorker:
                 cost_usd=response.get("cost_usd", 0.0),
             )
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             self._jobs_failed += 1
             self._state = ThreadState.TIMED_OUT
             return SkillResult(

@@ -32,11 +32,12 @@ Slack event payload structure (simplified):
 Bot messages (identified by the presence of ``bot_id``) are silently skipped
 by returning ``None``.  Mention syntax ``<@USERID>`` is stripped from text.
 """
+
 from __future__ import annotations
 
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from graphclaw.gateway.schemas import InboundMessage
@@ -81,9 +82,9 @@ def normalize_slack(payload: dict[str, Any]) -> InboundMessage | None:
         # Convert Slack timestamp (Unix float string) to datetime
         received_at: datetime
         try:
-            received_at = datetime.fromtimestamp(float(ts), tz=timezone.utc)
+            received_at = datetime.fromtimestamp(float(ts), tz=UTC)
         except (ValueError, TypeError):
-            received_at = datetime.now(timezone.utc)
+            received_at = datetime.now(UTC)
 
         raw_headers: dict[str, str] = {
             "slack_channel": channel,

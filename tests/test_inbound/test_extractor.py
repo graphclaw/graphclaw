@@ -7,6 +7,7 @@ that INFO_ONLY is returned for non-empty neutral text, that UNKNOWN is
 returned for empty text, that confidence escalates with match count, that
 SIGNAL_TO_STATE maps are correct, and that summary truncation works.
 """
+
 from __future__ import annotations
 
 import pytest

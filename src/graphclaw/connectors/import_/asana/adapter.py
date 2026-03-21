@@ -25,10 +25,11 @@ Author
 GraphClaw Project — https://graphclaw.ai
 License: Apache 2.0
 """
+
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from graphclaw.connectors.base import ConnectorConfig
@@ -52,8 +53,9 @@ def _parse_asana_date(date_str: str | None) -> datetime | None:
         return None
     try:
         from datetime import date  # noqa: PLC0415
+
         d = date.fromisoformat(date_str)
-        return datetime(d.year, d.month, d.day, tzinfo=timezone.utc)
+        return datetime(d.year, d.month, d.day, tzinfo=UTC)
     except ValueError:
         return None
 
@@ -108,8 +110,7 @@ class AsanaImportConnector(ImportConnector):
             import httpx  # noqa: PLC0415
         except ImportError as exc:
             raise ImportError(
-                "httpx is required for AsanaImportConnector. "
-                "Install with: pip install httpx"
+                "httpx is required for AsanaImportConnector. Install with: pip install httpx"
             ) from exc
 
         self._client = httpx.AsyncClient(
@@ -197,7 +198,7 @@ class AsanaImportConnector(ImportConnector):
             items=items,
             source_system="asana",
             project_id=project_id,
-            fetched_at=datetime.now(tz=timezone.utc),
+            fetched_at=datetime.now(tz=UTC),
             next_cursor=next_cursor,
             has_more=has_more,
         )

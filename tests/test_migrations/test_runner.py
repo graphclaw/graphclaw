@@ -24,9 +24,8 @@ Test Coverage
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import FrozenInstanceError
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -78,16 +77,12 @@ class TestCatalogueInvariants:
     def test_no_destructive_migrations(self) -> None:
         """No migration in the catalogue may be marked is_destructive=True."""
         destructive = [m for m in MIGRATIONS if m.is_destructive]
-        assert not destructive, (
-            f"Found destructive migrations: {[m.version for m in destructive]}"
-        )
+        assert not destructive, f"Found destructive migrations: {[m.version for m in destructive]}"
 
     def test_catalogue_versions_unique(self) -> None:
         """All version strings in MIGRATIONS must be unique."""
         versions = [m.version for m in MIGRATIONS]
-        assert len(versions) == len(set(versions)), (
-            f"Duplicate versions found: {versions}"
-        )
+        assert len(versions) == len(set(versions)), f"Duplicate versions found: {versions}"
 
     def test_catalogue_versions_sequential(self) -> None:
         """Versions must be sequential with no gaps: '0001', '0002', ..."""
@@ -185,9 +180,7 @@ class TestMigrationRunner:
         runner = _make_runner()
         migration = _simple_migration(version="0001")
 
-        mock_conn, mock_get_applied = self._patch_runner(
-            runner, applied_versions={"0001"}
-        )
+        mock_conn, mock_get_applied = self._patch_runner(runner, applied_versions={"0001"})
 
         with (
             patch.object(runner, "get_applied_versions", mock_get_applied),
@@ -209,9 +202,7 @@ class TestMigrationRunner:
         runner = _make_runner()
         migration = _simple_migration(version="0001")
 
-        mock_conn, mock_get_applied = self._patch_runner(
-            runner, applied_versions=set()
-        )
+        mock_conn, mock_get_applied = self._patch_runner(runner, applied_versions=set())
 
         with (
             patch.object(runner, "get_applied_versions", mock_get_applied),

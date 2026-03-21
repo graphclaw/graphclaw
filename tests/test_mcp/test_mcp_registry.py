@@ -17,15 +17,14 @@ Dependencies
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock
 
 import pytest
 
 from graphclaw.mcp.registry import MCPRegistry
 from graphclaw.models.enums import EdgeType, MCPTransport, TrustTier
 from graphclaw.models.nodes import MCPServerNode
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -39,7 +38,7 @@ def make_server_node(
     enabled: bool = True,
     scope: list[str] | None = None,
 ) -> MCPServerNode:
-    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    now = datetime(2026, 1, 1, tzinfo=UTC)
     return MCPServerNode(
         id=server_id,
         name=name,
@@ -84,7 +83,9 @@ class TestMCPRegistryRegister:
         store.create_node.assert_awaited_once_with(node)
         store.create_edge.assert_awaited_once()
         edge_call = store.create_edge.call_args
-        assert edge_call.kwargs.get("source_id") == "USER-alice" or edge_call.args[0] == "USER-alice"
+        assert (
+            edge_call.kwargs.get("source_id") == "USER-alice" or edge_call.args[0] == "USER-alice"
+        )
         assert result is node
 
     @pytest.mark.asyncio

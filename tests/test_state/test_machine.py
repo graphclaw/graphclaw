@@ -8,14 +8,15 @@ Tests cover:
 - INACTIVE_PENDING → ACTIVE guard
 - BLOCKED → ACTIVE guard
 """
+
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
-from datetime import datetime, timezone
 
 from graphclaw.models.base import generate_task_id
 from graphclaw.models.enums import (
-    AutonomyLevel,
     ChangedBy,
     ConfidenceLevel,
     TaskState,
@@ -25,14 +26,13 @@ from graphclaw.models.nodes import TaskNode
 from graphclaw.state.machine import StateMachine
 from graphclaw.state.transitions import InvalidTransitionError
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _make_task(
@@ -121,7 +121,7 @@ class TestStateHistoryRecording:
     def test_history_entry_fields(self):
         sm = StateMachine()
         task = _make_task(state=TaskState.PENDING)
-        before = datetime.now(timezone.utc)
+        before = datetime.now(UTC)
         sm.transition(task, TaskState.ACTIVE, ChangedBy.HUMAN, "starting work")
         entry = task.state_history[0]
         assert entry.from_state == TaskState.PENDING

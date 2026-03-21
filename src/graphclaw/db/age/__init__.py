@@ -24,9 +24,10 @@ Notes
 Import only what is needed to avoid loading psycopg / psycopg_pool at
 module-discovery time.
 """
+
 from __future__ import annotations
 
-from graphclaw.db.age.repository import AgeGraphStore
 from graphclaw.db.age.queries.engine import AgeGraphQueryEngine
+from graphclaw.db.age.repository import AgeGraphStore
 
 __all__ = ["AgeGraphStore", "AgeGraphQueryEngine"]

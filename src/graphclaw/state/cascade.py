@@ -30,10 +30,11 @@ Dependencies
 - graphclaw.models.type_metadata: CompositeMetadata.
 - graphclaw.state.machine: StateMachine (module-level singleton ``_sm``).
 """
+
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from graphclaw.models.enums import (
     ChangedBy,
@@ -62,8 +63,8 @@ _sm = StateMachine()
 def check_composite_completion(
     parent_task: TaskNode,
     children: list[TaskNode],
-    grandparent: Optional[TaskNode] = None,
-    siblings: Optional[list[TaskNode]] = None,
+    grandparent: TaskNode | None = None,
+    siblings: list[TaskNode] | None = None,
 ) -> None:
     """Evaluate whether a composite parent should auto-complete.
 
@@ -113,9 +114,7 @@ def check_composite_completion(
 
     # Step 2: block if any incomplete child requires human action.
     pending_review_or_approval = [
-        c
-        for c in incomplete
-        if c.task_type in (TaskType.REVIEW, TaskType.APPROVAL)
+        c for c in incomplete if c.task_type in (TaskType.REVIEW, TaskType.APPROVAL)
     ]
     if pending_review_or_approval:
         logger.debug(
@@ -216,9 +215,7 @@ async def activate_next_in_chain(
         try:
             dep_task = TN.model_validate(node_props)
         except Exception:
-            logger.warning(
-                "activate_next_in_chain: could not parse node %s", dep_id
-            )
+            logger.warning("activate_next_in_chain: could not parse node %s", dep_id)
             continue
 
         if dep_task.state == TaskState.INACTIVE_PENDING:

@@ -12,10 +12,11 @@ TELEGRAM_WEBHOOK_SECRET   Optional secret token sent in X-Telegram-Bot-Api-Secre
 TELEGRAM_USE_WEBHOOK      Set to "true" to use webhook mode; default is long-polling.
 TELEGRAM_POLL_TIMEOUT     Long-poll timeout in seconds (default: 30).
 """
+
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
@@ -32,7 +33,7 @@ class TelegramConfig:
         return f"https://api.telegram.org/bot{self.bot_token}"
 
     @classmethod
-    def from_env(cls) -> "TelegramConfig | None":
+    def from_env(cls) -> TelegramConfig | None:
         """Build from environment variables; return None if bot token is missing."""
         token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
         if not token:

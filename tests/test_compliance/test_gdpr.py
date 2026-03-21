@@ -9,14 +9,14 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import UTC
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from graphclaw.compliance.audit import AuditLogger
-from graphclaw.compliance.gdpr import GDPRService, _erasure_statuses
+from graphclaw.compliance.gdpr import GDPRService
 from graphclaw.compliance.models import ErasureRequest, ErasureStatus
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -80,9 +80,7 @@ async def test_request_erasure_creates_request() -> None:
 
 async def test_process_erasure_anonymizes_user() -> None:
     service, graph, _ = _make_service()
-    request = await service.request_erasure(
-        user_id="USER-xyz", requester_email="bob@example.com"
-    )
+    request = await service.request_erasure(user_id="USER-xyz", requester_email="bob@example.com")
     await service.process_erasure(request)
 
     graph.update_node.assert_awaited_once()
@@ -129,9 +127,7 @@ async def test_process_erasure_deletes_tasks() -> None:
 
 async def test_process_erasure_returns_completed() -> None:
     service, _, _ = _make_service()
-    request = await service.request_erasure(
-        user_id="USER-ok", requester_email="ok@example.com"
-    )
+    request = await service.request_erasure(user_id="USER-ok", requester_email="ok@example.com")
     result = await service.process_erasure(request)
     assert result == ErasureStatus.COMPLETED
 
@@ -146,9 +142,7 @@ async def test_process_erasure_returns_failed_on_error() -> None:
     # Make update_node raise to simulate a graph failure
     graph.update_node = AsyncMock(side_effect=RuntimeError("DB connection lost"))
 
-    request = await service.request_erasure(
-        user_id="USER-fail", requester_email="fail@example.com"
-    )
+    request = await service.request_erasure(user_id="USER-fail", requester_email="fail@example.com")
     result = await service.process_erasure(request)
     assert result == ErasureStatus.FAILED
 
@@ -159,11 +153,11 @@ async def test_process_erasure_returns_failed_on_error() -> None:
 
 
 def test_erasure_request_frozen() -> None:
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     request = ErasureRequest(
         user_id="USER-frozen",
-        requested_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        requested_at=datetime(2024, 1, 1, tzinfo=UTC),
         requester_email="frozen@example.com",
         request_id="ERASURE-aabbccddee",
     )

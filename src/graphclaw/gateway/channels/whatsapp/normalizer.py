@@ -21,10 +21,11 @@ WhatsApp payload structure (simplified):
       }]
     }
 """
+
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from graphclaw.gateway.schemas import InboundMessage
@@ -60,11 +61,7 @@ def normalize_whatsapp(payload: dict[str, Any]) -> list[InboundMessage]:
                     body = msg.get("text", {}).get("body", "")
                     msg_id = msg.get("id", str(uuid.uuid4()))
                     ts = int(msg.get("timestamp", 0))
-                    received_at = (
-                        datetime.fromtimestamp(ts, tz=timezone.utc)
-                        if ts
-                        else datetime.now(timezone.utc)
-                    )
+                    received_at = datetime.fromtimestamp(ts, tz=UTC) if ts else datetime.now(UTC)
 
                     messages.append(
                         InboundMessage(

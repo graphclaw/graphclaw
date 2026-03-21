@@ -30,6 +30,7 @@ Notes
 -----
 None.
 """
+
 from __future__ import annotations
 
 from graphclaw.db.age.queries.critical_path import find_critical_path

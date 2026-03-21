@@ -37,6 +37,7 @@ Dependencies
 - cryptography: RSA key pair generation for local dev.
 - logging, os, uuid, datetime: stdlib.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -52,7 +53,7 @@ logger = logging.getLogger(__name__)
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
-_ACCESS_TOKEN_EXPIRE_SECONDS = 15 * 60        # 15 minutes
+_ACCESS_TOKEN_EXPIRE_SECONDS = 15 * 60  # 15 minutes
 _REFRESH_TOKEN_EXPIRE_SECONDS = 7 * 24 * 3600  # 7 days
 _ALGORITHM = "RS256"
 _REDIS_REVOKED_KEY = "auth:revoked_jtis"
@@ -173,9 +174,7 @@ class JWTService:
             or has been revoked.
         """
         try:
-            payload: dict[str, Any] = jwt.decode(
-                token, self._public_key, algorithms=[_ALGORITHM]
-            )
+            payload: dict[str, Any] = jwt.decode(token, self._public_key, algorithms=[_ALGORITHM])
         except JWTError:
             raise
 
@@ -235,9 +234,7 @@ class JWTService:
             or has been revoked.
         """
         try:
-            payload: dict[str, Any] = jwt.decode(
-                token, self._public_key, algorithms=[_ALGORITHM]
-            )
+            payload: dict[str, Any] = jwt.decode(token, self._public_key, algorithms=[_ALGORITHM])
         except JWTError:
             raise
 
@@ -278,8 +275,7 @@ class JWTService:
             return bool(result)
         except Exception as exc:  # noqa: BLE001
             logger.warning(
-                "JWTService: Redis revocation check failed for jti=%s, "
-                "assuming not revoked: %s",
+                "JWTService: Redis revocation check failed for jti=%s, assuming not revoked: %s",
                 jti,
                 exc,
             )
@@ -447,10 +443,14 @@ def _generate_rsa_key_pair() -> tuple[str, str]:
         encryption_algorithm=serialization.NoEncryption(),
     ).decode("utf-8")
 
-    public_pem = private_key.public_key().public_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PublicFormat.SubjectPublicKeyInfo,
-    ).decode("utf-8")
+    public_pem = (
+        private_key.public_key()
+        .public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        .decode("utf-8")
+    )
 
     return private_pem, public_pem
 
@@ -472,7 +472,11 @@ def _derive_public_key(private_key_pem: str) -> str:
     from cryptography.hazmat.primitives.serialization import load_pem_private_key  # noqa: PLC0415
 
     private_key = load_pem_private_key(private_key_pem.encode("utf-8"), password=None)
-    return private_key.public_key().public_bytes(  # type: ignore[union-attr]
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PublicFormat.SubjectPublicKeyInfo,
-    ).decode("utf-8")
+    return (
+        private_key.public_key()
+        .public_bytes(  # type: ignore[union-attr]
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        .decode("utf-8")
+    )

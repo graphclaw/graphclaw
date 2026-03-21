@@ -46,14 +46,15 @@ the factor function itself.  The final_score is the plain weighted sum of all 7
 factors; the urgency rollup modifier is recorded for explainability but does not
 alter the numeric score directly.
 """
+
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Optional
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
-from graphclaw.models.enums import AutonomyLevel, GoalPriority, OverrideType, TaskState
+from graphclaw.models.enums import GoalPriority, OverrideType, TaskState
 from graphclaw.models.nodes import TaskNode
 from graphclaw.models.scoring import ActionQueueEntry, ScoreExplanation, ScoreFactor, ScoreModifier
 from graphclaw.scoring.cache import ScoreCache
@@ -117,7 +118,7 @@ class ScoringContext:
     task_resource_load_factor: dict[str, float] = field(default_factory=dict)
     task_resource_risk_signals: dict[str, float] = field(default_factory=dict)
     task_constraints: dict[str, list[dict]] = field(default_factory=dict)
-    graph_repo: Optional[GraphStore] = field(default=None, compare=False)
+    graph_repo: GraphStore | None = field(default=None, compare=False)
 
 
 # ---------------------------------------------------------------------------
@@ -145,7 +146,7 @@ class ScoringEngine:
         w5: float = 0.10,
         w6: float = 0.05,
         w7: float = 0.05,
-        cache: Optional[ScoreCache] = None,
+        cache: ScoreCache | None = None,
     ) -> None:
         self.w1 = w1
         self.w2 = w2
@@ -187,7 +188,7 @@ class ScoringEngine:
         if cached is not None:
             return cached
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         tid = task.id
 
         # --- Factor 1: Timeline Urgency ---
@@ -195,7 +196,7 @@ class ScoringEngine:
         effort_days = task.timeline.estimated_effort_days or 0.0
         if deadline is not None:
             # Ensure both datetimes are timezone-aware for comparison
-            dl = deadline if deadline.tzinfo else deadline.replace(tzinfo=timezone.utc)
+            dl = deadline if deadline.tzinfo else deadline.replace(tzinfo=UTC)
             days_remaining = (dl - now).total_seconds() / 86400.0
         else:
             days_remaining = 999.0  # no deadline → effectively far out
@@ -249,8 +250,13 @@ class ScoringEngine:
         # (e.g. timeline_urgency reaches 1.2 when overdue with negative slack),
         # meaning final_score can occasionally exceed 1.0 before multipliers.
         final_score = (
-            f1_weighted + f2_weighted + f3_weighted + f4_weighted
-            + f5_weighted + f6_weighted + f7_weighted
+            f1_weighted
+            + f2_weighted
+            + f3_weighted
+            + f4_weighted
+            + f5_weighted
+            + f6_weighted
+            + f7_weighted
         )
 
         # Chain urgency rollup applied later by score_all; stored here from
@@ -380,7 +386,8 @@ class ScoringEngine:
 
         # Filter out terminal / excluded states.
         scoreable = [
-            t for t in tasks
+            t
+            for t in tasks
             if t.state not in (TaskState.COMPLETE, TaskState.CANCELLED, TaskState.BLOCKED)
             and not _is_snoozed(t)
         ]
@@ -419,9 +426,7 @@ class ScoringEngine:
             ranked_explanations.append(expl)
 
         tasks_by_id = {t.id: t for t in scoreable}
-        queue = build_action_queue(
-            [(tasks_by_id[e.node_id], e) for e in ranked_explanations]
-        )
+        queue = build_action_queue([(tasks_by_id[e.node_id], e) for e in ranked_explanations])
         return queue
 
 
@@ -439,9 +444,7 @@ def _is_snoozed(task: TaskNode) -> bool:
     return False
 
 
-def _timeline_plain_english(
-    days_remaining: float, effort_days: float, raw: float
-) -> str:
+def _timeline_plain_english(days_remaining: float, effort_days: float, raw: float) -> str:
     if days_remaining <= 0:
         return f"Task is overdue by {abs(days_remaining):.1f} days"
     slack = days_remaining - effort_days

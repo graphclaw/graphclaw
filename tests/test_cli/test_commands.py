@@ -17,18 +17,17 @@ To intercept these calls from tests, we patch the names as they exist in the
     patch("graphclaw.cli._shared.create_pool", ...)
     patch("graphclaw.cli._shared.AgeGraphStore", ...)
 """
+
 from __future__ import annotations
 
-import asyncio
-from datetime import datetime, timezone
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from typer.testing import CliRunner
 
 from graphclaw.cli.main import app
-from graphclaw.models.base import generate_goal_id, generate_task_id, utcnow
+from graphclaw.models.base import generate_goal_id, generate_task_id
 from graphclaw.models.enums import (
     GoalPriority,
     GoalState,
@@ -51,7 +50,7 @@ runner = CliRunner()
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _make_task(
@@ -192,9 +191,7 @@ class TestTaskTransition:
     def test_task_transition_delegates_to_asyncio_run(self):
         with patch("graphclaw.cli.task_commands.asyncio.run") as mock_run:
             mock_run.return_value = None
-            result = runner.invoke(
-                app, ["task", "transition", "TSK-TS-0001-ATM", "IN_PROGRESS"]
-            )
+            result = runner.invoke(app, ["task", "transition", "TSK-TS-0001-ATM", "IN_PROGRESS"])
             assert result.exit_code == 0
             mock_run.assert_called_once()
 
@@ -484,9 +481,7 @@ class TestAgentScoreAsyncHelper:
 
             await _briefing_async(top_n=5)
 
-        mock_loop.generate_briefing.assert_called_once_with(
-            [entry], top_n=5
-        )
+        mock_loop.generate_briefing.assert_called_once_with([entry], top_n=5)
 
 
 class TestGraphStatsAsyncHelper:

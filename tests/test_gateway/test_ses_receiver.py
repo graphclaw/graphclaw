@@ -14,12 +14,11 @@ Tests cover:
 - build_ses_receipt_rule output structure.
 - LAMBDA_HANDLER_CODE content validation.
 """
+
 from __future__ import annotations
 
 import hashlib
 import hmac
-import json
-import os
 from email.message import EmailMessage
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -128,8 +127,10 @@ class TestHandleSesNotification:
 
         receiver = SESEmailReceiver(s3_bucket="graphclaw-inbound-email")
 
-        with patch("graphclaw.gateway.channels.email.ses_receiver.httpx.AsyncClient",
-                   return_value=mock_async_client):
+        with patch(
+            "graphclaw.gateway.channels.email.ses_receiver.httpx.AsyncClient",
+            return_value=mock_async_client,
+        ):
             result = await receiver.handle_ses_notification(payload)
 
         assert result is not None
@@ -138,9 +139,7 @@ class TestHandleSesNotification:
         assert result.sender == "sender@example.com"
         assert result.subject == "Hello from SES"
         # Verify the presigned URL was used (not the fallback path)
-        mock_client.get.assert_called_once_with(
-            "https://s3.amazonaws.com/signed-url"
-        )
+        mock_client.get.assert_called_once_with("https://s3.amazonaws.com/signed-url")
 
     @pytest.mark.asyncio
     async def test_handle_ses_notification_fallback_s3_url(self) -> None:
@@ -168,16 +167,16 @@ class TestHandleSesNotification:
             aws_region="us-west-2",
         )
 
-        with patch("graphclaw.gateway.channels.email.ses_receiver.httpx.AsyncClient",
-                   return_value=mock_async_client):
+        with patch(
+            "graphclaw.gateway.channels.email.ses_receiver.httpx.AsyncClient",
+            return_value=mock_async_client,
+        ):
             result = await receiver.handle_ses_notification(payload)
 
         assert result is not None
         assert isinstance(result, InboundMessage)
         # Verify the fallback URL was constructed with the correct region
-        expected_url = (
-            "https://graphclaw-inbound-email.s3.us-west-2.amazonaws.com/email/msg-456"
-        )
+        expected_url = "https://graphclaw-inbound-email.s3.us-west-2.amazonaws.com/email/msg-456"
         mock_client.get.assert_called_once_with(expected_url)
 
 

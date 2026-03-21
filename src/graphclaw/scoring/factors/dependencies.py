@@ -23,6 +23,7 @@ for typical graphs (e.g. 5 direct + 10 transitive = 10.0 raw * 0.20 = 2.0 weight
 Future phases may normalise this against the maximum observed value in the current
 scoring batch to keep scores comparable across graph sizes.
 """
+
 from __future__ import annotations
 
 

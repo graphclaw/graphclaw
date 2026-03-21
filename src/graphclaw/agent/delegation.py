@@ -34,10 +34,10 @@ Dependencies
 - graphclaw.models.nodes: TaskNode, VisibilityGrantNode.
 - graphclaw.models.type_metadata: ApprovalMetadata.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
 
 from graphclaw.db.base import GraphStore
 from graphclaw.models.base import (
@@ -53,7 +53,6 @@ from graphclaw.models.enums import (
 )
 from graphclaw.models.nodes import TaskNode, VisibilityGrantNode
 from graphclaw.models.type_metadata import ApprovalMetadata
-
 
 # ---------------------------------------------------------------------------
 # Result dataclass
@@ -177,9 +176,7 @@ class DelegationService:
 
         task = TaskNode.model_validate(raw_task)
         if task.owned_by != from_user_id and task.created_by != from_user_id:
-            raise DelegationError(
-                f"User '{from_user_id}' is not the owner of task '{task_id}'."
-            )
+            raise DelegationError(f"User '{from_user_id}' is not the owner of task '{task_id}'.")
 
         now = utcnow()
         grant_id: str | None = None
@@ -299,9 +296,7 @@ class DelegationService:
 
         task = TaskNode.model_validate(raw_task)
         if task.owned_by != from_user_id and task.created_by != from_user_id:
-            raise DelegationError(
-                f"User '{from_user_id}' is not the owner of task '{task_id}'."
-            )
+            raise DelegationError(f"User '{from_user_id}' is not the owner of task '{task_id}'.")
 
         now = utcnow()
 

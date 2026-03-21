@@ -26,6 +26,7 @@ The aggregate sum across multiple constraints is not capped; tasks with many act
 near-threshold constraints can accumulate pressure scores above 1.0, but the W7=0.05
 weight keeps the contribution to the final score small.
 """
+
 from __future__ import annotations
 
 

@@ -19,9 +19,10 @@ Dependencies
 - graphclaw.models.nodes: VisibilityGrantNode.
 - graphclaw.models.enums: EdgeType, VisibilityScope.
 """
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from pydantic import ValidationError
@@ -29,14 +30,13 @@ from pydantic import ValidationError
 from graphclaw.models.base import (
     GRANT_ID_PATTERN,
     generate_grant_id,
-    validate_grant_id,
-    generate_user_id,
     generate_task_id,
+    validate_grant_id,
 )
-from graphclaw.models.enums import EdgeType, VisibilityScope, TaskType
+from graphclaw.models.enums import EdgeType, TaskType, VisibilityScope
 from graphclaw.models.nodes import TaskNode, VisibilityGrantNode
 
-NOW = datetime(2026, 3, 20, 10, 0, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 3, 20, 10, 0, 0, tzinfo=UTC)
 
 
 # ---------------------------------------------------------------------------

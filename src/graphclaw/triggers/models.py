@@ -45,6 +45,7 @@ Notes
 callers can check its truthiness without an isinstance guard.  An empty key means
 "no deduplication" for this event.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -58,10 +59,10 @@ from graphclaw.models.base import utcnow
 class TriggerType(str, Enum):
     """Categories of trigger that the engine can dispatch."""
 
-    TIME_BASED = "TIME_BASED"   # Daily briefing, recurring tasks
-    EVENT_BASED = "EVENT_BASED" # status.md write, completion signal
-    INBOUND = "INBOUND"         # Email / message received
-    ON_DEMAND = "ON_DEMAND"     # CLI / API invocation
+    TIME_BASED = "TIME_BASED"  # Daily briefing, recurring tasks
+    EVENT_BASED = "EVENT_BASED"  # status.md write, completion signal
+    INBOUND = "INBOUND"  # Email / message received
+    ON_DEMAND = "ON_DEMAND"  # CLI / API invocation
 
 
 class TriggerEvent(BaseModel):

@@ -40,6 +40,7 @@ For unit tests, override the dependency via ``app.dependency_overrides``:
 
     app.dependency_overrides[get_broker] = lambda: mock_broker
 """
+
 from __future__ import annotations
 
 import os
@@ -70,9 +71,7 @@ async def get_broker() -> MessageBroker:
         ``None``).
     """
     if _broker is None:
-        raise RuntimeError(
-            "MessageBroker not initialised — call init_services() first."
-        )
+        raise RuntimeError("MessageBroker not initialised — call init_services() first.")
     return _broker
 
 
@@ -86,9 +85,7 @@ async def get_logger() -> AsyncLogger:
         ``None``).
     """
     if _logger is None:
-        raise RuntimeError(
-            "AsyncLogger not initialised — call init_services() first."
-        )
+        raise RuntimeError("AsyncLogger not initialised — call init_services() first.")
     return _logger
 
 

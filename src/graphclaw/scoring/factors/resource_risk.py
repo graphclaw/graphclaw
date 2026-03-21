@@ -24,6 +24,7 @@ increases the score.  The weights (0.5, 0.3, 0.2) reflect the relative predictiv
 value of each signal: historical delivery rate is the strongest predictor, current
 load is secondary, and point-in-time risk signals are the weakest (most volatile).
 """
+
 from __future__ import annotations
 
 

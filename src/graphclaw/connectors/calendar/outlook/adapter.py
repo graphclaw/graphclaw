@@ -30,13 +30,14 @@ Author
 GraphClaw Project — https://graphclaw.ai
 License: Apache 2.0
 """
+
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
-from graphclaw.connectors.base import ConnectorABC, ConnectorConfig
+from graphclaw.connectors.base import ConnectorConfig
 from graphclaw.connectors.calendar.base import CalendarConnector
 from graphclaw.connectors.calendar.models import CalendarEvent, FreeBusySlot
 
@@ -57,9 +58,9 @@ def _parse_graph_datetime(raw: dict | None) -> datetime:
         dt = datetime.fromisoformat(dt_str)
     except ValueError:
         # Fallback: treat as UTC
-        dt = datetime.fromisoformat(dt_str.rstrip("Z")).replace(tzinfo=timezone.utc)
+        dt = datetime.fromisoformat(dt_str.rstrip("Z")).replace(tzinfo=UTC)
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
     return dt
 
 
@@ -166,8 +167,7 @@ class OutlookCalendarConnector(CalendarConnector):
             import httpx  # noqa: PLC0415
         except ImportError as exc:
             raise ImportError(
-                "httpx is required for OutlookCalendarConnector. "
-                "Install with: pip install httpx"
+                "httpx is required for OutlookCalendarConnector. Install with: pip install httpx"
             ) from exc
 
         if not self._access_token:
@@ -202,8 +202,8 @@ class OutlookCalendarConnector(CalendarConnector):
         calendar_id: str = "primary",
     ) -> list[CalendarEvent]:
         """List events from the MS Graph calendarView endpoint."""
-        start_dt = since.isoformat() if since.tzinfo else since.replace(tzinfo=timezone.utc).isoformat()
-        end_dt = until.isoformat() if until.tzinfo else until.replace(tzinfo=timezone.utc).isoformat()
+        start_dt = since.isoformat() if since.tzinfo else since.replace(tzinfo=UTC).isoformat()
+        end_dt = until.isoformat() if until.tzinfo else until.replace(tzinfo=UTC).isoformat()
 
         if calendar_id == "primary":
             url = "/me/calendarView"
@@ -262,8 +262,8 @@ class OutlookCalendarConnector(CalendarConnector):
         calendar_id: str = "primary",
     ) -> list[FreeBusySlot]:
         """Query free/busy via the MS Graph getSchedule endpoint."""
-        start_dt = since.isoformat() if since.tzinfo else since.replace(tzinfo=timezone.utc).isoformat()
-        end_dt = until.isoformat() if until.tzinfo else until.replace(tzinfo=timezone.utc).isoformat()
+        start_dt = since.isoformat() if since.tzinfo else since.replace(tzinfo=UTC).isoformat()
+        end_dt = until.isoformat() if until.tzinfo else until.replace(tzinfo=UTC).isoformat()
 
         # getSchedule requires the user's email; fetch it from /me
         me_resp = await self._client.get("/me", params={"$select": "mail,userPrincipalName"})

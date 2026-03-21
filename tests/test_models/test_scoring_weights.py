@@ -16,6 +16,7 @@ Dependencies
 - pytest: Test runner.
 - graphclaw.models.scoring_weights: Module under test.
 """
+
 from __future__ import annotations
 
 import pytest

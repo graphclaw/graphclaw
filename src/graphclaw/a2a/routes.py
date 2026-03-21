@@ -57,13 +57,14 @@ Dependencies
 - fastapi: APIRouter, Depends, HTTPException, Request, status (third-party).
 - datetime, json, logging, os, uuid: stdlib.
 """
+
 from __future__ import annotations
 
 import json
 import logging
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -215,18 +216,14 @@ async def rotate_agent_key(
             detail=str(exc),
         ) from exc
     except Exception as exc:  # noqa: BLE001
-        logger.error(
-            "a2a/rotate_key: failed for key_id=%s user_id=%s: %s", key_id, user_id, exc
-        )
+        logger.error("a2a/rotate_key: failed for key_id=%s user_id=%s: %s", key_id, user_id, exc)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to rotate agent key — see server logs",
         ) from exc
 
-    rotated_at = datetime.now(timezone.utc)
-    logger.info(
-        "a2a/rotate_key: rotated key_id=%s user_id=%s", key_id, user_id
-    )
+    rotated_at = datetime.now(UTC)
+    logger.info("a2a/rotate_key: rotated key_id=%s user_id=%s", key_id, user_id)
     return A2AKeyRotateResponse(
         key_id=key_id,
         plaintext_key=new_plaintext,
@@ -280,9 +277,7 @@ async def revoke_agent_key(
             detail=str(exc),
         ) from exc
     except Exception as exc:  # noqa: BLE001
-        logger.error(
-            "a2a/revoke_key: failed for key_id=%s user_id=%s: %s", key_id, user_id, exc
-        )
+        logger.error("a2a/revoke_key: failed for key_id=%s user_id=%s: %s", key_id, user_id, exc)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to revoke agent key — see server logs",
@@ -391,10 +386,7 @@ async def task_update(
             if int(content_length) > max_bytes:
                 raise HTTPException(
                     status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                    detail=(
-                        f"Request body exceeds maximum allowed size of "
-                        f"{max_bytes // 1024} KB"
-                    ),
+                    detail=(f"Request body exceeds maximum allowed size of {max_bytes // 1024} KB"),
                 )
         except ValueError:
             pass  # Non-integer Content-Length — let the body parse naturally
@@ -409,7 +401,7 @@ async def task_update(
         sender=user_id,
         subject=payload.method,
         body=json.dumps(payload.params),
-        received_at=datetime.now(timezone.utc),
+        received_at=datetime.now(UTC),
         session_id=session_id,
         raw_headers={
             "x-jsonrpc-method": payload.method,

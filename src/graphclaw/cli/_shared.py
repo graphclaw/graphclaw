@@ -21,14 +21,15 @@ Dependencies
 - graphclaw.db.connection: create_pool.
 - graphclaw.db: GraphStore ABC, AgeGraphStore concrete implementation.
 """
+
 from __future__ import annotations
 
 import os
 import sys
 from contextlib import asynccontextmanager
 
-from graphclaw.db.connection import create_pool
 from graphclaw.db.age import AgeGraphStore
+from graphclaw.db.connection import create_pool
 
 
 @asynccontextmanager

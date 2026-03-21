@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Tests for infra.security — WAF, encryption, and security stack config (WS-5-J).
 
 Covers:
@@ -10,18 +11,17 @@ Covers:
 - WAFConfig immutability (frozen dataclass).
 """
 
-import pytest
 import dataclasses
 
+import pytest
+
+from infra.security.encryption import PRODUCTION_ENCRYPTION, build_s3_bucket_encryption
+from infra.security.stack import build_security_config
 from infra.security.waf import (
     DEFAULT_WAF_CONFIG,
-    GRAPHCLAW_WAF_RULES,
     WAFConfig,
     build_waf_web_acl,
 )
-from infra.security.encryption import PRODUCTION_ENCRYPTION, build_s3_bucket_encryption
-from infra.security.stack import build_security_config
-
 
 # ---------------------------------------------------------------------------
 # WAF rules tests

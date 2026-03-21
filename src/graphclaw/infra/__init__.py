@@ -42,16 +42,17 @@ Notes
 Import order within this file is intentional: config first (no deps), then
 logger, secrets, storage, broker so circular imports are avoided.
 """
+
 from __future__ import annotations
 
 from graphclaw.infra.broker import (
     INBOUND_MESSAGES,
-    MessageBroker,
     OUTBOUND_MESSAGES,
-    RedisMessageBroker,
     SKILL_JOBS,
     STATUS_UPDATES,
     TRIGGER_EVENTS,
+    MessageBroker,
+    RedisMessageBroker,
 )
 from graphclaw.infra.config import BrokerConfig, LoggingConfig, StorageConfig
 from graphclaw.infra.logger import AsyncLogger, generate_session_id

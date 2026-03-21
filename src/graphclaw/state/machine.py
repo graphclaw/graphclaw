@@ -27,6 +27,7 @@ Dependencies
 - graphclaw.models.nodes: StateHistoryEntry, TaskNode.
 - graphclaw.state.transitions: VALID_TRANSITIONS, InvalidTransitionError.
 """
+
 from __future__ import annotations
 
 from graphclaw.models.base import utcnow
@@ -117,21 +118,14 @@ class StateMachine:
             if not allowed:
                 reason = f"{from_state.value} is a terminal state"
             else:
-                reason = (
-                    f"Allowed from {from_state.value}: "
-                    + ", ".join(s.value for s in allowed)
-                )
+                reason = f"Allowed from {from_state.value}: " + ", ".join(s.value for s in allowed)
             raise InvalidTransitionError(from_state, new_state, reason)
 
     @staticmethod
-    def _guard_terminal_cancelled(
-        from_state: TaskState, new_state: TaskState
-    ) -> None:
+    def _guard_terminal_cancelled(from_state: TaskState, new_state: TaskState) -> None:
         """CANCELLED is an absolute terminal state."""
         if from_state == TaskState.CANCELLED:
-            raise InvalidTransitionError(
-                from_state, new_state, "CANCELLED is a terminal state"
-            )
+            raise InvalidTransitionError(from_state, new_state, "CANCELLED is a terminal state")
 
     @staticmethod
     def _guard_terminal_complete(
@@ -149,9 +143,7 @@ class StateMachine:
                 new_state,
                 "COMPLETE → NEEDS_REVIEW only allowed when confidence is LOW",
             )
-        raise InvalidTransitionError(
-            from_state, new_state, "COMPLETE is a terminal state"
-        )
+        raise InvalidTransitionError(from_state, new_state, "COMPLETE is a terminal state")
 
     @staticmethod
     def _guard_approval_auto_resolve(

@@ -7,6 +7,7 @@ Environment Variables (via TelegramConfig)
 ------------------------------------------
 TELEGRAM_BOT_TOKEN   Bot token from @BotFather.
 """
+
 from __future__ import annotations
 
 import logging
@@ -21,7 +22,7 @@ logger = logging.getLogger(__name__)
 class TelegramSender:
     """Delivers outbound messages via the Telegram Bot API."""
 
-    def __init__(self, config: "TelegramConfig") -> None:
+    def __init__(self, config: TelegramConfig) -> None:
         self._config = config
 
     async def send(

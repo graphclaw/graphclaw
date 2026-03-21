@@ -31,6 +31,7 @@ sorted by effort descending, the first row is always the critical path.  The
 Python post-processing step builds the float map for all other paths so that
 near-critical nodes can be identified in future phases.
 """
+
 from __future__ import annotations
 
 import logging

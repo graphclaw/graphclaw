@@ -19,13 +19,14 @@ Dependencies
 - unittest.mock: AsyncMock, MagicMock.
 - graphclaw.auth.provisioning: UserProvisioningService, ProvisioningResult.
 """
+
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, call
 
 from graphclaw.auth.provisioning import ProvisioningResult, UserProvisioningService
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -35,7 +36,7 @@ from graphclaw.auth.provisioning import ProvisioningResult, UserProvisioningServ
 @pytest.fixture
 def mock_graph():
     store = AsyncMock()
-    store.list_nodes = AsyncMock(return_value=[])   # no existing user by default
+    store.list_nodes = AsyncMock(return_value=[])  # no existing user by default
     store.create_node = AsyncMock(return_value={})
     store.delete_node = AsyncMock()
     store.create_edge = AsyncMock(return_value={})
@@ -113,9 +114,10 @@ class TestProvisionNewUser:
             provider="google",
         )
         mock_graph.create_edge.assert_called()
-        edge_type_arg = mock_graph.create_edge.call_args[1].get(
-            "edge_type"
-        ) or mock_graph.create_edge.call_args[0][2]
+        edge_type_arg = (
+            mock_graph.create_edge.call_args[1].get("edge_type")
+            or mock_graph.create_edge.call_args[0][2]
+        )
         assert "OWNS" in str(edge_type_arg)
 
     @pytest.mark.asyncio
@@ -226,9 +228,7 @@ class TestProvisionRollback:
     ):
         """If WorkspaceNode creation raises, UserNode must be deleted."""
         # First call (UserNode creation) succeeds; second call (WorkspaceNode) raises
-        mock_graph.create_node = AsyncMock(
-            side_effect=[None, RuntimeError("db error")]
-        )
+        mock_graph.create_node = AsyncMock(side_effect=[None, RuntimeError("db error")])
 
         svc = UserProvisioningService(mock_graph, mock_storage, mock_jwt)
 
@@ -248,9 +248,7 @@ class TestProvisionRollback:
         self, mock_graph, mock_storage, mock_jwt
     ):
         """If WorkspaceNode creation raises, S3 prefix must be deleted."""
-        mock_graph.create_node = AsyncMock(
-            side_effect=[None, RuntimeError("db error")]
-        )
+        mock_graph.create_node = AsyncMock(side_effect=[None, RuntimeError("db error")])
 
         svc = UserProvisioningService(mock_graph, mock_storage, mock_jwt)
 
@@ -268,9 +266,7 @@ class TestProvisionRollback:
         assert ".keep" in deleted_key
 
     @pytest.mark.asyncio
-    async def test_rollback_is_lifo_order(
-        self, mock_graph, mock_storage, mock_jwt
-    ):
+    async def test_rollback_is_lifo_order(self, mock_graph, mock_storage, mock_jwt):
         """Rollback steps execute in LIFO order: S3 deleted before UserNode."""
         call_order: list[str] = []
 
@@ -308,7 +304,9 @@ class TestProvisionRollback:
 
         # LIFO: S3 prefix was added after UserNode, so it should be rolled back first
         first_rollback = next(
-            c for c in call_order if c.startswith("storage.delete") or c.startswith("graph.delete_node")
+            c
+            for c in call_order
+            if c.startswith("storage.delete") or c.startswith("graph.delete_node")
         )
         assert "storage.delete" in first_rollback
 
@@ -330,18 +328,14 @@ class TestDeprovisionUser:
     async def test_deprovision_deletes_user_node(self, svc, mock_graph):
         await svc.deprovision_user("USER-test-dep")
         # delete_node called for the user
-        delete_calls = [
-            str(c) for c in mock_graph.delete_node.call_args_list
-        ]
+        delete_calls = [str(c) for c in mock_graph.delete_node.call_args_list]
         assert any("USER-test-dep" in c for c in delete_calls)
 
     @pytest.mark.asyncio
     async def test_deprovision_deletes_workspace_nodes_when_owns_edges_present(
         self, svc, mock_graph
     ):
-        mock_graph.get_edges = AsyncMock(
-            return_value=[{"target_id": "WS-test-workspace-001"}]
-        )
+        mock_graph.get_edges = AsyncMock(return_value=[{"target_id": "WS-test-workspace-001"}])
         await svc.deprovision_user("USER-test-dep")
 
         delete_calls = [str(c) for c in mock_graph.delete_node.call_args_list]

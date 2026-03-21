@@ -34,10 +34,11 @@ Notes
 ``DATABASE_URL`` must be set in the environment before running any task command.
 The pool is opened and closed on every command invocation (no persistent connection).
 """
+
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import typer
 from rich.console import Console
@@ -113,13 +114,9 @@ async def _create_task_async(
     deadline_dt: datetime | None = None
     if deadline:
         try:
-            deadline_dt = datetime.strptime(deadline, "%Y-%m-%d").replace(
-                tzinfo=timezone.utc
-            )
+            deadline_dt = datetime.strptime(deadline, "%Y-%m-%d").replace(tzinfo=UTC)
         except ValueError:
-            err_console.print(
-                f"Invalid deadline format '{deadline}'. Expected YYYY-MM-DD."
-            )
+            err_console.print(f"Invalid deadline format '{deadline}'. Expected YYYY-MM-DD.")
             raise typer.Exit(code=1)
 
     now = utcnow()
@@ -177,9 +174,7 @@ async def _transition_task_async(task_id: str, new_state: str) -> None:
             task_id,
             {
                 "state": task.state.value,
-                "state_history": [
-                    e.model_dump(mode="json") for e in task.state_history
-                ],
+                "state_history": [e.model_dump(mode="json") for e in task.state_history],
                 "updated_at": task.updated_at.isoformat(),
             },
         )
@@ -234,12 +229,8 @@ def task_create(
         "ATOMIC", "--type", "-T", help="Task type (ATOMIC, DELEGATED, etc.)."
     ),
     description: str = typer.Option("", "--description", "-d", help="Task description."),
-    deadline: str | None = typer.Option(
-        None, "--deadline", help="Deadline date (YYYY-MM-DD)."
-    ),
-    effort: float | None = typer.Option(
-        None, "--effort", "-e", help="Estimated effort in days."
-    ),
+    deadline: str | None = typer.Option(None, "--deadline", help="Deadline date (YYYY-MM-DD)."),
+    effort: float | None = typer.Option(None, "--effort", "-e", help="Estimated effort in days."),
 ) -> None:
     """Create a new task."""
     try:

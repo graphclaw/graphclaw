@@ -55,9 +55,9 @@ from __future__ import annotations
 
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 from graphclaw.models.enums import TaskType
 
@@ -200,7 +200,7 @@ def generate_mcp_server_id() -> str:
 
 def utcnow() -> datetime:
     """Return the current UTC datetime (timezone-aware)."""
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 # ---------------------------------------------------------------------------
@@ -225,10 +225,7 @@ def validate_id(v: str, pattern: re.Pattern, entity_name: str) -> str:
     """
     if not pattern.match(v):
         prefix = pattern.pattern.split("-")[0].lstrip("^")
-        raise ValueError(
-            f"Invalid {entity_name} ID '{v}'. "
-            f"Expected format: {prefix}-<identifier>"
-        )
+        raise ValueError(f"Invalid {entity_name} ID '{v}'. Expected format: {prefix}-<identifier>")
     return v
 
 

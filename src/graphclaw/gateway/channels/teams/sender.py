@@ -16,6 +16,7 @@
 Sends messages to Teams channels via incoming webhooks using ``httpx`` async HTTP.
 Messages are formatted as Adaptive Cards for rich rendering in Teams.
 """
+
 from __future__ import annotations
 
 import logging
@@ -92,8 +93,7 @@ class TeamsSender:
 
         if not response.is_success:
             raise RuntimeError(
-                f"Teams webhook POST failed: HTTP {response.status_code} — "
-                f"{response.text[:200]}"
+                f"Teams webhook POST failed: HTTP {response.status_code} — {response.text[:200]}"
             )
 
         logger.info("Teams message sent via webhook")

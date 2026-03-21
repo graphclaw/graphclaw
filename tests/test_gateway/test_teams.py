@@ -3,6 +3,7 @@
 Tests the normalizer, config, sender, and adapter independently.
 No real Teams API calls are made.
 """
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -12,7 +13,6 @@ import pytest
 from graphclaw.gateway.channels.teams.config import TeamsConfig
 from graphclaw.gateway.channels.teams.normalizer import normalize_teams
 from graphclaw.gateway.schemas import InboundMessage
-
 
 # ---------------------------------------------------------------------------
 # Config tests
@@ -266,9 +266,7 @@ class TestTeamsAdapter:
 
         broker = AsyncMock()
         adapter = TeamsAdapter()
-        adapter._config = TeamsConfig(
-            tenant_id="t", client_id="c", client_secret="s"
-        )
+        adapter._config = TeamsConfig(tenant_id="t", client_id="c", client_secret="s")
         adapter._broker = broker
 
         msg = await adapter.handle_activity(_SAMPLE_TEAMS_ACTIVITY)
@@ -281,9 +279,7 @@ class TestTeamsAdapter:
 
         broker = AsyncMock()
         adapter = TeamsAdapter()
-        adapter._config = TeamsConfig(
-            tenant_id="t", client_id="c", client_secret="s"
-        )
+        adapter._config = TeamsConfig(tenant_id="t", client_id="c", client_secret="s")
         adapter._broker = broker
 
         msg = await adapter.handle_activity({"type": "conversationUpdate"})

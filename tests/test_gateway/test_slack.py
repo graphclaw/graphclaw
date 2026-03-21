@@ -3,11 +3,11 @@
 Tests the normalizer, config, sender, and adapter independently.
 No real Slack API calls are made.
 """
+
 from __future__ import annotations
 
 import hashlib
 import hmac
-import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -15,7 +15,6 @@ import pytest
 from graphclaw.gateway.channels.slack.config import SlackConfig
 from graphclaw.gateway.channels.slack.normalizer import normalize_slack
 from graphclaw.gateway.schemas import InboundMessage
-
 
 # ---------------------------------------------------------------------------
 # Config tests

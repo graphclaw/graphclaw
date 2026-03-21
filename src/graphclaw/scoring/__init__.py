@@ -1,4 +1,5 @@
 """GraphClaw scoring package."""
+
 from __future__ import annotations
 
 from graphclaw.scoring.cache import ScoreCache

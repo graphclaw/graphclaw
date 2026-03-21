@@ -42,6 +42,7 @@ Redis does not have explicit message acknowledgement for list-based queues.
 considered consumed.  For at-least-once delivery guarantees, a future
 implementation could use Redis Streams (XACK).
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod

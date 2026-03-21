@@ -18,13 +18,12 @@ from __future__ import annotations
 
 import pytest
 
+from infra.scaling.keda_scalers import build_keda_scaled_object
 from infra.scaling.profiles import (
     CONTAINER_SCALING_PROFILES,
     ScalingProfile,
     get_scaling_config,
 )
-from infra.scaling.keda_scalers import build_keda_scaled_object
-
 
 # ---------------------------------------------------------------------------
 # Profile catalogue tests
@@ -69,9 +68,7 @@ def test_agent_runtime_queue_scaler() -> None:
     """agent-runtime must have both queue_name and queue_depth_target set."""
     profile = CONTAINER_SCALING_PROFILES["agent-runtime"]
     assert profile.queue_name is not None, "agent-runtime must have a queue_name"
-    assert profile.queue_depth_target is not None, (
-        "agent-runtime must have a queue_depth_target"
-    )
+    assert profile.queue_depth_target is not None, "agent-runtime must have a queue_depth_target"
 
 
 def test_agent_runtime_fast_scale_out() -> None:
@@ -160,9 +157,7 @@ def test_keda_scaler_output_is_yaml() -> None:
     profile = CONTAINER_SCALING_PROFILES["agent-runtime"]
     yaml_str = build_keda_scaled_object(profile)
     assert isinstance(yaml_str, str)
-    assert "ScaledObject" in yaml_str, (
-        "KEDA output must contain 'ScaledObject' as the kind value"
-    )
+    assert "ScaledObject" in yaml_str, "KEDA output must contain 'ScaledObject' as the kind value"
 
 
 def test_keda_scaler_contains_container_name() -> None:
@@ -190,9 +185,7 @@ def test_keda_scaler_custom_namespace() -> None:
 def test_keda_scaler_only_for_queue_containers() -> None:
     """build_keda_scaled_object must raise ValueError for non-queue containers."""
     non_queue_containers = [
-        name
-        for name, p in CONTAINER_SCALING_PROFILES.items()
-        if p.queue_name is None
+        name for name, p in CONTAINER_SCALING_PROFILES.items() if p.queue_name is None
     ]
     assert non_queue_containers, "Expected at least one non-queue container"
 

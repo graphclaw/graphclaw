@@ -24,6 +24,7 @@ Dependencies
 - abc: ABC, abstractmethod (stdlib).
 - typing: ClassVar (stdlib).
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod

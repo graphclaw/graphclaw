@@ -76,9 +76,7 @@ class ScoringWeightUpdate:
 
     factor_name: str
     direction: Literal["UP", "DOWN"]
-    signal_type: Literal[
-        "PRIORITIZE", "DEPRIORITIZE", "SNOOZE", "COMPLETE_EARLY", "DEFER"
-    ]
+    signal_type: Literal["PRIORITIZE", "DEPRIORITIZE", "SNOOZE", "COMPLETE_EARLY", "DEFER"]
 
 
 # ---------------------------------------------------------------------------
@@ -123,13 +121,9 @@ class ScoringWeightLearner:
         if ceiling > 1.0:
             raise ValueError(f"ceiling must be <= 1.0, got {ceiling!r}")
         if floor >= ceiling:
-            raise ValueError(
-                f"floor ({floor!r}) must be strictly less than ceiling ({ceiling!r})"
-            )
+            raise ValueError(f"floor ({floor!r}) must be strictly less than ceiling ({ceiling!r})")
         if not (0.0 < learning_rate <= 1.0):
-            raise ValueError(
-                f"learning_rate must be in (0, 1], got {learning_rate!r}"
-            )
+            raise ValueError(f"learning_rate must be in (0, 1], got {learning_rate!r}")
 
         self._weights: dict[str, float] = dict(weights)
         self._lr = learning_rate
@@ -169,8 +163,7 @@ class ScoringWeightLearner:
 
         if update.factor_name not in self._weights:
             raise KeyError(
-                f"Unknown factor {update.factor_name!r}. "
-                f"Known factors: {sorted(self._weights)}"
+                f"Unknown factor {update.factor_name!r}. Known factors: {sorted(self._weights)}"
             )
 
         old = self._weights[update.factor_name]
@@ -199,9 +192,7 @@ class ScoringWeightLearner:
     def _clamp_all(self) -> None:
         """Clamp every weight to [floor, ceiling] in place."""
         for key in self._weights:
-            self._weights[key] = max(
-                self._floor, min(self._ceiling, self._weights[key])
-            )
+            self._weights[key] = max(self._floor, min(self._ceiling, self._weights[key]))
 
     def _normalise(self) -> None:
         """Divide all weights by their sum so they sum to 1.0."""

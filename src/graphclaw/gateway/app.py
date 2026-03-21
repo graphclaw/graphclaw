@@ -49,13 +49,14 @@ testing without a running message broker.
 Channel adapters are discovered and started via ``build_registry``.  Each
 adapter reads its own environment variables for credentials.
 """
+
 from __future__ import annotations
 
 import logging
 import os
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -162,10 +163,7 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
             },
             {
                 "name": "webhooks",
-                "description": (
-                    "Inbound webhooks from third-party services "
-                    "(SES Lambda, etc.)."
-                ),
+                "description": ("Inbound webhooks from third-party services (SES Lambda, etc.)."),
             },
         ],
         contact={
@@ -187,12 +185,11 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
     )
 
     # ── Include sub-routers (Swagger-documented API) ─────────────────────
-    from graphclaw.gateway.routes.health import router as health_router
-    from graphclaw.gateway.routes.inbound import router as inbound_router
-    from graphclaw.gateway.routes.outbound import router as outbound_router
-    from graphclaw.auth.routes import router as auth_router
     from graphclaw.a2a.routes import a2a_router, task_update_router
     from graphclaw.api.router import app_router
+    from graphclaw.auth.routes import router as auth_router
+    from graphclaw.gateway.routes.inbound import router as inbound_router
+    from graphclaw.gateway.routes.outbound import router as outbound_router
 
     app.include_router(inbound_router, prefix="/api/v1", tags=["inbound"])
     app.include_router(outbound_router, prefix="/api/v1", tags=["outbound"])
@@ -238,18 +235,14 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
     # ── Inbound route (inline, uses app.state.broker) ──────────────────────
 
     @app.post("/api/v1/inbound", status_code=202, tags=["inbound"])
-    async def receive_inbound(
-        message: InboundMessage, request: Request
-    ) -> dict[str, str]:
+    async def receive_inbound(message: InboundMessage, request: Request) -> dict[str, str]:
         """Accept a normalized inbound message and publish it to the broker queue.
 
         Returns HTTP 202 Accepted immediately; downstream processing is asynchronous.
         """
         current_broker: MessageBroker | None = getattr(request.app.state, "broker", None)
         if current_broker is not None:
-            await current_broker.publish(
-                INBOUND_MESSAGES, message.model_dump_json()
-            )
+            await current_broker.publish(INBOUND_MESSAGES, message.model_dump_json())
             logger.info(
                 "Gateway: published inbound message",
                 extra={
@@ -266,9 +259,7 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
         return {"status": "accepted", "message_id": message.message_id}
 
     @app.post("/api/v1/trigger", status_code=202, tags=["triggers"])
-    async def on_demand_trigger(
-        payload: dict[str, Any], request: Request
-    ) -> dict[str, str]:
+    async def on_demand_trigger(payload: dict[str, Any], request: Request) -> dict[str, str]:
         """On-demand trigger endpoint for ad-hoc agent activations.
 
         Wraps the payload in an ``InboundMessage`` with ``channel="api"`` and
@@ -284,22 +275,18 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
             sender=payload.get("sender", "api"),
             subject=payload.get("subject", "trigger"),
             body=json.dumps(payload),
-            received_at=datetime.now(tz=timezone.utc),
+            received_at=datetime.now(tz=UTC),
             session_id=session_id,
         )
         current_broker: MessageBroker | None = getattr(request.app.state, "broker", None)
         if current_broker is not None:
-            await current_broker.publish(
-                INBOUND_MESSAGES, trigger_msg.model_dump_json()
-            )
+            await current_broker.publish(INBOUND_MESSAGES, trigger_msg.model_dump_json())
             logger.info(
                 "Gateway: published trigger message",
                 extra={"message_id": message_id, "session_id": session_id},
             )
         else:
-            logger.warning(
-                "Gateway: broker not configured, trigger %s dropped", message_id
-            )
+            logger.warning("Gateway: broker not configured, trigger %s dropped", message_id)
         return {"status": "accepted", "message_id": message_id}
 
     # ── WhatsApp webhook routes ──────────────────────────────────────────────
@@ -325,7 +312,9 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
         registry = getattr(request.app.state, "registry", None)
         adapter = registry.get("whatsapp") if registry else None
         if adapter is None:
-            return JSONResponse(status_code=503, content={"error": "whatsapp channel not configured"})
+            return JSONResponse(
+                status_code=503, content={"error": "whatsapp channel not configured"}
+            )
 
         if not adapter.verify_webhook_token(token):
             logger.warning("WhatsApp webhook verification failed: bad verify_token")

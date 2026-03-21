@@ -25,10 +25,11 @@ Author
 GraphClaw Project — https://graphclaw.ai
 License: Apache 2.0
 """
+
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from graphclaw.connectors.base import ConnectorConfig
@@ -90,8 +91,9 @@ def _parse_jira_date(date_str: str | None) -> datetime | None:
             return datetime.fromisoformat(date_str)
         # Date only
         from datetime import date  # noqa: PLC0415
+
         d = date.fromisoformat(date_str)
-        return datetime(d.year, d.month, d.day, tzinfo=timezone.utc)
+        return datetime(d.year, d.month, d.day, tzinfo=UTC)
     except ValueError:
         return None
 
@@ -165,14 +167,12 @@ class JiraImportConnector(ImportConnector):
             import httpx  # noqa: PLC0415
         except ImportError as exc:
             raise ImportError(
-                "httpx is required for JiraImportConnector. "
-                "Install with: pip install httpx"
+                "httpx is required for JiraImportConnector. Install with: pip install httpx"
             ) from exc
 
         import base64  # noqa: PLC0415
-        token = base64.b64encode(
-            f"{self._username}:{self._api_token}".encode()
-        ).decode()
+
+        token = base64.b64encode(f"{self._username}:{self._api_token}".encode()).decode()
 
         self._client = httpx.AsyncClient(
             base_url=f"{self._server_url}/rest/api/3",
@@ -266,16 +266,13 @@ class JiraImportConnector(ImportConnector):
         has_more = returned < total
         next_cursor = str(returned) if has_more else None
 
-        items = [
-            _raw_issue_to_import_item(issue, self._server_url)
-            for issue in issues
-        ]
+        items = [_raw_issue_to_import_item(issue, self._server_url) for issue in issues]
 
         return ImportBatch(
             items=items,
             source_system="jira",
             project_id=project_id,
-            fetched_at=datetime.now(tz=timezone.utc),
+            fetched_at=datetime.now(tz=UTC),
             next_cursor=next_cursor,
             has_more=has_more,
         )

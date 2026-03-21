@@ -3,6 +3,7 @@
 Uses sys.modules patching to stub the anthropic SDK so no real API calls
 are made.
 """
+
 from __future__ import annotations
 
 import sys
@@ -42,9 +43,7 @@ def _mock_anthropic_sdk(response: MagicMock):
     mock_sdk = MagicMock()
     mock_client = MagicMock()
     mock_client.messages.create = AsyncMock(return_value=response)
-    mock_client.messages.count_tokens = AsyncMock(
-        return_value=MagicMock(input_tokens=42)
-    )
+    mock_client.messages.count_tokens = AsyncMock(return_value=MagicMock(input_tokens=42))
     mock_client.close = AsyncMock()
     mock_sdk.AsyncAnthropic.return_value = mock_client
 
@@ -87,10 +86,12 @@ async def test_complete_extracts_system_message():
     mock_resp = _make_anthropic_response()
     with _mock_anthropic_sdk(mock_resp) as (_, mock_client):
         client = AnthropicLLMClient()
-        await client.complete([
-            LLMMessage(role="system", content="You are helpful."),
-            LLMMessage(role="user", content="Hello"),
-        ])
+        await client.complete(
+            [
+                LLMMessage(role="system", content="You are helpful."),
+                LLMMessage(role="user", content="Hello"),
+            ]
+        )
 
     kwargs = mock_client.messages.create.call_args[1]
     assert kwargs["system"] == "You are helpful."

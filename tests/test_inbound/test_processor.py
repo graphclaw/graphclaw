@@ -7,6 +7,7 @@ broker, and logger collaborators. Covers state update publishing, follow-up
 flagging, unmatched routing, INFO_ONLY no-op paths, logging calls, and
 graceful operation when optional dependencies are absent.
 """
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
@@ -23,7 +24,6 @@ from graphclaw.inbound.models import (
 from graphclaw.inbound.processor import InboundProcessor
 from graphclaw.inbound.resolver import TaskResolver
 from graphclaw.models.enums import ConfidenceLevel, MatchedBy, TaskState
-
 
 # ---------------------------------------------------------------------------
 # Test helpers / factories
@@ -109,6 +109,7 @@ async def test_process_matched_done_publishes_update() -> None:
 
     # Verify the published payload contains expected keys.
     import json
+
     call_args = mock_broker.publish.call_args
     queue_name = call_args[0][0]
     payload = json.loads(call_args[0][1])

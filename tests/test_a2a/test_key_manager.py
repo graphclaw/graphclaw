@@ -5,18 +5,18 @@ The mock is configured per-test to return the exact node shapes that
 ``A2AKeyManager`` expects from ``create_node``, ``get_node``, ``update_node``,
 and ``list_nodes``.
 """
+
 from __future__ import annotations
 
 import hashlib
 import hmac
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from graphclaw.a2a.key_manager import KEY_PREFIX, A2AKeyManager
 from graphclaw.a2a.models import A2AKeyRef, A2ARegistration
-
 
 # ── Fixtures ───────────────────────────────────────────────────────────────────
 
@@ -54,9 +54,7 @@ class TestGenerateKey:
         manager = _make_manager()
         plaintext, _ = manager.generate_key()
         # secrets.token_urlsafe(24) always produces exactly 32 base64url chars
-        assert len(plaintext) == len(KEY_PREFIX) + 32, (
-            f"Unexpected key length: {len(plaintext)}"
-        )
+        assert len(plaintext) == len(KEY_PREFIX) + 32, f"Unexpected key length: {len(plaintext)}"
 
     def test_hash_is_sha256_hex(self) -> None:
         manager = _make_manager()
@@ -176,7 +174,9 @@ class TestConstantTimeCompare:
             ]
         )
 
-        with patch("graphclaw.a2a.key_manager.hmac.compare_digest", wraps=hmac.compare_digest) as spy:
+        with patch(
+            "graphclaw.a2a.key_manager.hmac.compare_digest", wraps=hmac.compare_digest
+        ) as spy:
             await manager.verify_key(plaintext)
             spy.assert_called_once()
 
@@ -442,7 +442,7 @@ class TestListAgents:
     @pytest.mark.asyncio
     async def test_returns_only_active_agents(self) -> None:
         store = _make_mock_store()
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         store.list_nodes = AsyncMock(
             return_value=[
                 {
@@ -483,8 +483,8 @@ class TestListAgents:
     @pytest.mark.asyncio
     async def test_results_sorted_by_created_at(self) -> None:
         store = _make_mock_store()
-        t1 = datetime(2025, 1, 1, tzinfo=timezone.utc)
-        t2 = datetime(2025, 6, 1, tzinfo=timezone.utc)
+        t1 = datetime(2025, 1, 1, tzinfo=UTC)
+        t2 = datetime(2025, 6, 1, tzinfo=UTC)
         # Return in reverse order to test sorting
         store.list_nodes = AsyncMock(
             return_value=[
@@ -511,7 +511,7 @@ class TestListAgents:
         refs = await manager.list_agents("USER-001")
 
         assert len(refs) == 2
-        assert refs[0].agent_name == "BotA"   # earlier created_at first
+        assert refs[0].agent_name == "BotA"  # earlier created_at first
         assert refs[1].agent_name == "BotB"
 
     @pytest.mark.asyncio

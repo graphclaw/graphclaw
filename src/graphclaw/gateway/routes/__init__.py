@@ -30,6 +30,7 @@ Notes
 Routers in this package use FastAPI dependency injection (``Depends``) to
 obtain the broker and logger from ``graphclaw.gateway.deps``.
 """
+
 from __future__ import annotations
 
 from graphclaw.gateway.routes import health, inbound, outbound

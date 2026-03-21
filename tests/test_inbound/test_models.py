@@ -6,6 +6,7 @@ Verifies that StatusSignal enum values are correct strings, that TaskResolution,
 StatusExtraction, and InboundResult can be instantiated with their required
 fields and that optional fields carry the expected defaults.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -17,7 +18,6 @@ from graphclaw.inbound.models import (
     TaskResolution,
 )
 from graphclaw.models.enums import ConfidenceLevel, MatchedBy, TaskState
-
 
 # ---------------------------------------------------------------------------
 # StatusSignal

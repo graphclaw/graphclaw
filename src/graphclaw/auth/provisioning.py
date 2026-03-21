@@ -46,11 +46,13 @@ Dependencies
 - graphclaw.models.nodes: UserNode, WorkspaceNode.
 - graphclaw.models.base: generate_user_id, generate_workspace_id, utcnow.
 """
+
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
-from typing import Callable, Coroutine, Any
+from typing import Any
 
 from graphclaw.auth.jwt import JWTService
 from graphclaw.db.base import GraphStore
@@ -283,9 +285,7 @@ class UserProvisioningService:
                 extra={"user_id": user_id},
             )
             await self._run_rollback(_rollback_steps)
-            raise RuntimeError(
-                f"User provisioning failed for email={email!r}: {exc}"
-            ) from exc
+            raise RuntimeError(f"User provisioning failed for email={email!r}: {exc}") from exc
 
         # ------------------------------------------------------------------
         # Step 5: Issue tokens (no rollback needed — stateless JWTs)
@@ -388,9 +388,7 @@ class UserProvisioningService:
     async def _find_default_workspace(self, user_id: str) -> str | None:
         """Return the workspace_id of the user's default workspace, or None."""
         try:
-            edges = await self._graph.get_edges(
-                node_id=user_id, direction="out", edge_type="OWNS"
-            )
+            edges = await self._graph.get_edges(node_id=user_id, direction="out", edge_type="OWNS")
             for edge in edges:
                 props = edge.get("properties") or {}
                 if props.get("is_default"):
@@ -407,9 +405,7 @@ class UserProvisioningService:
         return None
 
     @staticmethod
-    async def _run_rollback(
-        steps: list[Callable[[], Coroutine[Any, Any, None]]]
-    ) -> None:
+    async def _run_rollback(steps: list[Callable[[], Coroutine[Any, Any, None]]]) -> None:
         """Execute rollback callables in reverse (LIFO) order.
 
         Each step is awaited independently.  Errors are logged but do not

@@ -101,9 +101,7 @@ class MCPRegistry:
             return None
         return MCPServerNode.model_validate(raw)
 
-    async def list_for_user(
-        self, user_id: str, enabled_only: bool = True
-    ) -> list[MCPServerNode]:
+    async def list_for_user(self, user_id: str, enabled_only: bool = True) -> list[MCPServerNode]:
         """Return all registered MCP servers belonging to *user_id*.
 
         Parameters
@@ -145,9 +143,7 @@ class MCPRegistry:
             results.append(server)
         return results
 
-    async def update_trust(
-        self, server_id: str, trust_tier: TrustTier
-    ) -> MCPServerNode:
+    async def update_trust(self, server_id: str, trust_tier: TrustTier) -> MCPServerNode:
         """Change the trust tier of a registered MCP server.
 
         Parameters
@@ -241,9 +237,7 @@ class MCPRegistry:
         """
         server = await self.get(server_id)
         if server is None:
-            logger.warning(
-                "mcp.registry.deregister.not_found", extra={"server_id": server_id}
-            )
+            logger.warning("mcp.registry.deregister.not_found", extra={"server_id": server_id})
             return
 
         if self._secrets is not None and server.secret_ref:
@@ -256,13 +250,9 @@ class MCPRegistry:
                 )
 
         await self._store.delete_node(server_id)
-        logger.info(
-            "mcp.registry.deregister", extra={"server_id": server_id}
-        )
+        logger.info("mcp.registry.deregister", extra={"server_id": server_id})
 
-    async def find_by_scope(
-        self, user_id: str, scope: str
-    ) -> list[MCPServerNode]:
+    async def find_by_scope(self, user_id: str, scope: str) -> list[MCPServerNode]:
         """Return enabled servers for *user_id* whose scope list contains *scope*.
 
         Parameters

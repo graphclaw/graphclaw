@@ -44,6 +44,7 @@ connectivity and queue depth.
 tests can override it via ``app.dependency_overrides`` and the endpoint
 degrades gracefully to 503 when no broker is available.
 """
+
 from __future__ import annotations
 
 import logging

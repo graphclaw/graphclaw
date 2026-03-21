@@ -23,9 +23,9 @@ Dependencies
   ToolDefinition, ToolCall.
 - anthropic: Official Anthropic Python SDK (>= 0.40.0).
 """
+
 from __future__ import annotations
 
-import json
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -113,9 +113,7 @@ class AnthropicLLMClient(LLMClient):
         for block in content_blocks:
             if getattr(block, "type", None) == "tool_use":
                 args = block.input if isinstance(block.input, dict) else {}
-                tool_calls.append(
-                    ToolCall(id=block.id, name=block.name, arguments=args)
-                )
+                tool_calls.append(ToolCall(id=block.id, name=block.name, arguments=args))
         return tool_calls
 
     @staticmethod

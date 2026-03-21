@@ -2,16 +2,17 @@
 
 All database calls are mocked via AsyncMock so no live DB is required.
 """
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from graphclaw.agent.loop import AgentLoop
-from graphclaw.models.base import generate_task_id, utcnow
+from graphclaw.models.base import generate_task_id
 from graphclaw.models.enums import (
     GoalPriority,
     TaskState,
@@ -26,14 +27,13 @@ from graphclaw.models.scoring import (
 from graphclaw.scoring.engine import ScoringContext, ScoringEngine
 from graphclaw.state.machine import StateMachine
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _make_task(
@@ -353,7 +353,9 @@ class TestGenerateBriefing:
     @pytest.mark.asyncio
     async def test_briefing_respects_top_n(self):
         tasks = [_make_task(title=f"Task {i}") for i in range(10)]
-        entries = [_make_queue_entry(t, rank=i + 1, score=1.0 - i * 0.1) for i, t in enumerate(tasks)]
+        entries = [
+            _make_queue_entry(t, rank=i + 1, score=1.0 - i * 0.1) for i, t in enumerate(tasks)
+        ]
 
         loop, repo, engine = _make_loop()
         briefing = await loop.generate_briefing(entries, top_n=3)

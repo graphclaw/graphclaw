@@ -4,14 +4,13 @@ Requires httpx with ASGI transport support:
     pip install httpx  # or add httpx to dev dependencies in pyproject.toml
 WS-I is responsible for adding httpx to pyproject.toml dev dependencies.
 """
+
 from __future__ import annotations
 
-import json
-from asyncio import AbstractEventLoop
 from collections.abc import AsyncIterator
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -78,6 +77,7 @@ def app_with_broker(mock_broker: MockBroker):
     ):
         # Ensure IMAP env vars are absent so no poller starts
         import os
+
         os.environ.pop("GATEWAY_IMAP_HOST", None)
         os.environ.pop("GATEWAY_IMAP_USER", None)
         os.environ.pop("GATEWAY_IMAP_PASS", None)
@@ -91,6 +91,7 @@ def app_with_broker(mock_broker: MockBroker):
 def app_no_broker():
     """FastAPI app with no broker (degraded mode)."""
     import os
+
     os.environ.pop("GATEWAY_IMAP_HOST", None)
     os.environ.pop("GATEWAY_IMAP_USER", None)
     os.environ.pop("GATEWAY_IMAP_PASS", None)
@@ -101,7 +102,7 @@ def app_no_broker():
 # Helpers
 # ---------------------------------------------------------------------------
 
-_NOW = datetime(2024, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
+_NOW = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
 
 
 def _sample_inbound_payload() -> dict[str, Any]:
@@ -200,9 +201,7 @@ class TestInboundEndpoint:
         assert restored.message_id == "test-msg-001"
         assert restored.sender == "alice@example.com"
 
-    async def test_inbound_endpoint_no_broker_still_returns_accepted(
-        self, app_no_broker
-    ):
+    async def test_inbound_endpoint_no_broker_still_returns_accepted(self, app_no_broker):
         payload = _sample_inbound_payload()
         async with AsyncClient(
             transport=ASGITransport(app=app_no_broker), base_url="http://test"
@@ -211,9 +210,7 @@ class TestInboundEndpoint:
         # Should still accept even without a broker (message is dropped with warning)
         assert response.status_code == 202
 
-    async def test_inbound_endpoint_invalid_payload_returns_422(
-        self, app_with_broker
-    ):
+    async def test_inbound_endpoint_invalid_payload_returns_422(self, app_with_broker):
         async with AsyncClient(
             transport=ASGITransport(app=app_with_broker), base_url="http://test"
         ) as client:

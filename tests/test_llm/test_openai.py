@@ -3,6 +3,7 @@
 Uses sys.modules patching to stub the openai SDK so no real API calls
 are made.
 """
+
 from __future__ import annotations
 
 import sys
@@ -99,9 +100,7 @@ async def test_complete_model_override():
     mock_resp = _make_openai_response()
     with _mock_openai_sdk(mock_resp):
         client = OpenAILLMClient(default_model="gpt-4o")
-        result = await client.complete(
-            [LLMMessage(role="user", content="hi")], model="gpt-4o-mini"
-        )
+        result = await client.complete([LLMMessage(role="user", content="hi")], model="gpt-4o-mini")
 
     assert result.model == "gpt-4o-mini"
 
@@ -135,10 +134,12 @@ async def test_complete_passes_system_message_in_messages():
     mock_resp = _make_openai_response()
     with _mock_openai_sdk(mock_resp) as (_, mock_client):
         client = OpenAILLMClient()
-        await client.complete([
-            LLMMessage(role="system", content="You are helpful."),
-            LLMMessage(role="user", content="Hello"),
-        ])
+        await client.complete(
+            [
+                LLMMessage(role="system", content="You are helpful."),
+                LLMMessage(role="user", content="Hello"),
+            ]
+        )
 
     kwargs = mock_client.chat.completions.create.call_args[1]
     roles = [m["role"] for m in kwargs["messages"]]
@@ -182,10 +183,12 @@ async def test_count_tokens_uses_tiktoken():
     try:
         with _mock_openai_sdk(mock_resp):
             client = OpenAILLMClient()
-            count = await client.count_tokens([
-                LLMMessage(role="user", content="Hello world"),
-                LLMMessage(role="assistant", content="Hi there"),
-            ])
+            count = await client.count_tokens(
+                [
+                    LLMMessage(role="user", content="Hello world"),
+                    LLMMessage(role="assistant", content="Hi there"),
+                ]
+            )
     finally:
         if original is None:
             sys.modules.pop("tiktoken", None)
@@ -203,6 +206,7 @@ async def test_count_tokens_fallback_when_tiktoken_missing():
     original = sys.modules.pop("tiktoken", None)
     try:
         import builtins
+
         real_import = builtins.__import__
 
         def blocking_import(name, *args, **kwargs):

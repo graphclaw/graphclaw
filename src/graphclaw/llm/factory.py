@@ -28,15 +28,16 @@ Dependencies
 ------------
 - graphclaw.llm.base: LLMClient (TYPE_CHECKING only at module level).
 """
+
 from __future__ import annotations
 
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from graphclaw.llm.base import LLMClient
 
 
-def create_llm_client(provider: str = "litellm", **kwargs: Any) -> "LLMClient":
+def create_llm_client(provider: str = "litellm", **kwargs: Any) -> LLMClient:
     """Instantiate and return an LLMClient for the given provider.
 
     Parameters
@@ -79,14 +80,17 @@ def create_llm_client(provider: str = "litellm", **kwargs: Any) -> "LLMClient":
     match provider:
         case "litellm":
             from graphclaw.llm.litellm.client import LiteLLMLLMClient
+
             return LiteLLMLLMClient(**kwargs)
 
         case "anthropic":
             from graphclaw.llm.anthropic.client import AnthropicLLMClient
+
             return AnthropicLLMClient(**kwargs)
 
         case "openai":
             from graphclaw.llm.openai.client import OpenAILLMClient
+
             return OpenAILLMClient(**kwargs)
 
         case _:

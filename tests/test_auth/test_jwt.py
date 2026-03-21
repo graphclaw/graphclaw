@@ -20,6 +20,7 @@ Dependencies
 - jose: JWT encode/decode (python-jose[cryptography]).
 - graphclaw.auth.jwt: JWTService, JWTError (re-exported from jose).
 """
+
 from __future__ import annotations
 
 import time
@@ -30,7 +31,6 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from jose import JWTError, jwt
 
 from graphclaw.auth.jwt import JWTService
-
 
 # ---------------------------------------------------------------------------
 # Module-level fixtures — RSA key pair generated once for the whole module
@@ -46,10 +46,14 @@ def rsa_key_pair():
         serialization.PrivateFormat.TraditionalOpenSSL,
         serialization.NoEncryption(),
     ).decode()
-    pub_pem = private_key.public_key().public_bytes(
-        serialization.Encoding.PEM,
-        serialization.PublicFormat.SubjectPublicKeyInfo,
-    ).decode()
+    pub_pem = (
+        private_key.public_key()
+        .public_bytes(
+            serialization.Encoding.PEM,
+            serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        .decode()
+    )
     return priv_pem, pub_pem
 
 
@@ -133,7 +137,7 @@ class TestTokenVerification:
             "sub": "USER-expired-user",
             "jti": "expired-jti-12345",
             "iat": now - 3600,
-            "exp": now - 1800,   # expired 30 minutes ago
+            "exp": now - 1800,  # expired 30 minutes ago
             "type": "access",
         }
         expired_token = jwt.encode(payload, priv_pem, algorithm="RS256")

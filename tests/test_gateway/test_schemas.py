@@ -1,10 +1,8 @@
 """Tests for graphclaw.gateway.schemas — InboundMessage and OutboundMessage models."""
+
 from __future__ import annotations
 
-import json
-from datetime import datetime, timezone
-
-import pytest
+from datetime import UTC, datetime
 
 from graphclaw.gateway.schemas import InboundMessage, OutboundMessage
 
@@ -12,7 +10,7 @@ from graphclaw.gateway.schemas import InboundMessage, OutboundMessage
 # Helpers
 # ---------------------------------------------------------------------------
 
-_NOW = datetime(2024, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
+_NOW = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
 
 
 def _make_inbound(**overrides) -> InboundMessage:

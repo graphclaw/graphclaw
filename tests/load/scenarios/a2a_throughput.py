@@ -37,6 +37,7 @@ Dependencies
 ------------
 - locust>=2.20.0: Load testing framework (third-party).
 """
+
 from __future__ import annotations
 
 import random

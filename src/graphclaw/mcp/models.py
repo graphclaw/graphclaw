@@ -54,7 +54,7 @@ class MCPToolCall:
     trust_tier: str  # TrustTier value
     user_id: str
     requested_at: datetime
-    approved_by: str | None = None   # USER-{id} | "auto" | "denied"
+    approved_by: str | None = None  # USER-{id} | "auto" | "denied"
     executed_at: datetime | None = None
 
 

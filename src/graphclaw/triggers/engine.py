@@ -48,6 +48,7 @@ the oldest 5 000 entries (by insertion order, approximated by list conversion)
 are removed.  In production this should be replaced with a proper LRU cache or
 a Redis SET with TTL.
 """
+
 from __future__ import annotations
 
 import asyncio

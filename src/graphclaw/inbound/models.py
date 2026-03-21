@@ -39,6 +39,7 @@ it belongs to the inbound subsystem's domain and is not used elsewhere in the
 core graph model. Callers should import it from ``graphclaw.inbound`` or
 ``graphclaw.inbound.models``.
 """
+
 from __future__ import annotations
 
 from enum import Enum

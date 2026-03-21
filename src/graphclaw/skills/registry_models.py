@@ -31,6 +31,7 @@ Dependencies
 - datetime: datetime type for timestamp fields.
 - enum: Enum base class.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -41,10 +42,10 @@ from enum import Enum
 class SkillSourceType(str, Enum):
     """Supported skill source backends."""
 
-    LOCAL = "local"        # src/graphclaw/skills/definitions/ (built-in)
-    SYSTEM = "system"      # platform-provided skills (read-only)
-    GITHUB = "github"      # github.com/<owner>/<repo>[/path]
-    WEBSITE = "website"    # URL returning marketplace.json
+    LOCAL = "local"  # src/graphclaw/skills/definitions/ (built-in)
+    SYSTEM = "system"  # platform-provided skills (read-only)
+    GITHUB = "github"  # github.com/<owner>/<repo>[/path]
+    WEBSITE = "website"  # URL returning marketplace.json
     REGISTRY = "registry"  # future: graphclaw.ai/registry
 
 

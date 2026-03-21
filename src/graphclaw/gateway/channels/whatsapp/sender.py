@@ -7,6 +7,7 @@ Environment Variables (via WhatsAppConfig)
 WHATSAPP_PHONE_NUMBER_ID   Phone number to send from.
 WHATSAPP_ACCESS_TOKEN      Meta access token.
 """
+
 from __future__ import annotations
 
 import logging
@@ -21,7 +22,7 @@ logger = logging.getLogger(__name__)
 class WhatsAppSender:
     """Delivers outbound messages via the WhatsApp Cloud API."""
 
-    def __init__(self, config: "WhatsAppConfig") -> None:
+    def __init__(self, config: WhatsAppConfig) -> None:
         self._config = config
 
     async def send(self, recipient: str, body: str) -> None:

@@ -2,14 +2,12 @@
 
 Tests cross-channel identity resolution using a mock Redis client.
 """
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 from graphclaw.gateway.alias_resolver import AliasResolver
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -95,12 +93,8 @@ class TestAliasResolverWithRedis:
 
         await resolver.register("whatsapp", "15551234567", "USER-abc")
 
-        pipe.set.assert_called_once_with(
-            "graphclaw:alias:whatsapp:15551234567", "USER-abc"
-        )
-        pipe.sadd.assert_called_once_with(
-            "graphclaw:user_aliases:USER-abc", "whatsapp:15551234567"
-        )
+        pipe.set.assert_called_once_with("graphclaw:alias:whatsapp:15551234567", "USER-abc")
+        pipe.sadd.assert_called_once_with("graphclaw:user_aliases:USER-abc", "whatsapp:15551234567")
         pipe.execute.assert_called_once()
 
     async def test_get_aliases_returns_sorted_list(self):
@@ -111,7 +105,9 @@ class TestAliasResolverWithRedis:
         resolver = AliasResolver(redis_client=client)
 
         aliases = await resolver.get_aliases("USER-abc")
-        assert aliases == sorted(["telegram:999", "whatsapp:15551234567", "email:alice@example.com"])
+        assert aliases == sorted(
+            ["telegram:999", "whatsapp:15551234567", "email:alice@example.com"]
+        )
 
     async def test_get_aliases_empty(self):
         client, _ = _make_redis_mock()
@@ -128,9 +124,7 @@ class TestAliasResolverWithRedis:
         await resolver.deregister("whatsapp", "15551234567")
 
         pipe.delete.assert_called_once_with("graphclaw:alias:whatsapp:15551234567")
-        pipe.srem.assert_called_once_with(
-            "graphclaw:user_aliases:USER-abc", "whatsapp:15551234567"
-        )
+        pipe.srem.assert_called_once_with("graphclaw:user_aliases:USER-abc", "whatsapp:15551234567")
 
     async def test_deregister_noop_if_no_user_found(self):
         client, pipe = _make_redis_mock()

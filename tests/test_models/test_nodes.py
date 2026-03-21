@@ -9,10 +9,29 @@ Covers:
 - GraphEdge construction
 """
 
+from datetime import UTC, datetime
+
 import pytest
-from datetime import datetime, timezone
 from pydantic import ValidationError
 
+from graphclaw.models.base import (
+    CONSTRAINT_ID_PATTERN,
+    EDGE_ID_PATTERN,
+    GOAL_ID_PATTERN,
+    RESOURCE_ID_PATTERN,
+    TASK_ID_PATTERN,
+    USER_ID_PATTERN,
+    generate_constraint_id,
+    generate_edge_id,
+    generate_goal_id,
+    generate_resource_id,
+    generate_task_id,
+    generate_user_id,
+)
+from graphclaw.models.edges import (
+    EdgeProperties,
+    GraphEdge,
+)
 from graphclaw.models.enums import (
     AutonomyLevel,
     ChangedBy,
@@ -25,34 +44,23 @@ from graphclaw.models.enums import (
     TaskState,
     TaskType,
 )
-from graphclaw.models.base import (
-    generate_task_id,
-    generate_user_id,
-    generate_goal_id,
-    generate_constraint_id,
-    generate_resource_id,
-    generate_edge_id,
-    utcnow,
-    TASK_ID_PATTERN,
-    USER_ID_PATTERN,
-    GOAL_ID_PATTERN,
-    CONSTRAINT_ID_PATTERN,
-    RESOURCE_ID_PATTERN,
-    EDGE_ID_PATTERN,
-)
 from graphclaw.models.nodes import (
-    AutonomyBlock,
     CheckinNode,
     ConstraintNode,
     ConstraintRule,
     GoalNode,
-    ProgressBlock,
     ResourceNode,
     ScoringBlock,
     StateHistoryEntry,
     TaskNode,
     Timeline,
     UserNode,
+)
+from graphclaw.models.scoring import (
+    ActionQueueEntry,
+    ScoreExplanation,
+    ScoreFactor,
+    ScoreModifier,
 )
 from graphclaw.models.type_metadata import (
     ApprovalMetadata,
@@ -67,27 +75,12 @@ from graphclaw.models.type_metadata import (
     ResearchMetadata,
     ReviewMetadata,
 )
-from graphclaw.models.edges import (
-    BlocksProps,
-    DependsOnProps,
-    EdgeProperties,
-    FollowUpForProps,
-    GraphEdge,
-    PartOfProps,
-)
-from graphclaw.models.scoring import (
-    ActionQueueEntry,
-    ScoreExplanation,
-    ScoreFactor,
-    ScoreModifier,
-)
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-NOW = datetime(2026, 3, 17, 12, 0, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 3, 17, 12, 0, 0, tzinfo=UTC)
 
 
 def _task_id(task_type: TaskType, initials: str = "AB") -> str:
@@ -113,12 +106,12 @@ class TestIDPatterns:
 
     def test_task_id_invalid_formats(self):
         invalid = [
-            "TSK-A-1234-ATM",       # initials too short (1 char)
-            "TSK-ab-1234-ATM",      # lowercase initials
-            "TSK-AB-123-ATM",       # sequence too short (3 digits)
-            "TSK-AB-1234-XXX",      # unknown type code
-            "tsk-AB-1234-ATM",      # lowercase prefix
-            "TASK-AB-1234-ATM",     # wrong prefix
+            "TSK-A-1234-ATM",  # initials too short (1 char)
+            "TSK-ab-1234-ATM",  # lowercase initials
+            "TSK-AB-123-ATM",  # sequence too short (3 digits)
+            "TSK-AB-1234-XXX",  # unknown type code
+            "tsk-AB-1234-ATM",  # lowercase prefix
+            "TASK-AB-1234-ATM",  # wrong prefix
             "",
         ]
         for v in invalid:
@@ -171,8 +164,16 @@ class TestEnumCompleteness:
 
     def test_task_state_expected_values(self):
         expected = {
-            "PENDING", "ACTIVE", "IN_PROGRESS", "BLOCKED", "DELAYED",
-            "NEEDS_REVIEW", "COMPLETE", "CANCELLED", "SNOOZED", "INACTIVE_PENDING",
+            "PENDING",
+            "ACTIVE",
+            "IN_PROGRESS",
+            "BLOCKED",
+            "DELAYED",
+            "NEEDS_REVIEW",
+            "COMPLETE",
+            "CANCELLED",
+            "SNOOZED",
+            "INACTIVE_PENDING",
         }
         actual = {s.value for s in TaskState}
         assert actual == expected
@@ -183,8 +184,17 @@ class TestEnumCompleteness:
 
     def test_task_type_expected_values(self):
         expected = {
-            "ATOMIC", "COMPOSITE", "DELEGATED", "FOLLOWUP", "APPROVAL",
-            "MILESTONE", "REVIEW", "RECURRING", "DECISION", "CHECKIN", "RESEARCH",
+            "ATOMIC",
+            "COMPOSITE",
+            "DELEGATED",
+            "FOLLOWUP",
+            "APPROVAL",
+            "MILESTONE",
+            "REVIEW",
+            "RECURRING",
+            "DECISION",
+            "CHECKIN",
+            "RESEARCH",
         }
         actual = {t.value for t in TaskType}
         assert actual == expected
@@ -337,7 +347,9 @@ class TestTypeMetadata:
         assert m.task_type == TaskType.CHECKIN
 
     def test_research_metadata(self):
-        m = ResearchMetadata(research_scope="Enough to define API contract", confidence_to_proceed=0.8)
+        m = ResearchMetadata(
+            research_scope="Enough to define API contract", confidence_to_proceed=0.8
+        )
         assert m.confidence_to_proceed == 0.8
 
     def test_discriminated_union_round_trip(self):
@@ -396,8 +408,13 @@ class TestUserNode:
         )
         sw = node.scoring_weights
         total = (
-            sw.W1_timeline + sw.W2_dependencies + sw.W3_critical_path
-            + sw.W4_blocker + sw.W5_override + sw.W6_resource_risk + sw.W7_constraint
+            sw.W1_timeline
+            + sw.W2_dependencies
+            + sw.W3_critical_path
+            + sw.W4_blocker
+            + sw.W5_override
+            + sw.W6_resource_risk
+            + sw.W7_constraint
         )
         assert abs(total - 1.0) < 1e-9
 
@@ -472,7 +489,9 @@ class TestConstraintNode:
             )
 
     def test_constraint_rule_breach(self):
-        rule = ConstraintRule(threshold="$50,000", current_value="$49,500", pressure_score=0.99, breached=False)
+        rule = ConstraintRule(
+            threshold="$50,000", current_value="$49,500", pressure_score=0.99, breached=False
+        )
         node = ConstraintNode(
             id=generate_constraint_id(),
             constraint_type=ConstraintType.BUDGET,
@@ -571,6 +590,7 @@ class TestGraphEdge:
 
     def test_blocks_edge(self):
         from graphclaw.models.enums import EdgeStrength
+
         edge = GraphEdge(
             id=generate_edge_id(),
             edge_type=EdgeType.BLOCKS,

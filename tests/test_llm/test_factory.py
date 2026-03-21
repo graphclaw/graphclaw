@@ -3,6 +3,7 @@
 Verifies correct provider dispatch, unknown provider error, and that
 provider SDKs are imported lazily (mock via sys.modules).
 """
+
 from __future__ import annotations
 
 import sys
@@ -51,8 +52,8 @@ def test_create_llm_client_litellm_explicit():
 
 
 def test_create_llm_client_anthropic():
-    from graphclaw.llm.factory import create_llm_client
     from graphclaw.llm.anthropic.client import AnthropicLLMClient
+    from graphclaw.llm.factory import create_llm_client
 
     client = create_llm_client("anthropic")
     assert isinstance(client, AnthropicLLMClient)
@@ -74,8 +75,8 @@ def test_create_llm_client_unknown_provider():
 
 
 def test_create_llm_client_passes_kwargs():
-    from graphclaw.llm.factory import create_llm_client
     from graphclaw.llm.anthropic.client import AnthropicLLMClient
+    from graphclaw.llm.factory import create_llm_client
 
     client = create_llm_client("anthropic", api_key="test-key", default_model="claude-opus-4-6")
     assert isinstance(client, AnthropicLLMClient)
@@ -87,13 +88,9 @@ def test_llm_package_facade_imports():
     """from graphclaw.llm import ... should expose all public names."""
     from graphclaw.llm import (
         LLMClient,
-        LLMMessage,
-        LLMResponse,
-        LLMStreamChunk,
-        ToolCall,
-        ToolDefinition,
         create_llm_client,
     )
+
     # Just verify all names are importable
     assert LLMClient is not None
     assert create_llm_client is not None

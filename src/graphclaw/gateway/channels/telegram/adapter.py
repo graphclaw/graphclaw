@@ -32,6 +32,7 @@ Dependencies
 - graphclaw.gateway.schemas: OutboundMessage.
 - graphclaw.infra.broker: MessageBroker.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -67,9 +68,7 @@ class TelegramChannelAdapter(ChannelAdapter):
         """Load config from environment; start long-poll loop if not webhook mode."""
         self._config = TelegramConfig.from_env()
         if self._config is None:
-            logger.warning(
-                "Telegram channel: TELEGRAM_BOT_TOKEN not set — channel disabled"
-            )
+            logger.warning("Telegram channel: TELEGRAM_BOT_TOKEN not set — channel disabled")
             return
         self._sender = TelegramSender(self._config)
         self._broker = broker
@@ -142,9 +141,7 @@ class TelegramChannelAdapter(ChannelAdapter):
                             if update_id is not None:
                                 offset = update_id + 1
                     else:
-                        logger.warning(
-                            "Telegram getUpdates failed: HTTP %s", response.status_code
-                        )
+                        logger.warning("Telegram getUpdates failed: HTTP %s", response.status_code)
                         await asyncio.sleep(5)
                 except asyncio.CancelledError:
                     logger.info("Telegram long-poll loop cancelled")
@@ -175,7 +172,9 @@ class TelegramChannelAdapter(ChannelAdapter):
             await self._broker.publish("inbound_messages", msg.model_dump(mode="json"))
 
         if not messages:
-            logger.debug("Telegram channel: update %s had no text messages", update.get("update_id"))
+            logger.debug(
+                "Telegram channel: update %s had no text messages", update.get("update_id")
+            )
         else:
             logger.info("Telegram channel: published %d inbound message(s)", len(messages))
 
@@ -192,4 +191,5 @@ class TelegramChannelAdapter(ChannelAdapter):
         if not self._config.webhook_secret:
             return True  # No secret configured → accept all
         import hmac  # noqa: PLC0415
+
         return hmac.compare_digest(token, self._config.webhook_secret)

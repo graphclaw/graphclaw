@@ -27,6 +27,7 @@ The ``graph query`` command executes the provided Cypher string with no
 sanitisation.  It is a developer tool intended for use in controlled environments
 with trusted input only.  Never expose this command to untrusted users.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -139,7 +140,7 @@ def graph_query(
         False,
         "--dangerous-allow-raw",
         help="Must be set to execute a raw Cypher query. Acknowledges that no "
-             "injection protection is applied.",
+        "injection protection is applied.",
         is_flag=True,
     ),
 ) -> None:

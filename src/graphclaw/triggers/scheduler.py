@@ -37,10 +37,10 @@ and H are integers and the remaining three fields are ``*``.  More complex
 expressions (ranges, step values, specific day-of-week) are not supported and
 will raise ``ValueError``.
 """
+
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
-
+from datetime import UTC, datetime, timedelta
 
 from graphclaw.triggers.models import TriggerConfig, TriggerType
 
@@ -124,10 +124,7 @@ class TriggerScheduler:
         if config is None:
             return
 
-        if (
-            config.trigger_type == TriggerType.TIME_BASED
-            and config.cron_expression is not None
-        ):
+        if config.trigger_type == TriggerType.TIME_BASED and config.cron_expression is not None:
             next_fire = self._compute_next_cron(config.cron_expression, now)
         else:
             next_fire = None
@@ -166,9 +163,7 @@ class TriggerScheduler:
         """
         fields = cron_expr.strip().split()
         if len(fields) != 5:
-            raise ValueError(
-                f"Unsupported cron expression '{cron_expr}': expected 5 fields."
-            )
+            raise ValueError(f"Unsupported cron expression '{cron_expr}': expected 5 fields.")
 
         minute_str, hour_str, dom, month, dow = fields
         if dom != "*" or month != "*" or dow != "*":
@@ -207,5 +202,5 @@ class TriggerScheduler:
 def _ensure_utc(dt: datetime) -> datetime:
     """Return *dt* as a UTC-aware datetime, assuming UTC if naive."""
     if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
+        return dt.replace(tzinfo=UTC)
     return dt

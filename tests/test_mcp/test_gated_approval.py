@@ -16,14 +16,13 @@ Dependencies
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, call, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from graphclaw.mcp.approval import GatedApprovalService
 from graphclaw.mcp.client import MCPApprovalTimeoutError
 from graphclaw.models.enums import TaskState, TaskType
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -126,9 +125,7 @@ class TestGatedApprovalServiceWaitForApproval:
     @pytest.mark.asyncio
     async def test_returns_true_when_task_reaches_complete(self):
         store = make_store()
-        store.get_node = AsyncMock(
-            return_value={"state": TaskState.COMPLETE.value}
-        )
+        store.get_node = AsyncMock(return_value={"state": TaskState.COMPLETE.value})
 
         svc = GatedApprovalService(store)
 
@@ -144,9 +141,7 @@ class TestGatedApprovalServiceWaitForApproval:
     @pytest.mark.asyncio
     async def test_returns_false_when_task_reaches_cancelled(self):
         store = make_store()
-        store.get_node = AsyncMock(
-            return_value={"state": TaskState.CANCELLED.value}
-        )
+        store.get_node = AsyncMock(return_value={"state": TaskState.CANCELLED.value})
 
         svc = GatedApprovalService(store)
 
@@ -164,9 +159,7 @@ class TestGatedApprovalServiceWaitForApproval:
         """When the task never resolves, MCPApprovalTimeoutError is raised."""
         store = make_store()
         # Always return PENDING — never resolved
-        store.get_node = AsyncMock(
-            return_value={"state": TaskState.PENDING.value}
-        )
+        store.get_node = AsyncMock(return_value={"state": TaskState.PENDING.value})
 
         svc = GatedApprovalService(store)
 
@@ -174,7 +167,7 @@ class TestGatedApprovalServiceWaitForApproval:
             with pytest.raises(MCPApprovalTimeoutError, match="TSK-AL-0001-APR"):
                 await svc.wait_for_approval(
                     "TSK-AL-0001-APR",
-                    timeout_seconds=3,   # short timeout
+                    timeout_seconds=3,  # short timeout
                     poll_interval_seconds=2,
                 )
 
@@ -218,9 +211,7 @@ class TestGatedApprovalServiceGetPendingApprovals:
         in_progress_task = {"id": "TSK-AL-0002-APR", "state": "IN_PROGRESS"}
 
         store = make_store()
-        store.list_nodes = AsyncMock(
-            side_effect=[[pending_task], [in_progress_task]]
-        )
+        store.list_nodes = AsyncMock(side_effect=[[pending_task], [in_progress_task]])
 
         svc = GatedApprovalService(store)
         results = await svc.get_pending_approvals("USER-alice")

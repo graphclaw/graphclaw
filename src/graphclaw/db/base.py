@@ -31,6 +31,7 @@ All methods are declared async to keep the interface consistent with I/O-bound
 implementations.  Synchronous backends must wrap their operations in
 ``asyncio.to_thread`` or similar.
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod

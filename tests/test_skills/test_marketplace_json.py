@@ -15,6 +15,7 @@ Dependencies
 - pytest: test runner.
 - graphclaw.skills.registry_models: MarketplaceJson, SkillListing, SkillSourceType.
 """
+
 from __future__ import annotations
 
 import dataclasses
@@ -27,7 +28,6 @@ from graphclaw.skills.registry_models import (
     SkillListing,
     SkillSourceType,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

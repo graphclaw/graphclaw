@@ -22,17 +22,14 @@ Dependencies
 - graphclaw.skills.heartbeat: HeartbeatMonitor under test.
 - graphclaw.skills.models: HeartbeatConfig, ThreadState, WorkerStatus.
 """
+
 from __future__ import annotations
 
-import asyncio
-from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
-
-import pytest
+from datetime import UTC, datetime, timedelta
+from unittest.mock import MagicMock
 
 from graphclaw.skills.heartbeat import HeartbeatMonitor
 from graphclaw.skills.models import HeartbeatConfig, ThreadState, WorkerStatus
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -40,11 +37,11 @@ from graphclaw.skills.models import HeartbeatConfig, ThreadState, WorkerStatus
 
 
 def _utc(*args, **kwargs) -> datetime:
-    return datetime(*args, **kwargs, tzinfo=timezone.utc)
+    return datetime(*args, **kwargs, tzinfo=UTC)
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _expired_heartbeat(timeout_seconds: float = 900.0) -> datetime:

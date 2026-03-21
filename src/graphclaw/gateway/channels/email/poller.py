@@ -54,6 +54,7 @@ redelivery — operators should monitor DLQ / broker errors separately.
 The config-based mode is provided for backward compatibility with code that used
 the ``EmailPoller`` from ``graphclaw.gateway.email``.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -238,9 +239,7 @@ class EmailPoller:
                 message_numbers_raw[0].split() if message_numbers_raw[0] else []
             )
 
-            logger.debug(
-                "EmailPoller: %d unseen message(s) found", len(message_numbers)
-            )
+            logger.debug("EmailPoller: %d unseen message(s) found", len(message_numbers))
 
             for num in message_numbers:
                 try:
@@ -258,9 +257,7 @@ class EmailPoller:
                     )
         return messages
 
-    def _fetch_and_normalize(
-        self, imap: imaplib.IMAP4_SSL, num: bytes
-    ) -> InboundMessage | None:
+    def _fetch_and_normalize(self, imap: imaplib.IMAP4_SSL, num: bytes) -> InboundMessage | None:
         """Fetch a single message and normalize it to ``InboundMessage``.
 
         Parameters
@@ -303,13 +300,10 @@ class EmailPoller:
             )
             future.result(timeout=30)
         else:
-            _asyncio.run(
-                self._broker.publish(INBOUND_MESSAGES, message.model_dump_json())
-            )
+            _asyncio.run(self._broker.publish(INBOUND_MESSAGES, message.model_dump_json()))
 
         logger.debug(
             "EmailPoller: published message %s (session=%s)",
             message.message_id,
             message.session_id,
         )
-

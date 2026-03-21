@@ -12,6 +12,7 @@ WHATSAPP_WEBHOOK_SECRET    App secret used to verify webhook signatures.
 WHATSAPP_VERIFY_TOKEN      Verification token for webhook registration.
 WHATSAPP_API_VERSION       Graph API version (default: v20.0).
 """
+
 from __future__ import annotations
 
 import os
@@ -33,7 +34,7 @@ class WhatsAppConfig:
         return f"https://graph.facebook.com/{self.api_version}/{self.phone_number_id}"
 
     @classmethod
-    def from_env(cls) -> "WhatsAppConfig | None":
+    def from_env(cls) -> WhatsAppConfig | None:
         """Build from environment variables; return None if incomplete."""
         phone_id = os.environ.get("WHATSAPP_PHONE_NUMBER_ID", "")
         token = os.environ.get("WHATSAPP_ACCESS_TOKEN", "")

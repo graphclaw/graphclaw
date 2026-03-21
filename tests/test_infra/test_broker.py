@@ -18,20 +18,21 @@ Dependencies
 - unittest.mock: AsyncMock, MagicMock.
 - graphclaw.infra.broker: RedisMessageBroker and queue name constants.
 """
+
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
 from graphclaw.infra.broker import (
     INBOUND_MESSAGES,
-    MessageBroker,
     OUTBOUND_MESSAGES,
-    RedisMessageBroker,
     SKILL_JOBS,
     STATUS_UPDATES,
     TRIGGER_EVENTS,
+    MessageBroker,
+    RedisMessageBroker,
 )
 
 

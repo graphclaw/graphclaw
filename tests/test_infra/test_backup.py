@@ -19,10 +19,9 @@ from __future__ import annotations
 import pytest
 
 from infra.backup.configs import BACKUP_CONFIGS
-from infra.backup.models import BackupConfig, BackupTarget, RecoveryRunbook
+from infra.backup.models import BackupTarget
 from infra.backup.runbooks import RECOVERY_RUNBOOKS
 from infra.backup.stack import build_backup_stack, generate_rds_backup_policy
-
 
 # ---------------------------------------------------------------------------
 # Backup config catalogue tests
@@ -40,9 +39,7 @@ def test_all_backup_targets_configured() -> None:
 
 def test_rds_retention_35_days() -> None:
     """RDS Postgres backup config must enforce a 35-day retention window (PRD Sec 32.8)."""
-    rds_config = next(
-        (c for c in BACKUP_CONFIGS if c.target == BackupTarget.RDS_POSTGRES), None
-    )
+    rds_config = next((c for c in BACKUP_CONFIGS if c.target == BackupTarget.RDS_POSTGRES), None)
     assert rds_config is not None, "No BackupConfig found for RDS_POSTGRES"
     assert rds_config.retention_days == 35, (
         f"Expected retention_days=35, got {rds_config.retention_days}"
@@ -51,20 +48,14 @@ def test_rds_retention_35_days() -> None:
 
 def test_rds_pitr_enabled() -> None:
     """RDS Postgres backup config must have pitr_enabled=True for point-in-time recovery."""
-    rds_config = next(
-        (c for c in BACKUP_CONFIGS if c.target == BackupTarget.RDS_POSTGRES), None
-    )
+    rds_config = next((c for c in BACKUP_CONFIGS if c.target == BackupTarget.RDS_POSTGRES), None)
     assert rds_config is not None, "No BackupConfig found for RDS_POSTGRES"
-    assert rds_config.pitr_enabled is True, (
-        "RDS Postgres backup config must have pitr_enabled=True"
-    )
+    assert rds_config.pitr_enabled is True, "RDS Postgres backup config must have pitr_enabled=True"
 
 
 def test_audit_log_retention_365_days() -> None:
     """Audit log backup must have a 365-day retention window (compliance requirement)."""
-    audit_config = next(
-        (c for c in BACKUP_CONFIGS if c.target == BackupTarget.AUDIT_LOG), None
-    )
+    audit_config = next((c for c in BACKUP_CONFIGS if c.target == BackupTarget.AUDIT_LOG), None)
     assert audit_config is not None, "No BackupConfig found for AUDIT_LOG"
     assert audit_config.retention_days == 365, (
         f"Expected retention_days=365 for compliance, got {audit_config.retention_days}"
@@ -96,9 +87,7 @@ def test_runbook_steps_ordered() -> None:
 
 def test_postgres_runbook_has_verification() -> None:
     """The postgres_data_loss runbook must have a non-None verification_query."""
-    postgres_runbook = next(
-        (r for r in RECOVERY_RUNBOOKS if r.name == "postgres_data_loss"), None
-    )
+    postgres_runbook = next((r for r in RECOVERY_RUNBOOKS if r.name == "postgres_data_loss"), None)
     assert postgres_runbook is not None, (
         "No runbook named 'postgres_data_loss' found in RECOVERY_RUNBOOKS"
     )
@@ -123,9 +112,7 @@ def test_rds_backup_policy_deletion_protection() -> None:
 def test_rds_backup_policy_encrypted() -> None:
     """RDS backup policy must have StorageEncrypted=True for data-at-rest encryption."""
     policy = generate_rds_backup_policy()
-    assert policy["StorageEncrypted"] is True, (
-        "RDS backup policy must set StorageEncrypted=True"
-    )
+    assert policy["StorageEncrypted"] is True, "RDS backup policy must set StorageEncrypted=True"
 
 
 # ---------------------------------------------------------------------------
@@ -157,6 +144,4 @@ def test_build_backup_stack_keys() -> None:
     stack = build_backup_stack()
     assert "configs" in stack, "build_backup_stack() result missing 'configs' key"
     assert "runbooks" in stack, "build_backup_stack() result missing 'runbooks' key"
-    assert "aws_resources" in stack, (
-        "build_backup_stack() result missing 'aws_resources' key"
-    )
+    assert "aws_resources" in stack, "build_backup_stack() result missing 'aws_resources' key"

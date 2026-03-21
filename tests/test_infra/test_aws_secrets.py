@@ -3,6 +3,7 @@
 Tests the AWS Secrets Manager client using a mock boto3 client so no real
 AWS calls are made.
 """
+
 from __future__ import annotations
 
 import sys
@@ -11,7 +12,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from graphclaw.infra.secrets import AWSSecretsClient
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -66,9 +66,7 @@ class TestAWSSecretsClient:
         with self._patch_boto3(mock_client):
             result = await aws.get_secret("API_KEY")
         assert result == "prefixed"
-        mock_client.get_secret_value.assert_called_once_with(
-            SecretId="graphclaw/prod/API_KEY"
-        )
+        mock_client.get_secret_value.assert_called_once_with(SecretId="graphclaw/prod/API_KEY")
 
     async def test_get_secret_not_found_raises_key_error(self):
         mock_client = _make_boto3_client(not_found=True)
@@ -93,9 +91,7 @@ class TestAWSSecretsClient:
         aws = AWSSecretsClient(region="us-east-1")
         with self._patch_boto3(mock_client):
             await aws.set_secret("NEW_KEY", "newvalue")
-        mock_client.create_secret.assert_called_once_with(
-            Name="NEW_KEY", SecretString="newvalue"
-        )
+        mock_client.create_secret.assert_called_once_with(Name="NEW_KEY", SecretString="newvalue")
 
     async def test_delete_secret_calls_delete(self):
         mock_client = _make_boto3_client()

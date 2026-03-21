@@ -1,4 +1,3 @@
-from __future__ import annotations
 """graphclaw.gateway.rate_limiter — Token-bucket rate limiting middleware.
 
 Description
@@ -41,13 +40,18 @@ If decoding fails for any reason, the request falls back to IP-based limits.
 License: Apache 2.0
 """
 
-import time
-from typing import Callable
+from __future__ import annotations
 
+import logging
+import time
+from collections.abc import Callable
+
+import redis.asyncio as aioredis
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
-import redis.asyncio as aioredis
+
+_log = logging.getLogger(__name__)
 
 
 class RateLimitExceeded(Exception):
@@ -89,22 +93,28 @@ class RateLimiter:
             ``(allowed, remaining)`` — whether the request is allowed and how
             many requests remain in the current window.
         """
-        client = await self._get_client()
-        now = time.time()
-        window_start = now - window_seconds
-        redis_key = f"ratelimit:{key}"
+        try:
+            client = await self._get_client()
+            now = time.time()
+            window_start = now - window_seconds
+            redis_key = f"ratelimit:{key}"
 
-        pipe = client.pipeline()
-        pipe.zremrangebyscore(redis_key, 0, window_start)
-        pipe.zadd(redis_key, {str(now): now})
-        pipe.zcard(redis_key)
-        pipe.expire(redis_key, window_seconds + 1)
-        results = await pipe.execute()
+            pipe = client.pipeline()
+            pipe.zremrangebyscore(redis_key, 0, window_start)
+            pipe.zadd(redis_key, {str(now): now})
+            pipe.zcard(redis_key)
+            pipe.expire(redis_key, window_seconds + 1)
+            results = await pipe.execute()
 
-        count = results[2]
-        allowed = count <= limit
-        remaining = max(0, limit - count)
-        return allowed, remaining
+            count = results[2]
+            allowed = count <= limit
+            remaining = max(0, limit - count)
+            return allowed, remaining
+        except Exception:  # noqa: BLE001
+            # Fail-open: if Redis is unavailable, allow the request rather than
+            # blocking all traffic.  A warning is logged for observability.
+            _log.warning("rate_limiter: Redis unavailable, failing open for key=%s", key)
+            return True, limit
 
     async def close(self) -> None:
         """Close the underlying Redis connection."""
@@ -116,10 +126,10 @@ class RateLimiter:
 # ── Rate limits config ────────────────────────────────────────────────────────
 
 RATE_LIMITS: dict[str, tuple[int, int]] = {
-    "unauthenticated": (30, 60),    # 30 req / 60s per IP
-    "authenticated":   (300, 60),   # 300 req / 60s per user
-    "a2a":             (60, 60),    # 60 req / 60s per agent key
-    "webhook":         (120, 60),   # 120 req / 60s per IP
+    "unauthenticated": (30, 60),  # 30 req / 60s per IP
+    "authenticated": (300, 60),  # 300 req / 60s per user
+    "a2a": (60, 60),  # 60 req / 60s per agent key
+    "webhook": (120, 60),  # 120 req / 60s per IP
 }
 
 

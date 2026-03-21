@@ -31,12 +31,13 @@ Dependencies
 - graphclaw.models.scoring: ActionQueueEntry.
 - graphclaw.agent.briefing: format_briefing (imported lazily to avoid circular imports).
 """
+
 from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING
 
-from graphclaw.models.nodes import GoalNode, ResourceNode, TaskNode
+from graphclaw.models.nodes import TaskNode
 from graphclaw.models.scoring import ActionQueueEntry
 from graphclaw.scoring.engine import ScoringContext, ScoringEngine
 
@@ -192,9 +193,7 @@ class AgentLoop:
 
             # --- Blocker type ---
             try:
-                blocker_edges = await self._repo.get_edges(
-                    tid, direction="out", edge_type="BLOCKS"
-                )
+                blocker_edges = await self._repo.get_edges(tid, direction="out", edge_type="BLOCKS")
                 if blocker_edges:
                     strength = blocker_edges[0].get("strength", "HARD")
                     task_blocker_type[tid] = str(strength).upper()
@@ -231,9 +230,7 @@ class AgentLoop:
                             if isinstance(risk_block, dict):
                                 level_map = {"LOW": 0.0, "MEDIUM": 0.5, "HIGH": 1.0}
                                 levels = [
-                                    level_map.get(
-                                        str(risk_block.get(k, "LOW")).upper(), 0.0
-                                    )
+                                    level_map.get(str(risk_block.get(k, "LOW")).upper(), 0.0)
                                     for k in (
                                         "capacity_risk",
                                         "delivery_risk",
@@ -244,15 +241,11 @@ class AgentLoop:
                             else:
                                 task_resource_risk_signals[tid] = 0.0
             except Exception as exc:
-                logger.debug(
-                    "build_scoring_context: resource lookup failed for %s: %s", tid, exc
-                )
+                logger.debug("build_scoring_context: resource lookup failed for %s: %s", tid, exc)
 
             # --- Constraints ---
             try:
-                con_edges = await self._repo.get_edges(
-                    tid, direction="in", edge_type="APPLIES_TO"
-                )
+                con_edges = await self._repo.get_edges(tid, direction="in", edge_type="APPLIES_TO")
                 constraints: list[dict] = []
                 for edge in con_edges:
                     con_id = edge.get("_start_id")
@@ -262,17 +255,23 @@ class AgentLoop:
                             rule = con_props.get("rule", {})
                             constraints.append(
                                 {
-                                    "threshold": rule.get("threshold") if isinstance(rule, dict) else None,
-                                    "current_value": rule.get("current_value") if isinstance(rule, dict) else None,
-                                    "pressure_score": rule.get("pressure_score", 0.0) if isinstance(rule, dict) else 0.0,
-                                    "hard_limit": rule.get("hard_limit", False) if isinstance(rule, dict) else False,
+                                    "threshold": rule.get("threshold")
+                                    if isinstance(rule, dict)
+                                    else None,
+                                    "current_value": rule.get("current_value")
+                                    if isinstance(rule, dict)
+                                    else None,
+                                    "pressure_score": rule.get("pressure_score", 0.0)
+                                    if isinstance(rule, dict)
+                                    else 0.0,
+                                    "hard_limit": rule.get("hard_limit", False)
+                                    if isinstance(rule, dict)
+                                    else False,
                                 }
                             )
                 task_constraints[tid] = constraints
             except Exception as exc:
-                logger.debug(
-                    "build_scoring_context: constraint lookup failed for %s: %s", tid, exc
-                )
+                logger.debug("build_scoring_context: constraint lookup failed for %s: %s", tid, exc)
                 task_constraints[tid] = []
 
         return ScoringContext(
@@ -287,9 +286,7 @@ class AgentLoop:
             graph_repo=self._repo,
         )
 
-    async def generate_briefing(
-        self, queue: list[ActionQueueEntry], top_n: int = 5
-    ) -> str:
+    async def generate_briefing(self, queue: list[ActionQueueEntry], top_n: int = 5) -> str:
         """Generate a human-readable briefing from the action queue.
 
         Delegates to ``graphclaw.agent.briefing.format_briefing``.

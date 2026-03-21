@@ -18,6 +18,7 @@ Dependencies
 - pytest, pytest-asyncio: Test runner with async support.
 - graphclaw.infra.secrets: EnvFileSecretsClient under test.
 """
+
 from __future__ import annotations
 
 import os
@@ -25,7 +26,6 @@ import os
 import pytest
 
 from graphclaw.infra.secrets import EnvFileSecretsClient, SecretsClient
-
 
 # ---------------------------------------------------------------------------
 # test_get_secret_from_env

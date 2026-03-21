@@ -28,6 +28,7 @@ Dependencies
 - graphclaw.gateway.schemas: OutboundMessage.
 - graphclaw.infra.broker: MessageBroker.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -118,7 +119,7 @@ class WhatsAppChannelAdapter(ChannelAdapter):
             payload_bytes,
             hashlib.sha256,
         ).hexdigest()
-        received = signature_header[len("sha256="):]
+        received = signature_header[len("sha256=") :]
         return hmac.compare_digest(expected, received)
 
     async def handle_webhook(self, payload: dict[str, Any]) -> int:

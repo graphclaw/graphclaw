@@ -36,17 +36,15 @@ Dependencies
 - inspect: Method introspection (stdlib).
 - tests.load.locustfile: Module under test.
 """
+
 from __future__ import annotations
 
 import inspect
 
-
 # ---------------------------------------------------------------------------
 # Import the module under test
 # ---------------------------------------------------------------------------
-
 from tests.load.locustfile import THRESHOLDS, GatewayUser, HeavyUser
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -110,8 +108,7 @@ def test_gateway_user_tasks() -> None:
     """GatewayUser must define at least 5 @task-decorated methods."""
     tasks = _task_methods(GatewayUser)
     assert len(tasks) >= 5, (
-        f"GatewayUser has only {len(tasks)} @task method(s); expected >= 5. "
-        f"Found: {tasks}"
+        f"GatewayUser has only {len(tasks)} @task method(s); expected >= 5. Found: {tasks}"
     )
 
 
@@ -124,8 +121,7 @@ def test_heavy_user_tasks() -> None:
     """HeavyUser must define at least 3 @task-decorated methods."""
     tasks = _task_methods(HeavyUser)
     assert len(tasks) >= 3, (
-        f"HeavyUser has only {len(tasks)} @task method(s); expected >= 3. "
-        f"Found: {tasks}"
+        f"HeavyUser has only {len(tasks)} @task method(s); expected >= 3. Found: {tasks}"
     )
 
 

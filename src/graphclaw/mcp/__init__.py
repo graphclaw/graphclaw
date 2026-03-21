@@ -20,14 +20,8 @@ Re-exports all user-facing symbols from sub-modules so callers can import from
 
 from __future__ import annotations
 
-# Value objects
-from graphclaw.mcp.models import (
-    MCPServerListing,
-    MCPServerVersion,
-    MCPTool,
-    MCPToolCall,
-    MCPToolResult,
-)
+# Adapters
+from graphclaw.mcp.adapters.base import MCPAdapterABC
 
 # Services
 from graphclaw.mcp.approval import GatedApprovalService
@@ -37,11 +31,17 @@ from graphclaw.mcp.client import (
     MCPClient,
     MCPToolBlockedError,
 )
+
+# Value objects
+from graphclaw.mcp.models import (
+    MCPServerListing,
+    MCPServerVersion,
+    MCPTool,
+    MCPToolCall,
+    MCPToolResult,
+)
 from graphclaw.mcp.official_registry import OfficialMCPRegistry
 from graphclaw.mcp.registry import MCPRegistry
-
-# Adapters
-from graphclaw.mcp.adapters.base import MCPAdapterABC
 
 # Domain models (imported from canonical locations; re-exported for convenience)
 from graphclaw.models.enums import MCPTransport, TrustTier

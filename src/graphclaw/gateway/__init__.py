@@ -45,6 +45,7 @@ Notes
 The gateway depends on ``graphclaw.infra.broker`` for the ``MessageBroker``
 interface and queue name constants.
 """
+
 from __future__ import annotations
 
 from graphclaw.gateway.app import create_app

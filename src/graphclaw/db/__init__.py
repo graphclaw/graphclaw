@@ -32,12 +32,13 @@ Notes
 -----
 None.
 """
+
 from __future__ import annotations
 
-from graphclaw.db.base import GraphStore, GraphQueryEngine
-from graphclaw.db.factory import create_graph_store, create_query_engine
 from graphclaw.db._compat import GraphRepository
 from graphclaw.db.age.connection import create_pool, get_connection
+from graphclaw.db.base import GraphQueryEngine, GraphStore
+from graphclaw.db.factory import create_graph_store, create_query_engine
 
 __all__ = [
     "GraphStore",

@@ -31,13 +31,13 @@ Dependencies
 - graphclaw.infra.storage: StorageClient ABC.
 - httpx: Async HTTP client for media downloads.
 """
+
 from __future__ import annotations
 
 import logging
 import mimetypes
-import os
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -110,26 +110,18 @@ class AttachmentHandler:
             return None
 
         try:
-            import httpx  # noqa: PLC0415
+            import httpx  # noqa: PLC0415,F401
         except ImportError:
-            logger.warning(
-                "AttachmentHandler: httpx not installed, cannot download attachments"
-            )
+            logger.warning("AttachmentHandler: httpx not installed, cannot download attachments")
             return None
 
         try:
             if channel == "whatsapp":
-                data, content_type = await self._download_whatsapp(
-                    attachment, channel_config
-                )
+                data, content_type = await self._download_whatsapp(attachment, channel_config)
             elif channel == "telegram":
-                data, content_type = await self._download_telegram(
-                    attachment, channel_config
-                )
+                data, content_type = await self._download_telegram(attachment, channel_config)
             else:
-                logger.warning(
-                    "AttachmentHandler: unsupported channel %r for attachments", channel
-                )
+                logger.warning("AttachmentHandler: unsupported channel %r for attachments", channel)
                 return None
 
             if data is None:
@@ -161,7 +153,7 @@ class AttachmentHandler:
 
         Returns ``(bytes, content_type)`` on success or ``(None, "")`` on failure.
         """
-        import httpx  # noqa: PLC0415
+        import httpx  # noqa: PLC0415,F401
 
         media_id = attachment.get("media_id", "")
         if not media_id:
@@ -188,7 +180,9 @@ class AttachmentHandler:
 
             meta = meta_resp.json()
             download_url = meta.get("url", "")
-            content_type = meta.get("mime_type", attachment.get("mime_type", "application/octet-stream"))
+            content_type = meta.get(
+                "mime_type", attachment.get("mime_type", "application/octet-stream")
+            )
 
             if not download_url:
                 return None, ""
@@ -213,7 +207,7 @@ class AttachmentHandler:
 
         Returns ``(bytes, content_type)`` on success or ``(None, "")`` on failure.
         """
-        import httpx  # noqa: PLC0415
+        import httpx  # noqa: PLC0415,F401
 
         file_id = attachment.get("file_id", "")
         if not file_id:
@@ -269,11 +263,10 @@ class AttachmentHandler:
 
         Format: ``attachments/{channel}/{YYYY-MM-DD}/{msg_id}/{unique}_{filename}``
         """
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
         msg_id = attachment.get("msg_id", "unknown").replace("/", "_")
-        filename = (
-            attachment.get("filename", "")
-            or _filename_from_type(attachment.get("type", "file"), content_type)
+        filename = attachment.get("filename", "") or _filename_from_type(
+            attachment.get("type", "file"), content_type
         )
         unique = uuid.uuid4().hex[:8]
         return f"{_ATTACHMENTS_PREFIX}/{channel}/{today}/{msg_id}/{unique}_{filename}"

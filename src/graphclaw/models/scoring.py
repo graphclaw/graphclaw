@@ -29,12 +29,10 @@ Dependencies
 """
 
 from datetime import datetime
-from typing import Optional
 
 from pydantic import BaseModel
 
 from graphclaw.models.enums import AutonomyLevel
-
 
 # ---------------------------------------------------------------------------
 # ScoreFactor
@@ -88,7 +86,7 @@ class ScoreExplanation(BaseModel):
     #           priority goal, the deadline is in 3 days, and the assigned
     #           resource has signaled low bandwidth this week."
 
-    topology_note: Optional[str] = None
+    topology_note: str | None = None
     # Example: "This is the first actionable node in a sequential chain of
     #           4 tasks. Moving this forward unblocks the entire chain."
 

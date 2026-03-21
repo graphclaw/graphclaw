@@ -49,9 +49,10 @@ the interval by 20 %.  A recency_bonus > 1.0 is permitted but unusual.
 ``FollowUpCalculator`` intervals are in hours (not days) and clamped to
 [MIN_INTERVAL_HOURS, MAX_INTERVAL_HOURS].
 """
+
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from graphclaw.models.base import utcnow
 from graphclaw.models.enums import ConfidenceLevel
@@ -93,7 +94,7 @@ def compute_followup_timing(
     )
 
 
-def compute_next_followup(config: FollowupConfig) -> "datetime":
+def compute_next_followup(config: FollowupConfig) -> datetime:
     """Return the next follow-up datetime derived from a FollowupConfig.
 
     Calls ``compute_followup_timing`` with the config's parameters and adds the
