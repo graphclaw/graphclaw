@@ -56,7 +56,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: apache/age:v1.5.0-pg16
+        image: apache/age:latest
         env:
           POSTGRES_USER: graphclaw
           POSTGRES_PASSWORD: graphclaw
@@ -109,6 +109,6 @@ jobs:
       - name: Install bandit
         run: pip install bandit
       - name: Run bandit security scan
-        # Exclude migrations (generated SQL) and AGE query builders (Cypher f-strings
+        # Exclude migrations (generated SQL) and all AGE helpers (Cypher f-strings
         # are flagged as B608 but graph_name is an internal constant, not user input)
-        run: bandit -r src/ -ll -x src/graphclaw/migrations/,src/graphclaw/db/age/queries/ --quiet
+        run: bandit -r src/ -ll -x src/graphclaw/migrations/,src/graphclaw/db/age/ --quiet

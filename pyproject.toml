@@ -96,7 +96,14 @@ packages = ["src/graphclaw"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["graphclaw"]
 
 [tool.mypy]
 python_version = "3.10"

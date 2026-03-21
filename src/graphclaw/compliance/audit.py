@@ -168,7 +168,7 @@ class AuditLogger:
         # Build the set of YYYY-MM month prefixes to scan.
         months: set[str] = set()
         cursor = start.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        while cursor <= end:
+        while cursor < end:
             months.add(cursor.strftime("%Y-%m"))
             # Advance by one month
             if cursor.month == 12:
