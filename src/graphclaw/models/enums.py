@@ -93,6 +93,7 @@ class EdgeType(str, Enum):
     BELONGS_TO_ORG = "BELONGS_TO_ORG"  # WorkspaceNode → OrganizationNode
     SCOPED_TO_WS = "SCOPED_TO_WS"   # TaskNode / GoalNode → WorkspaceNode
     GRANTS_ACCESS_TO = "GRANTS_ACCESS_TO"  # VisibilityGrantNode → target node
+    GRANTS_ACCESS_TO_MCP = "GRANTS_ACCESS_TO_MCP"  # UserNode → MCPServerNode
 
 
 class GateType(str, Enum):
@@ -249,3 +250,32 @@ class VisibilityScope(str, Enum):
     VIEWER = "VIEWER"    # read-only
     EDITOR = "EDITOR"    # can update node properties and state
     OWNER = "OWNER"      # full control including revoking grants
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 — MCP Server Integration
+# ---------------------------------------------------------------------------
+
+
+class TrustTier(str, Enum):
+    """Trust tier for a registered MCP server.
+
+    AUTO    — tools from this server are called without user confirmation.
+              Suitable for read-only tools the user has explicitly trusted.
+    GATED   — the orchestrating agent proposes the tool call and waits for
+              user approval before executing. Suitable for write operations.
+    BLOCKED — server is registered but all tool calls are rejected. Used to
+              temporarily suspend a server without removing its configuration.
+    """
+
+    AUTO = "AUTO"
+    GATED = "GATED"
+    BLOCKED = "BLOCKED"
+
+
+class MCPTransport(str, Enum):
+    """Transport protocol for a registered MCP server."""
+
+    STDIO = "stdio"
+    SSE = "sse"
+    HTTP = "http"

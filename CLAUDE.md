@@ -60,4 +60,4 @@ To add a new backend: implement the ABC, drop it in the subfolder, register in t
 - Section 33: 58 Design Principles (14 new in v1.1: security, observability, deployment)
 
 ## Current Phase
-Phase 1 complete. Phase 2 (Multi-Channel + Organizations) is next. See `build-plan.md`.
+Phase 3 complete. Phase 4 (Agent Interop, MCP, Connectors & Skill Registry) is in progress. See `build-plan.md`.

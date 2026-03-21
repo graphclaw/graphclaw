@@ -4,7 +4,8 @@ Description
 -----------
 Aggregates the public API for the skill execution subsystem: SKILL.md parsing,
 async worker pool management, LLM provider routing via LiteLLM, heartbeat
-monitoring, and all domain models for skill jobs, results, and worker state.
+monitoring, all domain models for skill jobs, results, and worker state, and
+the Skill Registry v2 for remote/local skill discovery and installation.
 
 Design Patterns
 ---------------
@@ -27,6 +28,13 @@ Public API
 - SkillWorker: A single async worker that processes SkillJobs.
 - WorkerPool: Manages a pool of SkillWorkers with heartbeat-aware dispatch.
 - HeartbeatMonitor: Monitors worker heartbeats and respawns dead workers.
+- SkillRegistryService: Discovers, installs, and manages skills from
+  LOCAL/GITHUB/WEBSITE sources.
+- SkillSource: Configuration for a registered skill source.
+- SkillSourceType: Enum of supported skill source kinds.
+- SkillListing: An available skill discovered from a source index.
+- InstalledSkill: Record of an installed skill with usage metrics.
+- MarketplaceJson: Parsed marketplace.json payload from a remote source.
 
 Dependencies
 ------------
@@ -35,12 +43,15 @@ Dependencies
 - graphclaw.skills.llm_router: LLMRouter.
 - graphclaw.skills.worker: SkillWorker, WorkerPool.
 - graphclaw.skills.heartbeat: HeartbeatMonitor.
+- graphclaw.skills.registry: SkillRegistryService.
+- graphclaw.skills.registry_models: Registry domain dataclasses.
 
 Notes
 -----
 Import order is intentional: models first (no internal deps), then parser and
 llm_router (depend only on models), then worker (depends on models + router),
-then heartbeat (depends on worker).
+then heartbeat (depends on worker), then registry (depends on storage and
+parser).
 """
 from __future__ import annotations
 
@@ -56,6 +67,14 @@ from graphclaw.skills.models import (
     WorkerStatus,
 )
 from graphclaw.skills.parser import SkillParser
+from graphclaw.skills.registry import SkillRegistryService
+from graphclaw.skills.registry_models import (
+    InstalledSkill,
+    MarketplaceJson,
+    SkillListing,
+    SkillSource,
+    SkillSourceType,
+)
 from graphclaw.skills.worker import SkillWorker, WorkerPool
 
 __all__ = [
@@ -77,4 +96,11 @@ __all__ = [
     "WorkerPool",
     # Heartbeat
     "HeartbeatMonitor",
+    # Registry v2
+    "SkillRegistryService",
+    "SkillSource",
+    "SkillSourceType",
+    "SkillListing",
+    "InstalledSkill",
+    "MarketplaceJson",
 ]

@@ -26,6 +26,7 @@ Public API
 - EDGE_ID_PATTERN: Compiled regex for edge ID validation.
 - CHECKIN_NODE_ID_PATTERN: Compiled regex for check-in node ID validation.
 - GRANT_ID_PATTERN: Compiled regex for visibility grant ID validation.
+- MCP_SERVER_ID_PATTERN: Compiled regex for MCP server ID validation.
 - generate_id: Generic ``{PREFIX}-{uuid}`` ID generator.
 - generate_task_id: Generate a task ID in TSK-{INITIALS}-{SEQ}-{TYPE} format.
 - generate_user_id: Generate a USER-{uuid} ID.
@@ -37,10 +38,12 @@ Public API
 - generate_org_id: Generate an ORG-{uuid} ID.
 - generate_workspace_id: Generate a WS-{uuid} ID.
 - generate_grant_id: Generate a GRANT-{uuid} ID.
+- generate_mcp_server_id: Generate an MCP-{short_uuid} ID.
 - utcnow: Return the current UTC datetime (timezone-aware).
 - validate_id: Generic ID validator (pattern + entity name).
 - validate_task_id / validate_*_id: Thin wrappers around validate_id for Pydantic field_validator use.
 - validate_grant_id: Thin wrapper for visibility grant ID validation.
+- validate_mcp_server_id: Thin wrapper for MCP server ID validation.
 
 Dependencies
 ------------
@@ -74,6 +77,7 @@ CHECKIN_NODE_ID_PATTERN = re.compile(r"^CHK-[\w-]+$")
 ORG_ID_PATTERN = re.compile(r"^ORG-[\w-]+$")
 WORKSPACE_ID_PATTERN = re.compile(r"^WS-[\w-]+$")
 GRANT_ID_PATTERN = re.compile(r"^GRANT-[\w-]+$")
+MCP_SERVER_ID_PATTERN = re.compile(r"^MCP-[\w-]+$")
 
 # ---------------------------------------------------------------------------
 # Task type → type-code mapping
@@ -185,6 +189,15 @@ def generate_grant_id() -> str:
     return generate_id("GRANT")
 
 
+def generate_mcp_server_id() -> str:
+    """Generate an MCP server ID in the form MCP-{short_uuid}.
+
+    Returns:
+        A string matching MCP_SERVER_ID_PATTERN, e.g. ``MCP-A1B2C3D4``.
+    """
+    return f"MCP-{_short_uuid()}"
+
+
 def utcnow() -> datetime:
     """Return the current UTC datetime (timezone-aware)."""
     return datetime.now(timezone.utc)
@@ -258,6 +271,12 @@ def validate_workspace_id(v: str) -> str:
 def validate_grant_id(v: str) -> str:
     if not GRANT_ID_PATTERN.match(v):
         raise ValueError(f"Invalid grant ID format: {v!r} (expected GRANT-...)")
+    return v
+
+
+def validate_mcp_server_id(v: str) -> str:
+    if not MCP_SERVER_ID_PATTERN.match(v):
+        raise ValueError(f"Invalid MCP server ID format: {v!r} (expected MCP-...)")
     return v
 
 

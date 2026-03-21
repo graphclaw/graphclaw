@@ -59,6 +59,12 @@ SELECT create_vlabel('graphclaw', 'VisibilityGrantNode');
 -- Phase 3: Visibility grant edge
 SELECT create_elabel('graphclaw', 'GRANTS_ACCESS_TO');
 
+-- Phase 4: MCP Server node
+SELECT create_vlabel('graphclaw', 'MCPServerNode');
+
+-- Phase 4: MCP access edge
+SELECT create_elabel('graphclaw', 'GRANTS_ACCESS_TO_MCP');
+
 -- Embedding storage -----------------------------------------------------------
 -- Stores pre-computed text-embedding-3-small (1536-d) vectors for graph nodes.
 -- node_id mirrors the AGE vertex id cast to TEXT.

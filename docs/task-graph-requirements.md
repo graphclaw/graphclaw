@@ -1539,6 +1539,8 @@ OrchestratingAgentChannelIdentity {
 
 ### 15.3 One-Time Onboarding — Settings Panel
 
+> **Note:** The settings panel UI is part of the separate Web UI project (`docs/ui-requirements.md`). The GraphClaw backend exposes `/app/v1/` REST API endpoints that the UI consumes.
+
 Channel authentication is configured once during onboarding. The user never touches authentication internals — the platform handles all credential management.
 
 ```
@@ -8725,6 +8727,8 @@ Row 5: User Activity
 ---
 
 ## 34. Architecture: MCP Server Integration
+
+> **Note:** The Web UI components for MCP server management (search, install, trust tier configuration) are documented in `docs/ui-requirements.md` as part of the separate UI project.
 
 The orchestrating agent gains the ability to interact with external services — calendars, code repositories, project management tools, communication platforms — through the **Model Context Protocol (MCP)**. MCP is an open standard that defines how AI models discover and call tools exposed by external servers. GraphClaw acts as an MCP client; external services act as MCP servers.
 

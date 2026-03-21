@@ -31,6 +31,7 @@ Public API
 - OrganizationNode: Multi-user organization workspace boundary.
 - WorkspaceNode: Scoped collection of tasks and goals within an org.
 - VisibilityGrantNode: Fine-grained access grant for a specific node and user.
+- MCPServerNode: Registered MCP server for a user, storing transport config and trust tier.
 - Timeline, ScoringBlock, StateHistoryEntry, ProgressBlock, OverrideBlock,
   AutonomyBlock, UpdateLogEntry, EmbeddingInputs: TaskNode sub-models.
 - ScoringWeights, AutonomyDefaults, UserPreferences, BehavioralModel,
@@ -53,6 +54,7 @@ from pydantic import BaseModel, Field, field_validator
 from graphclaw.models.base import (
     CONSTRAINT_ID_PATTERN,
     GOAL_ID_PATTERN,
+    MCP_SERVER_ID_PATTERN,
     ORG_ID_PATTERN,
     RESOURCE_ID_PATTERN,
     TASK_ID_PATTERN,
@@ -73,6 +75,7 @@ from graphclaw.models.enums import (
     GoalPriority,
     GoalState,
     MatchedBy,
+    MCPTransport,
     MembershipStatus,
     OrgRole,
     OverrideType,
@@ -80,6 +83,7 @@ from graphclaw.models.enums import (
     RiskLevel,
     TaskState,
     TaskType,
+    TrustTier,
     VisibilityScope,
     WorkspaceVisibility,
 )
@@ -581,6 +585,52 @@ class VisibilityGrantNode(BaseNode):
         return validate_grant_id(v)
 
 
+# ---------------------------------------------------------------------------
+# MCPServerNode  (Phase 4 — MCP Server Integration)
+# ---------------------------------------------------------------------------
+
+
+class MCPServerNode(BaseNode):
+    """Registered MCP server for a user. Stores transport config and trust settings.
+
+    Each user maintains a personal MCP Registry — a list of registered MCP
+    servers persisted to the graph DB as MCPServerNode vertices.  The trust
+    tier governs whether tool calls are executed automatically (AUTO), require
+    user approval (GATED), or are rejected entirely (BLOCKED).
+    """
+
+    node_type: str = Field(default="MCPServerNode", frozen=True)
+    name: str = Field(..., description="Human-readable name, e.g. 'Google Calendar'")
+    transport: MCPTransport = Field(default=MCPTransport.HTTP)
+    endpoint_url: str | None = Field(
+        default=None, description="URL for sse/http transports"
+    )
+    command: str | None = Field(
+        default=None, description="Command for stdio transport"
+    )
+    trust_tier: TrustTier = Field(default=TrustTier.GATED)
+    scope: list[str] = Field(
+        default_factory=list, description="Declared capability scopes"
+    )
+    secret_ref: str | None = Field(
+        default=None, description="Secrets Manager key ID for auth"
+    )
+    enabled: bool = Field(default=True)
+    registered_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
+    last_used_at: datetime | None = Field(default=None)
+
+    @field_validator("id")
+    @classmethod
+    def validate_id(cls, v: str) -> str:
+        if not MCP_SERVER_ID_PATTERN.match(v):
+            raise ValueError(
+                f"Invalid MCP server ID '{v}'. Expected MCP-<identifier>"
+            )
+        return v
+
+
 __all__ = [
     # Sub-models
     "Timeline",
@@ -620,4 +670,6 @@ __all__ = [
     # Phase 3
     "VisibilityGrantNode",
     "VisibilityScope",
+    # Phase 4
+    "MCPServerNode",
 ]

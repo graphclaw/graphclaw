@@ -44,6 +44,16 @@ openai = [
     "openai>=1.54.0",
     "tiktoken>=0.8.0",
 ]
+# Phase 4: Connectors + MCP
+connectors = [
+    "google-auth>=2.28.0",
+    "google-api-python-client>=2.120.0",
+    "jira>=3.8.0",
+    "asana>=5.0.0",
+    "notion-client>=2.2.1",
+    # Phase 4: MCP
+    "mcp>=1.0.0",
+]
 dev = [
     "pytest>=8.3.0",
     "pytest-asyncio>=0.24.0",
@@ -53,6 +63,7 @@ dev = [
 ]
 all = [
     "graphclaw[openai]",
+    "graphclaw[connectors]",
 ]
 
 [project.urls]

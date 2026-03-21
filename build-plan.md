@@ -148,31 +148,41 @@
 
 ---
 
-### Phase 4 — Visual Interface + Agent Interop + Advanced Skills (Weeks 29-36)
+### Phase 4 — Agent Interop, MCP Integration, Connectors & Skill Registry (Weeks 29-36)
 
-**Goal:** Web-based graph visualization, A2A protocol, MCP server integration, expanded skill library, calendar integration.
+> **Note:** Web UI is a separate project — see `docs/ui-requirements.md`
+
+**Goal:** A2A protocol, MCP server integration, calendar and import connectors, expanded skill registry, application API layer.
 
 **Scope:**
-- Web UI: graph visualization (Cytoscape.js or react-flow), task management, settings panel
-- Visual graph explorer with zoom/filter by goal, status, assignee
-- Skill agent marketplace / registry
-- Calendar integration (Google Calendar, Outlook) for scheduling awareness
-- Bulk import from Jira, Asana, Notion (via their APIs)
-- Advanced briefing styles (concise vs. detailed)
-- Explainability dashboard (score breakdowns, decision audit trail)
-- **A2A REST API for external agents** (Section 30.9) — per-agent API keys (hashed), key lifecycle (register/rotate/revoke), A2A updates feed standard SQS inbound pipeline, rate limiting per key, 512 KB request cap
-- **MCP Server Integration** (Section 34) — orchestrating agent as MCP client; pre-built MCP server adapters for calendar, GitHub, Jira, Slack, Notion; user-configured MCP registry stored in settings panel; tool approval model (auto-approve trusted / human-in-the-loop for new); MCP tool secrets managed via Secrets Manager; skill agents can expose and consume MCP tools; sandboxed execution — MCP calls run in read-only mode by default, write operations require explicit user grant
+- A2A REST API for external agents (Section 30.9) — per-agent API keys (`wg_agent_` prefix, SHA-256 hash), key lifecycle (register/rotate/revoke), POST /api/v1/task-update feeds standard inbound pipeline, rate limiting per key, 512 KB request cap
+- CalendarConnector + ImportConnector ABCs with Google Calendar, Outlook, Jira, Asana, and Notion adapters
+- Skill Registry v2 — remote GitHub repo + website (marketplace.json) sources, install/uninstall/search, version pinning
+- MCP Server Registry + Client Runtime (Section 34) — MCPServerNode CRUD, official registry.modelcontextprotocol.io search, trust tier enforcement (AUTO/GATED/BLOCKED)
+- Pre-built MCP adapters: Google Calendar, GitHub, Slack (SSE/HTTP transports)
+- GATED approval workflow — GATED MCP calls create APPROVAL task, agent notifies via channel, resolves on user reply
+- Application API layer — /app/v1/ router merged into gateway container (settings, approvals, skill registry, MCP registry, A2A keys)
 
 **Key deliverables:**
-1. React web application with graph visualization
-2. REST/GraphQL API server
-3. Calendar sync service
-4. Import adapters for 3 external systems (Jira, Asana, Notion)
-5. Skill registry with versioning
-6. A2A API with key lifecycle (moved from Phase 3)
-7. MCP server registry + orchestrating agent MCP client runtime (Section 34)
-8. Pre-built MCP adapters: Google Calendar, GitHub, Slack
-9. MCP tool approval workflow (trusted / gated / blocked tiers)
+1. A2A REST API — per-agent API keys (`wg_agent_` prefix, SHA-256 hash), key lifecycle (register/rotate/revoke), POST /api/v1/task-update feeds standard inbound pipeline
+2. Connectors ABC framework — CalendarConnector + ImportConnector ABCs, Google Calendar + Outlook adapters, Jira + Asana + Notion import adapters
+3. Skill Registry v2 — remote GitHub repo + website (marketplace.json) sources, install/uninstall/search, version pinning
+4. MCP Server Registry + Client Runtime — MCPServerNode CRUD, official registry.modelcontextprotocol.io search, trust tier enforcement (AUTO/GATED/BLOCKED)
+5. Pre-built MCP adapters — Google Calendar, GitHub, Slack (SSE/HTTP transports)
+6. GATED approval workflow — GATED MCP calls create APPROVAL task, agent notifies via channel, resolves on user reply
+7. Application API layer — /app/v1/ router merged into gateway container (settings, approvals, skill registry, MCP registry, A2A keys)
+
+**Workstreams:**
+
+| ID | Workstream |
+|----|-----------|
+| WS-P4-A | A2A REST API |
+| WS-P4-B | Connectors ABC + Calendar + Import adapters |
+| WS-P4-C | Skill Registry v2 |
+| WS-P4-D | MCP Server Registry + Client Runtime |
+| WS-P4-E | Pre-built MCP Adapters + GATED approval workflow |
+| WS-P4-F | Application API layer (/app/v1/ router) |
+| WS-P4-G | Phase 4 test suite |
 
 **Dependencies:** Phase 3 APIs stable
 

@@ -146,6 +146,17 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
                 "name": "auth",
                 "description": "OAuth 2.0 + Platform JWT authentication (login, callback, refresh, logout, me).",
             },
+            {
+                "name": "a2a",
+                "description": (
+                    "Agent-to-Agent (A2A) REST API — agent key management "
+                    "(register, rotate, revoke, list) and the inbound task-update endpoint."
+                ),
+            },
+            {
+                "name": "app-api",
+                "description": "Application settings and management API",
+            },
         ],
         contact={
             "name": "GraphClaw",
@@ -161,10 +172,16 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
     from graphclaw.gateway.routes.inbound import router as inbound_router
     from graphclaw.gateway.routes.outbound import router as outbound_router
     from graphclaw.auth.routes import router as auth_router
+    from graphclaw.a2a.routes import a2a_router, task_update_router
+    from graphclaw.api.router import app_router
 
     app.include_router(inbound_router, prefix="/api/v1", tags=["inbound"])
     app.include_router(outbound_router, prefix="/api/v1", tags=["outbound"])
     app.include_router(auth_router)
+    # A2A: management endpoints under /api/v1/a2a and inbound task-update at /api/v1/task-update
+    app.include_router(a2a_router)
+    app.include_router(task_update_router)
+    app.include_router(app_router)
 
     # ── Health routes ──────────────────────────────────────────────────────
     # Inline health routes that return the format expected by Docker health
