@@ -112,8 +112,15 @@ def test_all_dockerfiles_exist(dockerfile: str) -> None:
 
 
 def test_ruff_config_exists() -> None:
-    """ruff.toml must exist at the repository root."""
-    assert _repo("ruff.toml").is_file(), "Missing ruff.toml at repository root"
+    """Ruff configuration must exist — either ruff.toml or [tool.ruff] in pyproject.toml."""
+    ruff_toml = _repo("ruff.toml")
+    pyproject = _repo("pyproject.toml")
+    if ruff_toml.is_file():
+        return  # standalone ruff.toml found
+    assert pyproject.is_file(), "Missing both ruff.toml and pyproject.toml"
+    assert "[tool.ruff]" in pyproject.read_text(encoding="utf-8"), (
+        "pyproject.toml exists but contains no [tool.ruff] section"
+    )
 
 
 # ---------------------------------------------------------------------------
