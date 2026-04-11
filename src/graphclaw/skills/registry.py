@@ -48,7 +48,7 @@ Public API
 Dependencies
 ------------
 - dataclasses: asdict for JSON serialisation.
-- datetime: UTC timestamps.
+- datetime: timezone.utc timestamps.
 - hashlib: SHA-256 source URI hashing for cache paths.
 - json: Serialisation / deserialisation for storage.
 - pathlib: Local skill directory scanning.
@@ -67,7 +67,7 @@ import hashlib
 import json
 import pathlib
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -107,7 +107,7 @@ def _source_hash8(uri: str) -> str:
 
 
 def _utcnow() -> datetime:
-    return datetime.now(UTC)
+    return datetime.now(timezone.utc)
 
 
 # ---------------------------------------------------------------------------

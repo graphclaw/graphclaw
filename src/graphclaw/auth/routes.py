@@ -400,6 +400,50 @@ async def logout(
     return {"ok": True}
 
 
+class DevTokenRequest(BaseModel):
+    """Request body for ``POST /auth/dev-token`` (development only)."""
+
+    user_id: str = "USER-dev-001"
+    role: str = "ADMIN"
+
+
+@router.post(
+    "/dev-token",
+    response_model=TokenResponse,
+    summary="Issue a dev JWT (development mode only)",
+    description=(
+        "Issues a real RS256 JWT for the given ``user_id`` without OAuth. "
+        "**Only available when ``ENVIRONMENT=development``.**  "
+        "Returns HTTP 403 in production."
+    ),
+    include_in_schema=os.environ.get("ENVIRONMENT", "development") == "development",
+)
+async def dev_token(
+    body: DevTokenRequest,
+    jwt_service: JWTService = Depends(get_jwt_service),
+) -> dict[str, Any]:
+    """Issue a dev access + refresh token pair without OAuth.
+
+    Only works when ``ENVIRONMENT=development``.
+    """
+    if os.environ.get("ENVIRONMENT", "development") != "development":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Dev token endpoint is disabled in production",
+        )
+    access_token = jwt_service.issue_access_token(body.user_id, role=body.role)
+    refresh_token = jwt_service.issue_refresh_token(body.user_id)
+    logger.info("auth/dev-token: issued token for user_id=%s role=%s", body.user_id, body.role)
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+        "expires_in": 900,
+        "user_id": body.user_id,
+        "role": body.role,
+    }
+
+
 @router.get(
     "/me",
     summary="Get current authenticated user",

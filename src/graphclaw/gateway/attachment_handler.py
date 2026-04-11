@@ -37,7 +37,7 @@ from __future__ import annotations
 import logging
 import mimetypes
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -263,7 +263,7 @@ class AttachmentHandler:
 
         Format: ``attachments/{channel}/{YYYY-MM-DD}/{msg_id}/{unique}_{filename}``
         """
-        today = datetime.now(UTC).strftime("%Y-%m-%d")
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         msg_id = attachment.get("msg_id", "unknown").replace("/", "_")
         filename = attachment.get("filename", "") or _filename_from_type(
             attachment.get("type", "file"), content_type

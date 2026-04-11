@@ -8,7 +8,7 @@ WS-I is responsible for adding httpx to pyproject.toml dev dependencies.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 from unittest.mock import patch
 
@@ -102,7 +102,7 @@ def app_no_broker():
 # Helpers
 # ---------------------------------------------------------------------------
 
-_NOW = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
+_NOW = datetime(2024, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
 
 
 def _sample_inbound_payload() -> dict[str, Any]:

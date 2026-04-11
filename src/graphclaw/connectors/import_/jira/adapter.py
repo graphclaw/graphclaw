@@ -29,7 +29,7 @@ License: Apache 2.0
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from graphclaw.connectors.base import ConnectorConfig
@@ -90,10 +90,10 @@ def _parse_jira_date(date_str: str | None) -> datetime | None:
             date_str = date_str.replace("Z", "+00:00")
             return datetime.fromisoformat(date_str)
         # Date only
-        from datetime import date  # noqa: PLC0415
+        from datetime import date  # noqa: PLC0415, timezone
 
         d = date.fromisoformat(date_str)
-        return datetime(d.year, d.month, d.day, tzinfo=UTC)
+        return datetime(d.year, d.month, d.day, tzinfo=timezone.utc)
     except ValueError:
         return None
 
@@ -272,7 +272,7 @@ class JiraImportConnector(ImportConnector):
             items=items,
             source_system="jira",
             project_id=project_id,
-            fetched_at=datetime.now(tz=UTC),
+            fetched_at=datetime.now(tz=timezone.utc),
             next_cursor=next_cursor,
             has_more=has_more,
         )

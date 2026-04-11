@@ -37,7 +37,7 @@ Dependencies
 - pydantic: BaseModel, Field, Annotated.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field

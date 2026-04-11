@@ -27,7 +27,7 @@ Photo/document/audio messages are extracted by ``extract_telegram_attachments()`
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from graphclaw.gateway.schemas import InboundMessage
@@ -67,7 +67,7 @@ def normalize_telegram(update: dict[str, Any]) -> list[InboundMessage]:
         sender_name = _sender_display(from_obj)
 
         ts = int(msg.get("date", 0))
-        received_at = datetime.fromtimestamp(ts, tz=UTC) if ts else datetime.now(UTC)
+        received_at = datetime.fromtimestamp(ts, tz=timezone.utc) if ts else datetime.now(timezone.utc)
 
         chat_id = str(msg.get("chat", {}).get("id", sender_id))
         msg_id = f"tg-{update.get('update_id', uuid.uuid4().hex)}"

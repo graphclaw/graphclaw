@@ -18,7 +18,7 @@ Dependencies
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -41,7 +41,7 @@ def make_server_node(
     transport: MCPTransport = MCPTransport.HTTP,
     endpoint_url: str = "https://example.com/mcp",
 ) -> MCPServerNode:
-    now = datetime(2026, 1, 1, tzinfo=UTC)
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
     return MCPServerNode(
         id="MCP-AAAABBBB",
         name="Test Server",

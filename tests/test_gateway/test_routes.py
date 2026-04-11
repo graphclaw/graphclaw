@@ -8,7 +8,7 @@ real Redis connection is required.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import pytest
@@ -86,7 +86,7 @@ def _make_test_app(mock_broker: MockBroker | None = None) -> FastAPI:
     return app
 
 
-_NOW = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
+_NOW = datetime(2024, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
 
 
 def _sample_inbound() -> dict[str, Any]:

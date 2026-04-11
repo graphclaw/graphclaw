@@ -166,7 +166,7 @@ class SkillWorker:
                 cost_usd=response.get("cost_usd", 0.0),
             )
 
-        except TimeoutError:
+        except (TimeoutError, asyncio.TimeoutError):
             self._jobs_failed += 1
             self._state = ThreadState.TIMED_OUT
             return SkillResult(

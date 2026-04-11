@@ -45,7 +45,7 @@ Dependencies
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from graphclaw.agent.delegation import DelegationService
 from graphclaw.db.base import GraphStore
@@ -70,7 +70,7 @@ class EscalationEvent:
     action_taken:
         One of ``"REASSIGNED"``, ``"CANCELLED"``, or ``"AUTO_APPROVED"``.
     escalated_at:
-        UTC timestamp when the escalation was applied.
+        timezone.utc timestamp when the escalation was applied.
     escalated_to_user_id:
         The user the task was reassigned to, or ``None`` if the action was
         CANCELLED or AUTO_APPROVED.

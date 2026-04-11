@@ -120,7 +120,7 @@ def generate_rds_backup_policy() -> dict:
 
     All values satisfy PRD Section 32.8 requirements:
     - 35-day retention window.
-    - Daily backup during the 03:00-04:00 UTC low-traffic window.
+    - Daily backup during the 03:00-04:00 timezone.utc low-traffic window.
     - Multi-AZ for automatic failover.
     - Encryption at rest.
     - Deletion protection enabled.
@@ -134,7 +134,7 @@ def generate_rds_backup_policy() -> dict:
     """
     return {
         "BackupRetentionPeriod": 35,
-        "PreferredBackupWindow": "03:00-04:00",  # UTC low-traffic window
+        "PreferredBackupWindow": "03:00-04:00",  # timezone.utc low-traffic window
         "EnableCloudwatchLogsExports": ["postgresql", "upgrade"],
         "DeletionProtection": True,
         "MultiAZ": True,

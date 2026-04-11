@@ -10,7 +10,7 @@ empty task list produces sections with no items.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from graphclaw.triggers.briefing import BriefingGenerator
 from graphclaw.triggers.models import DailyBriefing
@@ -21,13 +21,12 @@ from graphclaw.triggers.models import DailyBriefing
 
 
 def _utc(**kwargs) -> datetime:
-    """Return a UTC datetime relative to a fixed anchor."""
-    anchor = datetime(2026, 3, 18, 12, 0, tzinfo=UTC)
-    return anchor + timedelta(**kwargs)
+    """Return a timezone.utc datetime relative to now."""
+    return datetime.now(timezone.utc) + timedelta(**kwargs)
 
 
 def _now() -> datetime:
-    return _utc()
+    return datetime.now(timezone.utc)
 
 
 # ---------------------------------------------------------------------------

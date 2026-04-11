@@ -9,7 +9,7 @@ configs from the database and persisting changes back.
 
 For TIME_BASED triggers with a ``cron_expression``, the scheduler computes the
 next occurrence after each firing using a lightweight cron parser that supports
-the daily pattern used by the MVP (e.g. ``"0 8 * * *"`` for 8 AM UTC daily).
+the daily pattern used by the MVP (e.g. ``"0 8 * * *"`` for 8 AM timezone.utc daily).
 
 Design Patterns
 ---------------
@@ -40,7 +40,7 @@ will raise ``ValueError``.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from graphclaw.triggers.models import TriggerConfig, TriggerType
 
@@ -91,7 +91,7 @@ class TriggerScheduler:
         A trigger without a ``next_fire_at`` is never considered due.
 
         Args:
-            now: The current UTC datetime used as the comparison baseline.
+            now: The current timezone.utc datetime used as the comparison baseline.
 
         Returns:
             A list of TriggerConfig objects that are due to fire.
@@ -102,7 +102,7 @@ class TriggerScheduler:
                 continue
             if config.next_fire_at is None:
                 continue
-            # Normalise to UTC for comparison
+            # Normalise to timezone.utc for comparison
             fire_at = _ensure_utc(config.next_fire_at)
             if fire_at <= _ensure_utc(now):
                 due.append(config)
@@ -118,7 +118,7 @@ class TriggerScheduler:
 
         Args:
             trigger_id: The ID of the trigger to advance.
-            now: The current UTC datetime (used as the base for cron computation).
+            now: The current timezone.utc datetime (used as the base for cron computation).
         """
         config = self._triggers.get(trigger_id)
         if config is None:
@@ -155,7 +155,7 @@ class TriggerScheduler:
             after: The datetime after which the next occurrence is computed.
 
         Returns:
-            The next UTC datetime matching the cron expression.
+            The next timezone.utc datetime matching the cron expression.
 
         Raises:
             ValueError: If the cron expression cannot be parsed or uses
@@ -181,7 +181,7 @@ class TriggerScheduler:
                 f"minute and hour must be integers. ({exc})"
             ) from exc
 
-        # Candidate: today at target_hour:target_minute (UTC)
+        # Candidate: today at target_hour:target_minute (timezone.utc)
         base = _ensure_utc(after).replace(
             hour=target_hour,
             minute=target_minute,
@@ -200,7 +200,7 @@ class TriggerScheduler:
 
 
 def _ensure_utc(dt: datetime) -> datetime:
-    """Return *dt* as a UTC-aware datetime, assuming UTC if naive."""
+    """Return *dt* as a timezone.utc-aware datetime, assuming timezone.utc if naive."""
     if dt.tzinfo is None:
-        return dt.replace(tzinfo=UTC)
+        return dt.replace(tzinfo=timezone.utc)
     return dt

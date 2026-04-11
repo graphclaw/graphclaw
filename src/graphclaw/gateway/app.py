@@ -56,7 +56,7 @@ import logging
 import os
 import uuid
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -103,6 +103,50 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
         if broker is not None:
             await registry.start_all(broker)
 
+        # ── Initialise API-layer services on app.state ────────────────────
+        _db_pool = None
+        try:
+            from graphclaw.db.age.connection import create_pgbouncer_pool
+            from graphclaw.db.factory import create_graph_store, create_query_engine
+            from graphclaw.infra.secrets import AWSSecretsClient, EnvFileSecretsClient
+            from graphclaw.infra.storage import S3StorageClient
+            from graphclaw.scoring.engine import ScoringEngine
+
+            # Database — only connect when DATABASE_URL is present
+            database_url = os.environ.get("DATABASE_URL", "")
+            if database_url:
+                _db_pool = await create_pgbouncer_pool()
+                app.state.graph_store = create_graph_store("age", pool=_db_pool)
+                app.state.query_engine = create_query_engine("age", pool=_db_pool)
+                logger.info("GraphClaw: graph store and query engine initialised")
+            else:
+                logger.warning("GraphClaw: DATABASE_URL not set — graph store unavailable")
+
+            # Storage (MinIO in dev, S3 in production)
+            app.state.storage_client = S3StorageClient(
+                bucket=os.environ.get("STORAGE_BUCKET", "graphclaw"),
+                endpoint_url=os.environ.get("STORAGE_ENDPOINT_URL") or None,
+                region=os.environ.get("STORAGE_REGION", "us-east-1"),
+            )
+            logger.info("GraphClaw: storage client initialised")
+
+            # Secrets backend
+            secrets_backend = os.environ.get("SECRETS_BACKEND", "env_file")
+            if secrets_backend == "aws_sm":
+                app.state.secrets_client = AWSSecretsClient(
+                    region=os.environ.get("AWS_REGION", "us-east-1")
+                )
+            else:
+                app.state.secrets_client = EnvFileSecretsClient()
+            logger.info("GraphClaw: secrets client initialised (%s)", secrets_backend)
+
+            # Scoring engine — stateless, no external deps
+            app.state.scoring_engine = ScoringEngine()
+            logger.info("GraphClaw: scoring engine initialised")
+
+        except Exception as exc:  # noqa: BLE001
+            logger.error("GraphClaw: service initialisation error — %s", exc, exc_info=exc)
+
         logger.info("GraphClaw Gateway started")
         yield
 
@@ -111,6 +155,10 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
 
         if broker is not None:
             await broker.close()
+
+        if _db_pool is not None:
+            await _db_pool.close()
+            logger.info("GraphClaw: database pool closed")
 
         # Clean up deps module singletons
         await shutdown_services()
@@ -183,6 +231,30 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
         RateLimitMiddleware,
         redis_url=os.environ.get("REDIS_URL", "redis://localhost:6379/0"),
     )
+
+    # JWT Role middleware: decodes the Bearer token (if present) and sets
+    # request.state.user_role from the `role` claim.  This allows require_admin
+    # to work without a DB round-trip.  Falls back to "USER" if token is absent
+    # or the claim is not present.
+    from starlette.middleware.base import BaseHTTPMiddleware
+
+    class JWTRoleMiddleware(BaseHTTPMiddleware):
+        async def dispatch(self, request, call_next):
+            request.state.user_role = "USER"
+            auth_header = request.headers.get("Authorization", "")
+            if auth_header.startswith("Bearer "):
+                token = auth_header[7:]
+                try:
+                    from graphclaw.auth.middleware import get_jwt_service
+                    svc = get_jwt_service()
+                    payload = svc.verify_token(token)
+                    role = payload.get("role", "USER")
+                    request.state.user_role = role
+                except Exception:  # noqa: BLE001
+                    pass  # invalid token — role stays USER, auth will reject at route level
+            return await call_next(request)
+
+    app.add_middleware(JWTRoleMiddleware)
 
     # ── Include sub-routers (Swagger-documented API) ─────────────────────
     from graphclaw.a2a.routes import a2a_router, task_update_router
@@ -275,7 +347,7 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
             sender=payload.get("sender", "api"),
             subject=payload.get("subject", "trigger"),
             body=json.dumps(payload),
-            received_at=datetime.now(tz=UTC),
+            received_at=datetime.now(tz=timezone.utc),
             session_id=session_id,
         )
         current_broker: MessageBroker | None = getattr(request.app.state, "broker", None)

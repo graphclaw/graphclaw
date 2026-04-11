@@ -51,7 +51,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from graphclaw.models.enums import GoalPriority, OverrideType, TaskState
@@ -188,7 +188,7 @@ class ScoringEngine:
         if cached is not None:
             return cached
 
-        now = datetime.now(UTC)
+        now = datetime.now(timezone.utc)
         tid = task.id
 
         # --- Factor 1: Timeline Urgency ---
@@ -196,7 +196,7 @@ class ScoringEngine:
         effort_days = task.timeline.estimated_effort_days or 0.0
         if deadline is not None:
             # Ensure both datetimes are timezone-aware for comparison
-            dl = deadline if deadline.tzinfo else deadline.replace(tzinfo=UTC)
+            dl = deadline if deadline.tzinfo else deadline.replace(tzinfo=timezone.utc)
             days_remaining = (dl - now).total_seconds() / 86400.0
         else:
             days_remaining = 999.0  # no deadline → effectively far out

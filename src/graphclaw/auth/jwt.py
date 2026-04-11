@@ -95,20 +95,24 @@ class JWTService:
 
     # ── Token issuance ─────────────────────────────────────────────────────────
 
-    def issue_access_token(self, user_id: str) -> str:
+    def issue_access_token(self, user_id: str, role: str = "USER") -> str:
         """Issue a 15-minute RS256 access token for *user_id*.
 
         Parameters
         ----------
         user_id:
             The platform user identifier to embed in the ``sub`` claim.
+        role:
+            Optional role claim (e.g. ``"ADMIN"``).  Stored as ``role`` in
+            the JWT payload so the auth middleware can set
+            ``request.state.user_role`` without a DB round-trip.
 
         Returns
         -------
         str:
             Encoded JWT string.
         """
-        return self._issue_token(user_id, "access", _ACCESS_TOKEN_EXPIRE_SECONDS)
+        return self._issue_token(user_id, "access", _ACCESS_TOKEN_EXPIRE_SECONDS, role=role)
 
     def issue_refresh_token(self, user_id: str) -> str:
         """Issue a 7-day RS256 refresh token for *user_id*.
@@ -125,23 +129,14 @@ class JWTService:
         """
         return self._issue_token(user_id, "refresh", _REFRESH_TOKEN_EXPIRE_SECONDS)
 
-    def _issue_token(self, user_id: str, token_type: str, expire_seconds: int) -> str:
-        """Internal helper — build and sign a JWT with the given claims.
-
-        Parameters
-        ----------
-        user_id:
-            Subject claim value.
-        token_type:
-            Either ``"access"`` or ``"refresh"``.
-        expire_seconds:
-            Token lifetime in seconds from now.
-
-        Returns
-        -------
-        str:
-            Signed JWT string.
-        """
+    def _issue_token(
+        self,
+        user_id: str,
+        token_type: str,
+        expire_seconds: int,
+        role: str | None = None,
+    ) -> str:
+        """Internal helper — build and sign a JWT with the given claims."""
         now = int(time.time())
         payload: dict[str, Any] = {
             "sub": user_id,
@@ -150,6 +145,8 @@ class JWTService:
             "exp": now + expire_seconds,
             "type": token_type,
         }
+        if role:
+            payload["role"] = role
         return jwt.encode(payload, self._private_key, algorithm=_ALGORITHM)
 
     # ── Token verification ─────────────────────────────────────────────────────

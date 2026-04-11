@@ -11,7 +11,7 @@ Tests cover:
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from graphclaw.models.base import generate_task_id
 from graphclaw.models.enums import (
@@ -30,7 +30,7 @@ from graphclaw.state.cascade import check_composite_completion
 
 
 def _now() -> datetime:
-    return datetime.now(UTC)
+    return datetime.now(timezone.utc)
 
 
 def _make_task(

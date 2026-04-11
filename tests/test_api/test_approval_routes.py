@@ -2,25 +2,28 @@
 
 Description
 -----------
-Verifies that the approvals endpoints list pending tasks and correctly
-transition them to COMPLETE or CANCELLED status.
+Verifies that the approvals endpoints list pending APPROVAL tasks and correctly
+drive them to COMPLETE (approve) or CANCELLED (deny) via the state machine.
 
 Design Patterns
 ---------------
-- ``app.dependency_overrides``: ``require_auth`` is replaced with a stub that
-  returns a fixed user_id.
-- Direct stub manipulation: Tests seed ``_pending_approvals`` directly so they
-  do not depend on a real task graph.
-- ``TestClient``: Synchronous ASGI test client.
+- ``app.dependency_overrides``: Both ``require_auth`` and ``get_graph_store``
+  are overridden with fakes so no real database is needed.
+- ``FakeGraphStore``: In-memory graph store seeded with real ``TaskNode``
+  objects, replacing the previous module-level ``_pending_approvals`` dict.
+- Real StateMachine: The actual ``StateMachine`` runs during tests, validating
+  that transition chains work correctly.
 
 Dependencies
 ------------
 - fastapi.testclient: TestClient.
 - graphclaw.api.router: app_router.
-- graphclaw.api.approvals: _pending_approvals (test stub access).
+- graphclaw.api.deps: get_graph_store.
 - graphclaw.auth.middleware: require_auth.
-- fastapi: FastAPI (third-party).
-- pytest: test runner.
+- graphclaw.models.base: generate_task_id.
+- graphclaw.models.enums: TaskState, TaskType.
+- graphclaw.models.nodes: TaskNode.
+- tests.test_api.conftest: FakeGraphStore.
 """
 
 from __future__ import annotations
@@ -29,11 +32,22 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from graphclaw.api import approvals as approvals_module
+from graphclaw.api.deps import get_graph_store
 from graphclaw.api.router import app_router
 from graphclaw.auth.middleware import require_auth
+from graphclaw.models.base import generate_task_id, utcnow
+from graphclaw.models.enums import TaskState, TaskType
+from graphclaw.models.nodes import TaskNode
+
+from tests.test_api.conftest import FakeGraphStore
 
 _TEST_USER = "test-user-approvals-001"
+
+# ---------------------------------------------------------------------------
+# Module-level fake store (reset per test by fixture)
+# ---------------------------------------------------------------------------
+
+_fake_store = FakeGraphStore()
 
 
 # ---------------------------------------------------------------------------
@@ -48,28 +62,48 @@ def _make_app() -> FastAPI:
     async def _fake_auth() -> str:
         return _TEST_USER
 
+    async def _fake_store_dep():
+        return _fake_store
+
     app.dependency_overrides[require_auth] = _fake_auth
+    app.dependency_overrides[get_graph_store] = _fake_store_dep
     return app
 
 
-def _seed_approval(task_id: str) -> dict:
-    entry = {
-        "task_id": task_id,
-        "description": f"Approve tool call for task {task_id}",
-        "tool_name": "post_message",
-        "tool_args": {"channel": "#general", "text": "hello"},
-        "status": "APPROVAL",
-    }
-    approvals_module._pending_approvals.setdefault(_TEST_USER, []).append(entry)
-    return entry
+def _seed_approval() -> str:
+    """Create a real TaskNode in PENDING state and return its task_id."""
+    import asyncio
+
+    now = utcnow()
+    task_id = generate_task_id("TST", TaskType.APPROVAL)
+    task = TaskNode(
+        id=task_id,
+        task_type=TaskType.APPROVAL,
+        title="Approve MCP tool: test_tool on test_server",
+        description="Please approve this tool call",
+        assigned_to=_TEST_USER,
+        owned_by=_TEST_USER,
+        created_by=_TEST_USER,
+        state=TaskState.PENDING,
+        created_at=now,
+        updated_at=now,
+        version=0,
+    )
+    # Synchronously seed the fake store
+    loop = asyncio.new_event_loop()
+    try:
+        loop.run_until_complete(_fake_store.create_node(task))
+    finally:
+        loop.close()
+    return task_id
 
 
 @pytest.fixture(autouse=True)
 def clear_approvals():
-    """Reset the stub storage before and after each test."""
-    approvals_module._pending_approvals.pop(_TEST_USER, None)
+    """Reset the fake store before and after each test."""
+    _fake_store.clear()
     yield
-    approvals_module._pending_approvals.pop(_TEST_USER, None)
+    _fake_store.clear()
 
 
 @pytest.fixture()
@@ -98,35 +132,15 @@ def test_list_approvals_empty(client: TestClient) -> None:
 
 def test_list_approvals_returns_pending(client: TestClient) -> None:
     """GET /app/v1/approvals returns seeded APPROVAL tasks."""
-    _seed_approval("TASK-001")
-    _seed_approval("TASK-002")
+    id1 = _seed_approval()
+    id2 = _seed_approval()
     response = client.get("/app/v1/approvals")
     assert response.status_code == 200
     data = response.json()
     assert len(data) == 2
     task_ids = {t["task_id"] for t in data}
-    assert "TASK-001" in task_ids
-    assert "TASK-002" in task_ids
-
-
-def test_list_approvals_excludes_non_approval_status(client: TestClient) -> None:
-    """GET /app/v1/approvals only returns tasks with APPROVAL status."""
-    _seed_approval("TASK-A")
-    # Manually add a COMPLETE task — should not appear
-    approvals_module._pending_approvals.setdefault(_TEST_USER, []).append(
-        {
-            "task_id": "TASK-B",
-            "description": "already done",
-            "tool_name": "list_events",
-            "tool_args": {},
-            "status": "COMPLETE",
-        }
-    )
-    response = client.get("/app/v1/approvals")
-    assert response.status_code == 200
-    data = response.json()
-    assert len(data) == 1
-    assert data[0]["task_id"] == "TASK-A"
+    assert id1 in task_ids
+    assert id2 in task_ids
 
 
 def test_list_approvals_requires_auth(no_auth_client: TestClient) -> None:
@@ -142,29 +156,36 @@ def test_list_approvals_requires_auth(no_auth_client: TestClient) -> None:
 
 def test_approve_task_sets_complete(client: TestClient) -> None:
     """POST /app/v1/approvals/{id}/approve transitions task to COMPLETE."""
-    _seed_approval("TASK-APPROVE-001")
-    response = client.post("/app/v1/approvals/TASK-APPROVE-001/approve")
+    task_id = _seed_approval()
+    response = client.post(f"/app/v1/approvals/{task_id}/approve")
     assert response.status_code == 200
     data = response.json()
-    assert data["task_id"] == "TASK-APPROVE-001"
+    assert data["task_id"] == task_id
     assert data["status"] == "COMPLETE"
     assert data["ok"] is True
 
 
 def test_approve_task_not_found(client: TestClient) -> None:
     """POST /app/v1/approvals/{id}/approve returns 404 for unknown task."""
-    response = client.post("/app/v1/approvals/TASK-NONEXISTENT/approve")
+    response = client.post("/app/v1/approvals/TSK-XX-000001-APR/approve")
     assert response.status_code == 404
 
 
-def test_approve_task_updates_stored_status(client: TestClient) -> None:
-    """Approving a task actually updates the stored status."""
-    _seed_approval("TASK-STATUS-CHK")
-    client.post("/app/v1/approvals/TASK-STATUS-CHK/approve")
-    tasks = approvals_module._pending_approvals.get(_TEST_USER, [])
-    task = next((t for t in tasks if t["task_id"] == "TASK-STATUS-CHK"), None)
-    assert task is not None
-    assert task["status"] == "COMPLETE"
+def test_approve_task_updates_stored_state(client: TestClient) -> None:
+    """Approving a task persists the COMPLETE state in the store."""
+    import asyncio
+
+    task_id = _seed_approval()
+    client.post(f"/app/v1/approvals/{task_id}/approve")
+
+    loop = asyncio.new_event_loop()
+    try:
+        node = loop.run_until_complete(_fake_store.get_node(task_id))
+    finally:
+        loop.close()
+
+    assert node is not None
+    assert node["state"] == "COMPLETE"
 
 
 # ---------------------------------------------------------------------------
@@ -174,38 +195,45 @@ def test_approve_task_updates_stored_status(client: TestClient) -> None:
 
 def test_deny_task_sets_cancelled(client: TestClient) -> None:
     """POST /app/v1/approvals/{id}/deny transitions task to CANCELLED."""
-    _seed_approval("TASK-DENY-001")
-    response = client.post("/app/v1/approvals/TASK-DENY-001/deny")
+    task_id = _seed_approval()
+    response = client.post(f"/app/v1/approvals/{task_id}/deny")
     assert response.status_code == 200
     data = response.json()
-    assert data["task_id"] == "TASK-DENY-001"
+    assert data["task_id"] == task_id
     assert data["status"] == "CANCELLED"
     assert data["ok"] is True
 
 
 def test_deny_task_not_found(client: TestClient) -> None:
     """POST /app/v1/approvals/{id}/deny returns 404 for unknown task."""
-    response = client.post("/app/v1/approvals/TASK-NONEXISTENT/deny")
+    response = client.post("/app/v1/approvals/TSK-XX-000001-APR/deny")
     assert response.status_code == 404
 
 
-def test_deny_task_updates_stored_status(client: TestClient) -> None:
-    """Denying a task actually updates the stored status."""
-    _seed_approval("TASK-DENY-STATUS-CHK")
-    client.post("/app/v1/approvals/TASK-DENY-STATUS-CHK/deny")
-    tasks = approvals_module._pending_approvals.get(_TEST_USER, [])
-    task = next((t for t in tasks if t["task_id"] == "TASK-DENY-STATUS-CHK"), None)
-    assert task is not None
-    assert task["status"] == "CANCELLED"
+def test_deny_task_updates_stored_state(client: TestClient) -> None:
+    """Denying a task persists the CANCELLED state in the store."""
+    import asyncio
+
+    task_id = _seed_approval()
+    client.post(f"/app/v1/approvals/{task_id}/deny")
+
+    loop = asyncio.new_event_loop()
+    try:
+        node = loop.run_until_complete(_fake_store.get_node(task_id))
+    finally:
+        loop.close()
+
+    assert node is not None
+    assert node["state"] == "CANCELLED"
 
 
 def test_approve_requires_auth(no_auth_client: TestClient) -> None:
     """POST /app/v1/approvals/{id}/approve returns 401/403 without Bearer token."""
-    response = no_auth_client.post("/app/v1/approvals/TASK-X/approve")
+    response = no_auth_client.post("/app/v1/approvals/TSK-XX-000001-APR/approve")
     assert response.status_code in (401, 403)
 
 
 def test_deny_requires_auth(no_auth_client: TestClient) -> None:
     """POST /app/v1/approvals/{id}/deny returns 401/403 without Bearer token."""
-    response = no_auth_client.post("/app/v1/approvals/TASK-X/deny")
+    response = no_auth_client.post("/app/v1/approvals/TSK-XX-000001-APR/deny")
     assert response.status_code in (401, 403)

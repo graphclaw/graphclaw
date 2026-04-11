@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -44,7 +44,7 @@ from graphclaw.skills.registry_models import (
 # Helpers
 # ---------------------------------------------------------------------------
 
-_NOW = datetime(2026, 3, 20, 12, 0, 0, tzinfo=UTC)
+_NOW = datetime(2026, 3, 20, 12, 0, 0, tzinfo=timezone.utc)
 
 _SAMPLE_SKILL_MD = (
     "---\n"

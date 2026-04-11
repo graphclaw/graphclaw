@@ -44,7 +44,7 @@ comparable to ``utcnow()``.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from graphclaw.infra.logger import AsyncLogger, generate_session_id
 from graphclaw.models.base import utcnow

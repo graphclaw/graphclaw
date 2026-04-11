@@ -4,7 +4,7 @@ Uses a ConsoleBroker that prints every inbound message to stdout so you can
 verify channels are working without spinning up Redis or Docker.
 
 Usage:
-    cd C:/Users/abhis/Projects/openclawdotai
+    cd C:/Users/abhis/Projects/graphclaw
     python scripts/run_gateway_test.py
 
 What to expect:

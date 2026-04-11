@@ -9,7 +9,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC
+from datetime import timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -153,11 +153,11 @@ async def test_process_erasure_returns_failed_on_error() -> None:
 
 
 def test_erasure_request_frozen() -> None:
-    from datetime import datetime
+    from datetime import datetime, timezone
 
     request = ErasureRequest(
         user_id="USER-frozen",
-        requested_at=datetime(2024, 1, 1, tzinfo=UTC),
+        requested_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
         requester_email="frozen@example.com",
         request_id="ERASURE-aabbccddee",
     )

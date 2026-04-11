@@ -51,7 +51,8 @@ from contextlib import asynccontextmanager
 from psycopg import AsyncConnection
 from psycopg_pool import AsyncConnectionPool
 
-from infra.db.indexes import QUERY_TIMEOUT_MS
+# 5-second hard timeout per PRD Sec 28.11. Override via QUERY_TIMEOUT_MS env var.
+QUERY_TIMEOUT_MS: int = int(os.environ.get("QUERY_TIMEOUT_MS", "5000"))
 
 logger = logging.getLogger(__name__)
 

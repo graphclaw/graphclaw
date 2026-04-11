@@ -15,7 +15,7 @@ Dependencies
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 import pytest
 
@@ -85,7 +85,7 @@ class TestMCPToolCall:
             arguments={"calendar_id": "primary"},
             trust_tier="AUTO",
             user_id="USER-alice",
-            requested_at=datetime(2026, 1, 1, tzinfo=UTC),
+            requested_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
         )
         defaults.update(kwargs)
         return MCPToolCall(**defaults)
@@ -215,7 +215,7 @@ class TestMCPServerVersion:
         v = MCPServerVersion(
             server_name="io.example/my-server",
             version="2.0.0",
-            released_at=datetime(2026, 3, 1, tzinfo=UTC),
+            released_at=datetime(2026, 3, 1, tzinfo=timezone.utc),
             changelog="Major release",
         )
         assert v.server_name == "io.example/my-server"

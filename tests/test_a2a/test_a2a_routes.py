@@ -26,7 +26,7 @@ Dependencies
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 from fastapi import FastAPI
@@ -70,7 +70,7 @@ def _make_mock_key_manager(
         key_id=key_id,
         agent_name="TestAgent",
         user_id=_TEST_USER,
-        created_at=datetime(2025, 1, 1, tzinfo=UTC),
+        created_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
         resource_node_id=key_id,
     )
     km.register_agent = AsyncMock(return_value=(key_ref, plaintext))

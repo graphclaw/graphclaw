@@ -32,7 +32,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from graphclaw.compliance.audit import AuditLogger
 from graphclaw.compliance.models import AuditEvent, DataExport
@@ -101,7 +101,7 @@ class DataExportService:
             Manifest with the storage key, export ID, and expiry timestamp.
         """
         export_id = f"EXPORT-{uuid.uuid4().hex[:12]}"
-        now = datetime.now(UTC)
+        now = datetime.now(timezone.utc)
         expires_at = now + timedelta(days=_EXPORT_TTL_DAYS)
 
         # Collect TaskNodes

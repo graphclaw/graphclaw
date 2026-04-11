@@ -4,7 +4,7 @@ Sets environment variables from docker/.env and starts uvicorn so you can test
 email + Telegram channels without spinning up the full Docker stack.
 
 Usage:
-    cd C:/Users/abhis/Projects/openclawdotai
+    cd C:/Users/abhis/Projects/graphclaw
     python scripts/run_gateway_local.py
 
 Requirements (must be running locally):

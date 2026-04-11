@@ -60,4 +60,8 @@ To add a new backend: implement the ABC, drop it in the subfolder, register in t
 - Section 33: 58 Design Principles (14 new in v1.1: security, observability, deployment)
 
 ## Current Phase
-Phase 3 complete. Phase 4 (Agent Interop, MCP, Connectors & Skill Registry) is in progress. See `build-plan.md`.
+Phases 0–3 complete. Phase 4 (Agent Interop, MCP, Connectors & Skill Registry) is in progress. Wave 1 of the cockpit backend API build is active.
+
+**Wave 1 (active):** `api/deps.py` (DI), `api/graph.py` (11 endpoints), `api/scoring.py` (3), `api/state.py` (3), `api/events.py` (1 SSE) — unlocks the core cockpit canvas and task views.
+
+**Remaining waves 2–6:** stub fixes → chat/config/secrets → settings/agent → skills/MCP/agents → admin panel. 118 endpoints total across 22 files. See `build-plan.md` wave table and `docs/cockpit-backend-api-prd.md`.

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
 import pytest
@@ -108,7 +108,7 @@ class TestNormalizeWhatsApp:
 
     def test_sets_received_at_from_timestamp(self):
         msgs = normalize_whatsapp(_SAMPLE_PAYLOAD)
-        assert msgs[0].received_at == datetime.fromtimestamp(1700000000, tz=UTC)
+        assert msgs[0].received_at == datetime.fromtimestamp(1700000000, tz=timezone.utc)
 
     def test_skips_non_text_messages(self):
         payload = {
@@ -168,7 +168,7 @@ class TestNormalizeWhatsApp:
         msgs = normalize_whatsapp(payload)
         assert len(msgs) == 1
         # received_at should be close to now
-        delta = abs((msgs[0].received_at - datetime.now(UTC)).total_seconds())
+        delta = abs((msgs[0].received_at - datetime.now(timezone.utc)).total_seconds())
         assert delta < 5
 
     def test_raw_headers_populated(self):

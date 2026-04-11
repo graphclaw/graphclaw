@@ -6,7 +6,7 @@ ID generator / validator helpers added in Phase 2.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 import pytest
 
@@ -143,7 +143,7 @@ class TestOrgMember:
         assert m.joined_at is None
 
     def test_owner_member(self):
-        now = datetime.now(UTC)
+        now = datetime.now(timezone.utc)
         m = OrgMember(user_id="USER-abc", role=OrgRole.OWNER, joined_at=now)
         assert m.role == OrgRole.OWNER
         assert m.joined_at == now
@@ -156,7 +156,7 @@ class TestOrgMember:
 
 class TestOrganizationNode:
     def _make(self, **kwargs):
-        now = datetime.now(UTC)
+        now = datetime.now(timezone.utc)
         defaults = dict(
             id=generate_org_id(),
             name="Acme Corp",
@@ -174,7 +174,7 @@ class TestOrganizationNode:
         assert isinstance(org.settings, OrgSettings)
 
     def test_invalid_id_raises(self):
-        now = datetime.now(UTC)
+        now = datetime.now(timezone.utc)
         with pytest.raises(ValueError):
             OrganizationNode(
                 id="BAD-id",
@@ -202,7 +202,7 @@ class TestOrganizationNode:
 
 class TestWorkspaceNode:
     def _make(self, **kwargs):
-        now = datetime.now(UTC)
+        now = datetime.now(timezone.utc)
         defaults = dict(
             id=generate_workspace_id(),
             org_id=generate_org_id(),
@@ -221,7 +221,7 @@ class TestWorkspaceNode:
         assert ws.is_default is False
 
     def test_invalid_id_raises(self):
-        now = datetime.now(UTC)
+        now = datetime.now(timezone.utc)
         with pytest.raises(ValueError):
             WorkspaceNode(
                 id="BAD-id",

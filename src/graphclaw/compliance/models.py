@@ -31,7 +31,7 @@ Dependencies
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 # ---------------------------------------------------------------------------
@@ -49,7 +49,7 @@ class ErasureRequest:
         The ``USER-{uuid}`` identifier of the subject whose data is to be
         erased.
     requested_at:
-        UTC timestamp when the request was created.
+        timezone.utc timestamp when the request was created.
     requester_email:
         Email address of the person making the request (may differ from the
         subject's email when submitted by an admin or DPO).
@@ -104,7 +104,7 @@ class AuditEvent:
     resource_id:
         Identifier of the specific resource node.
     timestamp:
-        UTC timestamp when the event occurred.
+        timezone.utc timestamp when the event occurred.
     ip_address:
         Optional originating IP address of the request.
     metadata:
@@ -138,11 +138,11 @@ class DataExport:
     export_id:
         Unique identifier in the format ``EXPORT-{uuid4 hex[:12]}``.
     created_at:
-        UTC timestamp when the export was generated.
+        timezone.utc timestamp when the export was generated.
     storage_key:
         S3 object key where the export JSON is stored.
     expires_at:
-        UTC timestamp when the export object will be deleted (7 days after
+        timezone.utc timestamp when the export object will be deleted (7 days after
         ``created_at``).
     record_count:
         Total number of records included in the export.

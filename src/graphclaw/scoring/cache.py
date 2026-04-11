@@ -41,7 +41,7 @@ atomic operations will be needed for multi-worker deployments.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from graphclaw.models.base import utcnow
 from graphclaw.models.scoring import ScoreExplanation

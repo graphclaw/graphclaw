@@ -19,7 +19,7 @@ from __future__ import annotations
 import os
 import uuid
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import pytest
@@ -57,7 +57,7 @@ class _StubNode:
     title: str
     state: str = "PENDING"
     estimated_effort_hours: float = 4.0
-    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
     def model_dump(self, *, mode: str = "json") -> dict:  # noqa: ARG002
         return {

@@ -29,7 +29,7 @@ License: Apache 2.0
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 @dataclass(frozen=True)
@@ -88,7 +88,7 @@ class ImportBatch:
     project_id:
         The project/board/database ID that was queried.
     fetched_at:
-        UTC timestamp when this batch was fetched.
+        timezone.utc timestamp when this batch was fetched.
     next_cursor:
         Opaque pagination cursor to pass on the next ``fetch_items`` call.
         ``None`` when there are no more pages.

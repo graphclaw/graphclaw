@@ -11,7 +11,7 @@ Tests cover:
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 import pytest
 
@@ -32,7 +32,7 @@ from graphclaw.state.transitions import InvalidTransitionError
 
 
 def _now() -> datetime:
-    return datetime.now(UTC)
+    return datetime.now(timezone.utc)
 
 
 def _make_task(
@@ -121,7 +121,7 @@ class TestStateHistoryRecording:
     def test_history_entry_fields(self):
         sm = StateMachine()
         task = _make_task(state=TaskState.PENDING)
-        before = datetime.now(UTC)
+        before = datetime.now(timezone.utc)
         sm.transition(task, TaskState.ACTIVE, ChangedBy.HUMAN, "starting work")
         entry = task.state_history[0]
         assert entry.from_state == TaskState.PENDING

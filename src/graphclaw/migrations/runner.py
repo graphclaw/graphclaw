@@ -42,7 +42,7 @@ Dependencies
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 import psycopg
 
@@ -170,7 +170,7 @@ class MigrationRunner:
         conn = await self._get_connection()
         try:
             await conn.execute(migration.sql_up)
-            now = datetime.now(UTC)
+            now = datetime.now(timezone.utc)
             await conn.execute(
                 _INSERT_MIGRATION_RECORD,
                 (migration.version, migration.name, now, MigrationStatus.APPLIED.value),
@@ -182,7 +182,7 @@ class MigrationRunner:
             # Best-effort: record the failure for observability, then re-raise
             try:
                 await conn.rollback()
-                now = datetime.now(UTC)
+                now = datetime.now(timezone.utc)
                 await conn.execute(
                     _INSERT_MIGRATION_RECORD,
                     (

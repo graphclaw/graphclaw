@@ -7,20 +7,24 @@ and deregister MCP servers for authenticated users.
 
 Design Patterns
 ---------------
-- ``app.dependency_overrides``: ``require_auth`` is replaced with a stub that
-  returns a fixed user_id.
-- Direct stub manipulation: Tests clear ``_mcp_servers`` via an ``autouse``
-  fixture to ensure isolation.
-- ``TestClient``: Synchronous ASGI test client.
+- ``app.dependency_overrides``: Both ``require_auth`` and ``get_graph_store``
+  are replaced with fakes so no real database is needed.
+- ``FakeGraphStore``: In-memory store reset between tests via ``autouse``
+  fixture, ensuring test isolation.
+- Real MCPRegistry: The actual ``MCPRegistry`` service is used (wired to the
+  FakeGraphStore), so graph traversal logic is genuinely exercised.
+- Official registry search: ``/search`` calls the live official MCP registry.
+  Tests only assert the response shape (status 200, list), not specific names.
 
 Dependencies
 ------------
 - fastapi.testclient: TestClient.
 - graphclaw.api.router: app_router.
-- graphclaw.api.mcp_registry: _mcp_servers (test stub access).
+- graphclaw.api.deps: get_graph_store.
 - graphclaw.auth.middleware: require_auth.
 - fastapi: FastAPI (third-party).
 - pytest: test runner.
+- tests.test_api.conftest: FakeGraphStore.
 """
 
 from __future__ import annotations
@@ -29,11 +33,14 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from graphclaw.api import mcp_registry as mcp_module
+from graphclaw.api.deps import get_mcp_registry
 from graphclaw.api.router import app_router
 from graphclaw.auth.middleware import require_auth
+from graphclaw.mcp.registry import MCPRegistry
 
-_TEST_USER = "test-user-mcp-001"
+from tests.test_api.conftest import FakeGraphStore
+
+_TEST_USER = "USER-test-mcp-001"
 
 _REGISTER_PAYLOAD = {
     "name": "My GitHub",
@@ -42,6 +49,9 @@ _REGISTER_PAYLOAD = {
     "trust_tier": "GATED",
     "scope": ["read_issues", "create_issue"],
 }
+
+# Module-level fake store reset by fixture
+_fake_store = FakeGraphStore()
 
 
 # ---------------------------------------------------------------------------
@@ -56,16 +66,20 @@ def _make_app() -> FastAPI:
     async def _fake_auth() -> str:
         return _TEST_USER
 
+    async def _fake_mcp_registry() -> MCPRegistry:
+        return MCPRegistry(graph_store=_fake_store)
+
     app.dependency_overrides[require_auth] = _fake_auth
+    app.dependency_overrides[get_mcp_registry] = _fake_mcp_registry
     return app
 
 
 @pytest.fixture(autouse=True)
 def clear_mcp_servers():
-    """Reset the stub storage before and after each test."""
-    mcp_module._mcp_servers.pop(_TEST_USER, None)
+    """Reset the fake store before and after each test."""
+    _fake_store.clear()
     yield
-    mcp_module._mcp_servers.pop(_TEST_USER, None)
+    _fake_store.clear()
 
 
 @pytest.fixture()

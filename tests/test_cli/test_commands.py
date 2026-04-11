@@ -20,7 +20,7 @@ To intercept these calls from tests, we patch the names as they exist in the
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -50,7 +50,7 @@ runner = CliRunner()
 
 
 def _now() -> datetime:
-    return datetime.now(UTC)
+    return datetime.now(timezone.utc)
 
 
 def _make_task(

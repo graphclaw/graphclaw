@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from graphclaw.triggers.engine import TriggerEngine
@@ -24,7 +24,7 @@ from graphclaw.triggers.scheduler import TriggerScheduler
 
 
 def _utc(*args, **kwargs) -> datetime:
-    return datetime(*args, **kwargs, tzinfo=UTC)
+    return datetime(*args, **kwargs, tzinfo=timezone.utc)
 
 
 def _make_mock_broker() -> MagicMock:

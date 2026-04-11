@@ -20,7 +20,7 @@ Dependencies
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from graphclaw.skills.models import (
     HeartbeatConfig,
@@ -34,7 +34,7 @@ from graphclaw.skills.models import (
 
 
 def _utc(*args, **kwargs) -> datetime:
-    return datetime(*args, **kwargs, tzinfo=UTC)
+    return datetime(*args, **kwargs, tzinfo=timezone.utc)
 
 
 # ---------------------------------------------------------------------------

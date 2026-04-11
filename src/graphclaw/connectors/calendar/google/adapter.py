@@ -36,7 +36,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from graphclaw.connectors.base import ConnectorConfig
@@ -56,10 +56,10 @@ def _parse_datetime(dt_str: str | None, date_str: str | None) -> datetime:
         return datetime.fromisoformat(dt_str)
     if date_str:
         # All-day event: "2024-01-15"
-        from datetime import date  # noqa: PLC0415
+        from datetime import date  # noqa: PLC0415, timezone
 
         d = date.fromisoformat(date_str)
-        return datetime(d.year, d.month, d.day, tzinfo=UTC)
+        return datetime(d.year, d.month, d.day, tzinfo=timezone.utc)
     raise ValueError("Both dateTime and date are None in Google Calendar response")
 
 
@@ -186,8 +186,8 @@ class GoogleCalendarConnector(CalendarConnector):
         calendar_id: str = "primary",
     ) -> list[CalendarEvent]:
         """List all events in the given time window from the specified calendar."""
-        time_min = since.isoformat() if since.tzinfo else since.replace(tzinfo=UTC).isoformat()
-        time_max = until.isoformat() if until.tzinfo else until.replace(tzinfo=UTC).isoformat()
+        time_min = since.isoformat() if since.tzinfo else since.replace(tzinfo=timezone.utc).isoformat()
+        time_max = until.isoformat() if until.tzinfo else until.replace(tzinfo=timezone.utc).isoformat()
 
         def _fetch() -> list[dict]:
             events_result = (
@@ -266,8 +266,8 @@ class GoogleCalendarConnector(CalendarConnector):
         calendar_id: str = "primary",
     ) -> list[FreeBusySlot]:
         """Query the free/busy information for the given time range."""
-        time_min = since.isoformat() if since.tzinfo else since.replace(tzinfo=UTC).isoformat()
-        time_max = until.isoformat() if until.tzinfo else until.replace(tzinfo=UTC).isoformat()
+        time_min = since.isoformat() if since.tzinfo else since.replace(tzinfo=timezone.utc).isoformat()
+        time_max = until.isoformat() if until.tzinfo else until.replace(tzinfo=timezone.utc).isoformat()
 
         body = {
             "timeMin": time_min,

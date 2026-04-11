@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 from graphclaw.compliance.audit import AuditLogger
@@ -35,7 +35,7 @@ def _make_event(
         action=action,
         resource_type=resource_type,
         resource_id=resource_id,
-        timestamp=ts or datetime(2024, 6, 15, 10, 0, 0, tzinfo=UTC),
+        timestamp=ts or datetime(2024, 6, 15, 10, 0, 0, tzinfo=timezone.utc),
         metadata=metadata or {},
     )
 
@@ -143,8 +143,8 @@ async def test_get_events_filters_by_action() -> None:
     logger = AuditLogger(storage=storage)
 
     user_id = "USER-filter-test"
-    ts_login = datetime(2024, 6, 10, 9, 0, 0, tzinfo=UTC)
-    ts_task = datetime(2024, 6, 12, 11, 0, 0, tzinfo=UTC)
+    ts_login = datetime(2024, 6, 10, 9, 0, 0, tzinfo=timezone.utc)
+    ts_task = datetime(2024, 6, 12, 11, 0, 0, tzinfo=timezone.utc)
 
     login_event = AuditEvent(
         event_id="AUDIT-login00001",
@@ -201,8 +201,8 @@ async def test_get_events_filters_by_action() -> None:
         side_effect=lambda key: login_payload if key == login_key else task_payload
     )
 
-    start = datetime(2024, 6, 1, tzinfo=UTC)
-    end = datetime(2024, 7, 1, tzinfo=UTC)
+    start = datetime(2024, 6, 1, tzinfo=timezone.utc)
+    end = datetime(2024, 7, 1, tzinfo=timezone.utc)
 
     # Filter for only "auth.login" events
     events = await logger.get_events(

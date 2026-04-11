@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from graphclaw.compliance.audit import AuditLogger
 from graphclaw.compliance.models import AuditEvent, ErasureRequest, ErasureStatus
@@ -101,7 +101,7 @@ class GDPRService:
             The newly created request.
         """
         request_id = f"ERASURE-{uuid.uuid4().hex[:12]}"
-        now = datetime.now(UTC)
+        now = datetime.now(timezone.utc)
         request = ErasureRequest(
             user_id=user_id,
             requested_at=now,
@@ -226,7 +226,7 @@ class GDPRService:
                 )
 
             # Step 5: Delete audit log entries older than 30 days
-            cutoff = datetime.now(UTC) - timedelta(days=_AUDIT_RETENTION_DAYS)
+            cutoff = datetime.now(timezone.utc) - timedelta(days=_AUDIT_RETENTION_DAYS)
             audit_prefix = f"audit/{user_id}/"
             try:
                 audit_keys = await self._storage.list_objects(audit_prefix)
@@ -237,7 +237,7 @@ class GDPRService:
                     if len(parts) >= 3:
                         month_str = parts[2]  # YYYY-MM
                         try:
-                            month_dt = datetime.strptime(month_str, "%Y-%m").replace(tzinfo=UTC)
+                            month_dt = datetime.strptime(month_str, "%Y-%m").replace(tzinfo=timezone.utc)
                             # If the entire month is older than the cutoff, delete.
                             if month_dt < cutoff.replace(
                                 day=1, hour=0, minute=0, second=0, microsecond=0
@@ -264,7 +264,7 @@ class GDPRService:
                 action="erasure.completed",
                 resource_type="UserNode",
                 resource_id=user_id,
-                timestamp=datetime.now(UTC),
+                timestamp=datetime.now(timezone.utc),
                 metadata={"request_id": request.request_id},
             )
             await self._audit.log(completion_event)

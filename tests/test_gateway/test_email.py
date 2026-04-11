@@ -37,7 +37,7 @@ async def send_email(message, config) -> None:
     )
 
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from graphclaw.gateway.schemas import InboundMessage, OutboundMessage
 
@@ -230,7 +230,7 @@ class TestSendCallsAiosmtplib:
     async def test_send_calls_aiosmtplib(self):
         """send_email should call aiosmtplib.send with correct parameters."""
         config = _make_config(smtp_host="smtp.example.com", smtp_port=587)
-        _NOW = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
+        _NOW = datetime(2024, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
         message = OutboundMessage(
             message_id="out-001",
             channel="email",
@@ -253,7 +253,7 @@ class TestSendCallsAiosmtplib:
     async def test_send_raises_for_non_email_channel(self):
         """send_email should raise ValueError for non-email channels."""
         config = _make_config()
-        _NOW = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
+        _NOW = datetime(2024, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
         message = OutboundMessage(
             message_id="out-002",
             channel="api",
@@ -268,7 +268,7 @@ class TestSendCallsAiosmtplib:
     async def test_send_sets_in_reply_to_header(self):
         """When in_reply_to is set, the email headers should reflect it."""
         config = _make_config()
-        _NOW = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
+        _NOW = datetime(2024, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
         message = OutboundMessage(
             message_id="out-003",
             channel="email",

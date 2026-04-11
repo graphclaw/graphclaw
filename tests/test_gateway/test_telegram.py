@@ -6,7 +6,7 @@ No real Telegram API calls are made.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
 import pytest
@@ -86,7 +86,7 @@ class TestNormalizeTelegram:
 
     def test_received_at_from_date(self):
         msgs = normalize_telegram(_SAMPLE_UPDATE)
-        assert msgs[0].received_at == datetime.fromtimestamp(1700000000, tz=UTC)
+        assert msgs[0].received_at == datetime.fromtimestamp(1700000000, tz=timezone.utc)
 
     def test_session_id_set(self):
         msgs = normalize_telegram(_SAMPLE_UPDATE)

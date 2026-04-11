@@ -18,7 +18,7 @@ License: Apache 2.0
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -302,7 +302,7 @@ class TestNotionToTaskNodes:
             description="Add a toggle to settings page.",
             status="in_progress",
             priority="high",
-            due_date=datetime(2025, 6, 15, tzinfo=UTC),
+            due_date=datetime(2025, 6, 15, tzinfo=timezone.utc),
             assignee="Bob",
             labels=["ui", "design"],
             url="https://notion.so/page-001",

@@ -22,7 +22,7 @@ Dependencies
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 import pytest
 from pydantic import ValidationError
@@ -36,7 +36,7 @@ from graphclaw.models.base import (
 from graphclaw.models.enums import EdgeType, TaskType, VisibilityScope
 from graphclaw.models.nodes import TaskNode, VisibilityGrantNode
 
-NOW = datetime(2026, 3, 20, 10, 0, 0, tzinfo=UTC)
+NOW = datetime(2026, 3, 20, 10, 0, 0, tzinfo=timezone.utc)
 
 
 # ---------------------------------------------------------------------------

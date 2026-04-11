@@ -35,7 +35,7 @@ Dependencies
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 
@@ -67,7 +67,7 @@ class SkillSource:
         Key name in the ``SecretsClient`` that holds the auth credential
         (e.g. GitHub personal access token for private repos).
     last_fetched_at:
-        UTC datetime of the most recent successful index fetch.
+        timezone.utc datetime of the most recent successful index fetch.
     fetch_interval_hours:
         How often (in hours) the source should be re-fetched.
     """
@@ -139,9 +139,9 @@ class InstalledSkill:
     source_type:
         Backend type of the originating source.
     installed_at:
-        UTC datetime when the skill was installed.
+        timezone.utc datetime when the skill was installed.
     last_used_at:
-        UTC datetime of the most recent execution, or ``None`` if never
+        timezone.utc datetime of the most recent execution, or ``None`` if never
         executed.
     usage_count:
         Total number of times this skill has been executed.

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from graphclaw.gateway.schemas import InboundMessage, OutboundMessage
 
@@ -10,7 +10,7 @@ from graphclaw.gateway.schemas import InboundMessage, OutboundMessage
 # Helpers
 # ---------------------------------------------------------------------------
 
-_NOW = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
+_NOW = datetime(2024, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
 
 
 def _make_inbound(**overrides) -> InboundMessage:

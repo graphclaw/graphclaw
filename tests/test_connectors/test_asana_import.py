@@ -17,7 +17,7 @@ License: Apache 2.0
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -294,7 +294,7 @@ class TestAsanaToTaskNodes:
             description="Users report that the login fails on iOS.",
             status="open",
             priority="medium",
-            due_date=datetime(2025, 5, 1, tzinfo=UTC),
+            due_date=datetime(2025, 5, 1, tzinfo=timezone.utc),
             assignee="Alice",
             labels=["bug", "ios"],
             url="https://app.asana.com/0/proj-001/task-001",

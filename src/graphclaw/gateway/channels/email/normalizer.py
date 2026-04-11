@@ -44,7 +44,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from email.message import EmailMessage
 from email.utils import parseaddr, parsedate_to_datetime
 from typing import TYPE_CHECKING
@@ -117,9 +117,9 @@ def _extract_attachments(msg: EmailMessage) -> list[str]:
 
 
 def _parse_received_at(msg: EmailMessage) -> datetime:
-    """Parse the ``Date`` header into a UTC-aware ``datetime``.
+    """Parse the ``Date`` header into a timezone.utc-aware ``datetime``.
 
-    Returns the current UTC time if the header is missing or unparseable.
+    Returns the current timezone.utc time if the header is missing or unparseable.
     """
     date_str = msg.get("Date")
     if date_str:
@@ -127,11 +127,11 @@ def _parse_received_at(msg: EmailMessage) -> datetime:
             dt = parsedate_to_datetime(date_str)
             # Ensure timezone-aware
             if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=UTC)
+                dt = dt.replace(tzinfo=timezone.utc)
             return dt
         except Exception:  # noqa: BLE001
             logger.debug("Failed to parse Date header %r, using now()", date_str)
-    return datetime.now(tz=UTC)
+    return datetime.now(tz=timezone.utc)
 
 
 def normalize_email(raw_email: EmailMessage) -> InboundMessage:

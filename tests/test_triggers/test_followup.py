@@ -10,7 +10,7 @@ task priority and ConfidenceLevel inputs.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -121,7 +121,7 @@ def test_compute_next_followup_returns_future_datetime() -> None:
         reliability_score=1.0,
         recency_bonus=0.0,
     )
-    now_before = datetime.now(UTC)
+    now_before = datetime.now(timezone.utc)
     result = compute_next_followup(config)
     assert result > now_before
     assert result.tzinfo is not None
@@ -136,7 +136,7 @@ def test_compute_next_followup_interval() -> None:
         reliability_score=1.0,
         recency_bonus=0.0,
     )
-    now_before = datetime.now(UTC)
+    now_before = datetime.now(timezone.utc)
     result = compute_next_followup(config)
     expected = now_before + timedelta(days=5.0)
     # Allow 2 seconds tolerance for test execution time
@@ -157,7 +157,7 @@ def test_p1_high_confidence_timing() -> None:
     assert timing.confidence_adjustment == pytest.approx(1.5)
     assert timing.effective_interval_hours == pytest.approx(18.0)
     assert timing.next_followup_at is not None
-    assert timing.next_followup_at > datetime.now(UTC)
+    assert timing.next_followup_at > datetime.now(timezone.utc)
 
 
 def test_p1_low_confidence_timing() -> None:

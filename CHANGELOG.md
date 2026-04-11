@@ -8,13 +8,115 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and
 
 ## [Unreleased]
 
-### Planned (Phase 2 — Multi-Channel + Organizations)
-- WhatsApp Business channel adapter (webhook + HMAC auth)
-- Telegram Bot channel adapter (webhook + bot token)
-- Organization workspaces with isolation boundaries
-- Conversation context cache (Redis)
-- Channel switching within active conversations
-- Meeting Notes Agent skill
+### In Progress (Phase 4 — Application API Layer)
+- 21 stub endpoints in `/app/v1/` router need real implementations (settings, approvals, skills, MCP CRUD)
+- 8 new cockpit backend API modules: `api/graph.py`, `api/scoring.py`, `api/state.py`, `api/events.py`, `api/chat.py`, `api/config.py`, `api/secrets.py`, `api/agent.py`
+- SSE event stream via Redis pub/sub
+- Chat API + WebSocket for cockpit interface
+
+---
+
+## [0.4.0] — 2026-04-10
+
+### Phase 4 (Partial): Agent Interop, MCP, Connectors & Skill Registry
+
+#### Added
+
+**A2A REST API (WS-P4-A)**
+- `src/graphclaw/a2a/` — per-agent API keys (`wg_agent_` prefix, SHA-256 hash), key lifecycle (register/rotate/revoke)
+- `a2a/key_manager.py` — key generation, hashing, rotation
+- `a2a/middleware.py` — API key authentication middleware
+- `a2a/models.py` — A2AAgent, A2AKey Pydantic models
+- `a2a/routes.py` — `POST /api/v1/a2a/agents`, `GET /api/v1/a2a/agents`, `DELETE`, `POST /api/v1/task-update`
+
+**Connectors ABC + Adapters (WS-P4-B)**
+- `src/graphclaw/connectors/` — CalendarConnector + ImportConnector ABCs with factory
+- `connectors/calendar/google/` — Google Calendar adapter (read/write events, free/busy)
+- `connectors/calendar/outlook/` — Outlook Calendar adapter (MS Graph API)
+- `connectors/import_/jira/` — Jira issue importer → TaskNode
+- `connectors/import_/asana/` — Asana task importer → TaskNode
+- `connectors/import_/notion/` — Notion page importer → TaskNode
+
+**Skill Registry v2 (WS-P4-C)**
+- `skills/registry.py` — remote GitHub + marketplace.json sources, install/uninstall/search
+- `skills/registry_models.py` — SkillRegistryEntry, SkillSource, version pinning models
+
+**MCP Server Registry + Client Runtime (WS-P4-D)**
+- `src/graphclaw/mcp/` — MCPServerNode CRUD, official registry search, trust tier enforcement
+- `mcp/registry.py` — per-user MCPServerNode store with AUTO/GATED/BLOCKED trust tiers
+- `mcp/client.py` — MCP client runtime (SSE/HTTP transports)
+- `mcp/official_registry.py` — search against registry.modelcontextprotocol.io
+- `mcp/models.py` — MCPServerNode, MCPToolCall, TrustTier Pydantic models
+
+**Pre-Built MCP Adapters + GATED Approval (WS-P4-E)**
+- `mcp/adapters/google_calendar/` — Google Calendar MCP adapter
+- `mcp/adapters/github/` — GitHub MCP adapter
+- `mcp/adapters/slack/` — Slack MCP adapter
+- `mcp/approval.py` — GATED workflow: creates APPROVAL TaskNode, notifies via channel, resolves on reply
+
+**Application API Layer / Stub Router (WS-P4-F partial)**
+- `src/graphclaw/api/router.py` — `/app/v1/` FastAPI router merged into gateway
+- `api/settings.py` — **stub** GET/PATCH /app/v1/settings, channel status
+- `api/approvals.py` — **stub** GET /app/v1/approvals, POST approve/deny
+- `api/skill_registry.py` — **stub** skills CRUD + search + sources
+- `api/mcp_registry.py` — **stub** MCP server CRUD + search
+- `api/a2a_keys.py` — **real** A2A key management UI endpoints
+- `api/compliance.py` — **real** GDPR export + erasure endpoints
+
+**Schema Migrations (WS-P4-H)**
+- `src/graphclaw/migrations/` — forward-only, non-destructive, version-stamped migration runner
+- `migrations/runner.py` — idempotent migration executor
+- `migrations/catalogue.py` — migration catalogue with schema_version tracking
+- `migrations/models.py` — MigrationRecord model
+
+#### Tests
+- 1333 unit tests passing (0 failures); 15 DB integration tests require live Postgres+AGE
+- New test modules: `test_a2a/`, `test_api/`, `test_auth/`, `test_compliance/`, `test_connectors/`, `test_mcp/`, `test_migrations/`
+
+---
+
+## [0.3.0] — 2026-03-28
+
+### Phase 3: Multi-User + Delegation + Security
+
+#### Added
+
+**Auth Stack (WS-P3-A)**
+- `src/graphclaw/auth/` — complete OAuth 2.0 + PKCE authentication stack
+- `auth/oauth.py` — Google, Microsoft, GitHub IdP flows with PKCE
+- `auth/jwt.py` — RS256 platform JWT issuance (15-min expiry), refresh token rotation, Redis jti revocation
+- `auth/middleware.py` — JWT bearer token middleware for FastAPI
+- `auth/routes.py` — `/auth/login`, `/auth/callback`, `/auth/refresh`, `/auth/logout`, `/auth/me`
+
+**User Provisioning (WS-P3-B)**
+- `auth/provisioning.py` — atomic UserNode + S3 prefix + IAM role + SQS queue creation with rollback on failure
+
+**Delegation + Escalation (WS-P3-C)**
+- `agent/delegation.py` — cross-user task delegation flow for Delegated TaskNodes
+- `agent/escalation.py` — approval task escalation paths with timeout handling
+
+**BYOK LLM Keys (WS-P3-D)**
+- `infra/byok.py` — per-user LLM API key storage via SecretsClient; key never stored in DB or logs
+
+**Compliance (WS-P3-E)**
+- `src/graphclaw/compliance/` — full GDPR compliance pipeline
+- `compliance/gdpr.py` — right-to-erasure with PII anonymization
+- `compliance/audit.py` — immutable audit log writer and reader
+- `compliance/export.py` — user data export (structured JSON)
+- `compliance/models.py` — ErasureRequest, AuditEntry, DataExport Pydantic models
+
+**Visibility Grants (WS-P3-F)**
+- `models/nodes.py` — VisibilityGrant model; node-level access control for multi-user graphs
+
+**Scoring Weights Learning (WS-P3-G)**
+- `models/scoring_weights.py` — per-user W1–W7 weights with exponential moving average update on human override signals
+
+#### Tests
+- Phase 3 test suites: `test_auth/`, `test_compliance/`, `test_agent/` (delegation + escalation)
+
+---
+
+## [0.2.0] — 2026-03-19
 
 ---
 

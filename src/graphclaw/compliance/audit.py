@@ -35,7 +35,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from graphclaw.compliance.models import AuditEvent
 from graphclaw.infra.storage import StorageClient
@@ -154,9 +154,9 @@ class AuditLogger:
         user_id:
             The user whose audit trail to retrieve.
         start:
-            Inclusive lower bound (UTC).
+            Inclusive lower bound (timezone.utc).
         end:
-            Exclusive upper bound (UTC).
+            Exclusive upper bound (timezone.utc).
         action_filter:
             When provided, only events whose ``action`` equals this string
             are returned.
@@ -191,9 +191,9 @@ class AuditLogger:
                     raw = await self._storage.read(key)
                     payload = json.loads(raw.decode())
                     ts = datetime.fromisoformat(payload["timestamp"])
-                    # Normalise to aware UTC for comparison
+                    # Normalise to aware timezone.utc for comparison
                     if ts.tzinfo is None:
-                        ts = ts.replace(tzinfo=UTC)
+                        ts = ts.replace(tzinfo=timezone.utc)
                     if ts < start or ts >= end:
                         continue
                     if action_filter is not None and payload.get("action") != action_filter:

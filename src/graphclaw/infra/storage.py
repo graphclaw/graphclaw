@@ -146,12 +146,26 @@ class S3StorageClient(StorageClient):
     # ------------------------------------------------------------------
 
     async def read(self, path: str) -> bytes:
-        """Read object at *path* from S3/MinIO."""
+        """Read object at *path* from S3/MinIO.
+
+        Raises
+        ------
+        FileNotFoundError
+            If the key does not exist (S3 NoSuchKey / 404).
+        """
 
         def _read() -> bytes:
+            import botocore.exceptions  # local import keeps module importable without botocore
+
             client = self._get_client()
-            response = client.get_object(Bucket=self._bucket, Key=path)
-            return response["Body"].read()
+            try:
+                response = client.get_object(Bucket=self._bucket, Key=path)
+                return response["Body"].read()
+            except botocore.exceptions.ClientError as exc:
+                code = exc.response.get("Error", {}).get("Code", "")
+                if code in ("NoSuchKey", "404"):
+                    raise FileNotFoundError(f"Object not found: s3://{self._bucket}/{path}") from exc
+                raise
 
         return await asyncio.to_thread(_read)
 

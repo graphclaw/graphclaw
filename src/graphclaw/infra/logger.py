@@ -34,7 +34,7 @@ Dependencies
 
 Notes
 -----
-All timestamps use UTC.  The ``session_id`` field enables distributed
+All timestamps use timezone.utc.  The ``session_id`` field enables distributed
 tracing across services: generate one session ID per inbound request or
 agent cycle and propagate it through all log calls.
 """

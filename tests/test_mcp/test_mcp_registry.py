@@ -17,7 +17,7 @@ Dependencies
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
 import pytest
@@ -38,7 +38,7 @@ def make_server_node(
     enabled: bool = True,
     scope: list[str] | None = None,
 ) -> MCPServerNode:
-    now = datetime(2026, 1, 1, tzinfo=UTC)
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
     return MCPServerNode(
         id=server_id,
         name=name,

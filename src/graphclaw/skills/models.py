@@ -41,7 +41,7 @@ importance.  The WorkerPool stores jobs in a ``PriorityQueue`` as
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 from pydantic import BaseModel
@@ -143,7 +143,7 @@ class SkillJob(BaseModel):
     priority:
         Dispatch priority; higher values are processed first.
     created_at:
-        UTC timestamp when the job was created.
+        timezone.utc timestamp when the job was created.
     timeout_seconds:
         Per-job timeout override (defaults to 300).
     """
@@ -183,9 +183,9 @@ class SkillResult(BaseModel):
     error:
         Error description if the job did not complete successfully.
     started_at:
-        UTC timestamp when execution started.
+        timezone.utc timestamp when execution started.
     completed_at:
-        UTC timestamp when execution ended (success or failure).
+        timezone.utc timestamp when execution ended (success or failure).
     tokens_used:
         Total tokens consumed (prompt + completion).
     cost_usd:
@@ -222,7 +222,7 @@ class WorkerStatus(BaseModel):
     current_job_id:
         ID of the job being processed, or ``None`` if idle.
     last_heartbeat:
-        UTC timestamp of the most recent heartbeat tick.
+        timezone.utc timestamp of the most recent heartbeat tick.
     jobs_completed:
         Total number of jobs successfully completed by this worker.
     jobs_failed:

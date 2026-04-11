@@ -5,7 +5,7 @@ All database calls are mocked via AsyncMock so no live DB is required.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -33,7 +33,7 @@ from graphclaw.state.machine import StateMachine
 
 
 def _now() -> datetime:
-    return datetime.now(UTC)
+    return datetime.now(timezone.utc)
 
 
 def _make_task(

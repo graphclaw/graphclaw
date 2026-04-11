@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -442,7 +442,7 @@ class TestListAgents:
     @pytest.mark.asyncio
     async def test_returns_only_active_agents(self) -> None:
         store = _make_mock_store()
-        now = datetime.now(UTC)
+        now = datetime.now(timezone.utc)
         store.list_nodes = AsyncMock(
             return_value=[
                 {
@@ -483,8 +483,8 @@ class TestListAgents:
     @pytest.mark.asyncio
     async def test_results_sorted_by_created_at(self) -> None:
         store = _make_mock_store()
-        t1 = datetime(2025, 1, 1, tzinfo=UTC)
-        t2 = datetime(2025, 6, 1, tzinfo=UTC)
+        t1 = datetime(2025, 1, 1, tzinfo=timezone.utc)
+        t2 = datetime(2025, 6, 1, tzinfo=timezone.utc)
         # Return in reverse order to test sorting
         store.list_nodes = AsyncMock(
             return_value=[

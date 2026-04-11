@@ -25,7 +25,7 @@ Dependencies
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 from graphclaw.skills.models import (
@@ -42,7 +42,7 @@ from graphclaw.skills.worker import SkillWorker, WorkerPool
 
 
 def _utc(*args, **kwargs) -> datetime:
-    return datetime(*args, **kwargs, tzinfo=UTC)
+    return datetime(*args, **kwargs, tzinfo=timezone.utc)
 
 
 def _make_router(content: str = "LLM output", tokens: int = 50) -> MagicMock:

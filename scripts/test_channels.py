@@ -3,7 +3,7 @@
 Run this BEFORE starting the gateway to verify credentials are correct.
 
 Usage:
-    cd C:/Users/abhis/Projects/openclawdotai
+    cd C:/Users/abhis/Projects/graphclaw
     python scripts/test_channels.py
 
 Tests:

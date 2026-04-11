@@ -47,7 +47,7 @@ Dependencies
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -561,7 +561,7 @@ class VisibilityGrantNode(BaseNode):
     target_node_id: str = Field(..., description="ID of the node being shared.")
     target_node_type: str = Field(..., description="Node label (e.g. 'TaskNode', 'GoalNode').")
     scope: VisibilityScope = VisibilityScope.VIEWER
-    granted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    granted_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     revoked_at: datetime | None = None
     revoked_by: str | None = None
     reason: str = ""
@@ -597,7 +597,7 @@ class MCPServerNode(BaseNode):
     scope: list[str] = Field(default_factory=list, description="Declared capability scopes")
     secret_ref: str | None = Field(default=None, description="Secrets Manager key ID for auth")
     enabled: bool = Field(default=True)
-    registered_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    registered_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     last_used_at: datetime | None = Field(default=None)
 
     @field_validator("id")

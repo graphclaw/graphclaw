@@ -53,7 +53,7 @@ import hashlib
 import hmac
 import logging
 import secrets
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from graphclaw.a2a.models import A2AKeyRef, A2ARegistration
@@ -215,7 +215,7 @@ class A2AKeyManager:
             key_id,
             {
                 "api_key_hash": new_hash,
-                "updated_at": datetime.now(UTC).isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
             },
         )
 
@@ -251,7 +251,7 @@ class A2AKeyManager:
             key_id,
             {
                 "api_key_hash": None,
-                "updated_at": datetime.now(UTC).isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
             },
         )
 

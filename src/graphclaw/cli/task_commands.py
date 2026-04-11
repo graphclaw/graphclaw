@@ -38,7 +38,7 @@ The pool is opened and closed on every command invocation (no persistent connect
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 import typer
 from rich.console import Console
@@ -114,7 +114,7 @@ async def _create_task_async(
     deadline_dt: datetime | None = None
     if deadline:
         try:
-            deadline_dt = datetime.strptime(deadline, "%Y-%m-%d").replace(tzinfo=UTC)
+            deadline_dt = datetime.strptime(deadline, "%Y-%m-%d").replace(tzinfo=timezone.utc)
         except ValueError:
             err_console.print(f"Invalid deadline format '{deadline}'. Expected YYYY-MM-DD.")
             raise typer.Exit(code=1)

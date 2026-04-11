@@ -6,7 +6,7 @@ final_score calculation, factor breakdowns, and modifiers.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -26,7 +26,7 @@ from graphclaw.scoring.engine import ScoringContext, ScoringEngine
 
 
 def _now() -> datetime:
-    return datetime.now(UTC)
+    return datetime.now(timezone.utc)
 
 
 def _make_task(

@@ -32,7 +32,7 @@ License: Apache 2.0
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from graphclaw.connectors.base import ConnectorConfig
@@ -71,10 +71,10 @@ def _extract_date(prop: dict | None) -> datetime | None:
     try:
         if "T" in start_str:
             return datetime.fromisoformat(start_str.replace("Z", "+00:00"))
-        from datetime import date  # noqa: PLC0415
+        from datetime import date  # noqa: PLC0415, timezone
 
         d = date.fromisoformat(start_str)
-        return datetime(d.year, d.month, d.day, tzinfo=UTC)
+        return datetime(d.year, d.month, d.day, tzinfo=timezone.utc)
     except ValueError:
         return None
 
@@ -279,7 +279,7 @@ class NotionImportConnector(ImportConnector):
             items=items,
             source_system="notion",
             project_id=db_id,
-            fetched_at=datetime.now(tz=UTC),
+            fetched_at=datetime.now(tz=timezone.utc),
             next_cursor=next_cursor,
             has_more=has_more,
         )

@@ -183,7 +183,7 @@ class MCPRegistry:
         return MCPServerNode.model_validate(raw)
 
     async def update_last_used(self, server_id: str) -> None:
-        """Record the current UTC timestamp as ``last_used_at`` for *server_id*.
+        """Record the current timezone.utc timestamp as ``last_used_at`` for *server_id*.
 
         Parameters
         ----------

@@ -1,8 +1,15 @@
 # Task Graph Management System — Product Requirements Document
 
-**Version:** 1.1 — Observability, Operations & Deployment  
-**Status:** Draft — Pre-Architecture  
+**Version:** 1.2 — Implementation in Progress  
+**Status:** Active build — Phases 0–3 complete, Phase 4 in progress  
 **Purpose:** Comprehensive reference document for UX, architecture, and implementation discussions
+
+**Implementation status (2026-04-10):**
+- Phases 0–3 delivered: graph schema, scoring engine, state machine, CLI, gateway, channels, auth, BYOK, compliance, MCP, connectors, skill registry, A2A
+- Phase 4 in progress: logic layer complete, cockpit backend API Wave 1 building (graph, scoring, state, events)
+- Cockpit frontend: separate project at `graphclaw-cockpit/` (HTML wireframes + React target)
+- API backlog: `docs/cockpit-backend-api-prd.md` (104 new endpoints, 6-wave build plan)
+- Test baseline: 1333 passing unit tests, 15 DB integration tests (require live Postgres+AGE)
 
 ---
 
@@ -41,6 +48,8 @@
 31. [Architecture: Security, Identity & Secrets](#31-architecture-security-identity--secrets)
 32. [Architecture: Observability & Operations](#32-architecture-observability--operations)
 33. [Design Principles](#33-design-principles)
+34. [Architecture: MCP Server Integration](#34-architecture-mcp-server-integration)
+35. [Architecture: Application API Layer (Cockpit Backend)](#35-architecture-application-api-layer-cockpit-backend)
 
 ---
 
@@ -8851,3 +8860,75 @@ mcp_servers:
 - Timeout: 30-second hard timeout per tool call; the agent continues reasoning without the result if exceeded.
 
 **Audit trail:** Every MCP tool call is logged with `session_id`, `user_id`, `server_id`, `tool_name`, `trust_tier`, `approved_by` (`auto` or `USER-{id}`), input parameter hash, and response size. This provides a full audit trail for any tool-assisted agent action.
+
+
+---
+
+## 35. Architecture: Application API Layer (Cockpit Backend)
+
+### 35.1 Purpose
+
+The `/app/v1/` API layer is the HTTP interface between the GraphClaw backend and the cockpit web UI (`graphclaw-cockpit/`). It exposes all graph data, agent state, scoring results, and configuration through a structured REST + SSE + WebSocket surface.
+
+Full endpoint specification: `docs/cockpit-backend-api-prd.md`
+Cockpit PRD: `graphclaw-cockpit/docs/prd/11-api-contract.md`
+
+### 35.2 Endpoint Surface Summary
+
+| Group | Endpoints | Module | Priority |
+|-------|-----------|--------|----------|
+| Graph (goals, tasks, resources, edges) | 11 | `api/graph.py` | P1 |
+| Scoring (explanation, history, simulate) | 3 | `api/scoring.py` | P1 |
+| State machine (history, valid transitions, transition) | 3 | `api/state.py` | P1 |
+| Events (SSE stream) | 1 | `api/events.py` | P1 |
+| Chat (messages + WebSocket) | 4+WS | `api/chat.py` | P2 |
+| Config (JSON config CRUD) | 3 | `api/config.py` | P2 |
+| Secrets (CRUD + test + status) | 4 | `api/secrets.py` | P2 |
+| Settings (profile, orgs, scoring weights, channels, LLM keys) | +8 | `api/settings.py` | P3 |
+| Agent monitoring (status, queue, briefing, triggers) | 6 | `api/agent.py` | P3 |
+| Agents / canvas (CRUD + versions + test) | 7 | `api/agents.py` | P3 |
+| Skills (feedback, workers, executions, test) | +4 | `api/skill_registry.py` | P4 |
+| MCP (tools list, MCP approvals) | +2 | `api/mcp_registry.py` | P4 |
+| Admin (members, features, LLM, judge, guardrails, SSO, audit, infra, connectors) | 45 | `api/admin/*.py` | P6 |
+
+**Total:** 104 new endpoints + 18 stub→real fixes = 122 endpoint implementations.
+
+### 35.3 Shared Dependency Injection
+
+All `/app/v1/` endpoints obtain their runtime dependencies via `api/deps.py`, which pulls from `app.state` (populated at startup):
+
+| Dependency | `app.state` attribute | Type |
+|------------|-----------------------|------|
+| Graph store | `graph_store` | `GraphStore` |
+| Query engine | `query_engine` | `GraphQueryEngine` |
+| Scoring engine | `scoring_engine` | `ScoringEngine` |
+| State machine | — (stateless) | `StateMachine()` |
+| Storage client | `storage_client` | `StorageClient` |
+| Secrets client | `secrets_client` | `SecretsClient` |
+| Redis | `redis` | `redis.asyncio.Redis` |
+
+### 35.4 Real-Time Events Architecture
+
+`GET /app/v1/events` is a Server-Sent Events endpoint backed by Redis pub/sub:
+
+- **Channel name:** `graphclaw:events:{user_id}` (per-user isolation)
+- **Publishers:** `StateMachine.transition()`, `ScoringEngine.score_all()`, `AgentLoop`
+- **Event types:** `task.state_changed`, `task.scored`, `briefing.ready`, `approval.pending`, `skill.completed`
+- **Graceful degradation:** If Redis is absent, the stream emits keepalive pings only — cockpit remains functional without live updates
+
+### 35.5 Authentication
+
+All `/app/v1/` endpoints require a valid RS256 Bearer JWT (15-minute expiry, issued by `/auth/login` flow). Role escalation (`ADMIN` / `OWNER`) is enforced by `require_admin` in `api/deps.py`.
+
+WebSocket (`/app/v1/chat/ws`) accepts the JWT as a `?token=` query parameter because browsers cannot set `Authorization` headers on WebSocket upgrades.
+
+### 35.6 Build Progress
+
+| Wave | Files | Status |
+|------|-------|--------|
+| Wave 1 — core canvas | `deps.py`, `graph.py`, `scoring.py`, `state.py`, `events.py` | ✅ Complete |
+| Wave 2 — stub fixes | `approvals.py`, `settings.py`, `skill_registry.py`, `mcp_registry.py` | ⬜ Pending |
+| Wave 3 — chat + config | `chat.py`, `config.py`, `secrets.py` | ⬜ Pending |
+| Wave 4 — settings + agent | `settings.py` ext, `agent.py` | ⬜ Pending |
+| Wave 5 — skills + MCP + agents | `skill_registry.py` ext, `mcp_registry.py` ext, `agents.py` | ⬜ Pending |
+| Wave 6 — admin panel | `admin/` (9 modules) | ⬜ Pending |

@@ -25,7 +25,7 @@ Dependencies
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
 from graphclaw.skills.heartbeat import HeartbeatMonitor
@@ -37,11 +37,11 @@ from graphclaw.skills.models import HeartbeatConfig, ThreadState, WorkerStatus
 
 
 def _utc(*args, **kwargs) -> datetime:
-    return datetime(*args, **kwargs, tzinfo=UTC)
+    return datetime(*args, **kwargs, tzinfo=timezone.utc)
 
 
 def _now() -> datetime:
-    return datetime.now(UTC)
+    return datetime.now(timezone.utc)
 
 
 def _expired_heartbeat(timeout_seconds: float = 900.0) -> datetime:

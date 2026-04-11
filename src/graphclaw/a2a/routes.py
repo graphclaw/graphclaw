@@ -64,7 +64,7 @@ import json
 import logging
 import os
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -222,7 +222,7 @@ async def rotate_agent_key(
             detail="Failed to rotate agent key — see server logs",
         ) from exc
 
-    rotated_at = datetime.now(UTC)
+    rotated_at = datetime.now(timezone.utc)
     logger.info("a2a/rotate_key: rotated key_id=%s user_id=%s", key_id, user_id)
     return A2AKeyRotateResponse(
         key_id=key_id,
@@ -401,7 +401,7 @@ async def task_update(
         sender=user_id,
         subject=payload.method,
         body=json.dumps(payload.params),
-        received_at=datetime.now(UTC),
+        received_at=datetime.now(timezone.utc),
         session_id=session_id,
         raw_headers={
             "x-jsonrpc-method": payload.method,

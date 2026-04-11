@@ -9,7 +9,7 @@ Covers:
 - GraphEdge construction
 """
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 import pytest
 from pydantic import ValidationError
@@ -80,7 +80,7 @@ from graphclaw.models.type_metadata import (
 # Helpers
 # ---------------------------------------------------------------------------
 
-NOW = datetime(2026, 3, 17, 12, 0, 0, tzinfo=UTC)
+NOW = datetime(2026, 3, 17, 12, 0, 0, tzinfo=timezone.utc)
 
 
 def _task_id(task_type: TaskType, initials: str = "AB") -> str:

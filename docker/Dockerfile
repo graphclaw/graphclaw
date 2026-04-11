@@ -10,7 +10,7 @@ RUN apt-get update && \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy project metadata first to leverage layer caching
-COPY pyproject.toml ./
+COPY pyproject.toml README.md ./
 
 # Install project dependencies (without editable install for the layer)
 RUN pip install --no-cache-dir \
@@ -29,12 +29,16 @@ RUN pip install --no-cache-dir \
     "uvicorn[standard]>=0.34.0" \
     "aiosmtplib>=3.0.0" \
     "PyYAML>=6.0" \
-    "hatchling"
+    "hatchling>=1.21.0" \
+    "httpx>=0.27.0" \
+    "authlib>=1.3.0" \
+    "python-jose[cryptography]>=3.3.0" \
+    "cryptography>=42.0.0"
 
 # Copy source code
 COPY src/ ./src/
 
-# Install the package in editable mode so the graphclaw CLI entry point is available
+# Editable install — volume-mounted src/ is live; --reload picks up changes
 RUN pip install --no-cache-dir -e ".[dev]"
 
 ENTRYPOINT ["graphclaw"]

@@ -12,7 +12,7 @@ lossless.
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 import pytest
 
@@ -29,7 +29,7 @@ from graphclaw.triggers.models import (
 
 
 def _utc(year: int = 2026, month: int = 3, day: int = 18) -> datetime:
-    return datetime(year, month, day, tzinfo=UTC)
+    return datetime(year, month, day, tzinfo=timezone.utc)
 
 
 # ---------------------------------------------------------------------------

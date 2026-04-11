@@ -249,6 +249,8 @@ class AgeGraphStore(GraphStore):
         Returns the edge properties dict (may be empty if no properties set).
         """
         properties = properties or {}
+        # Coerce str-enum to plain string (Python 3.12 __format__ returns "ClassName.member")
+        edge_type = edge_type.value if hasattr(edge_type, "value") else str(edge_type)
         cypher_map = _to_cypher_map(properties)
         esrc = _escape(source_id)
         etgt = _escape(target_id)
@@ -298,8 +300,11 @@ class AgeGraphStore(GraphStore):
         Returns a list of dicts each containing ``start_id``, ``end_id``,
         ``label``, and any edge properties.
         """
-        if edge_type is not None and not _EDGE_TYPE_RE.match(edge_type):
-            raise ValueError(f"Invalid edge_type {edge_type!r}: must match ^[A-Z_]+$")
+        if edge_type is not None:
+            # Coerce str-enum to plain string (Python 3.12 __format__ returns "ClassName.member")
+            edge_type = edge_type.value if hasattr(edge_type, "value") else str(edge_type)
+            if not _EDGE_TYPE_RE.match(edge_type):
+                raise ValueError(f"Invalid edge_type {edge_type!r}: must match ^[A-Z_]+$")
         type_filter = f":{edge_type}" if edge_type else ""
         enid = _escape(node_id)
 

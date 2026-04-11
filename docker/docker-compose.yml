@@ -65,6 +65,20 @@ services:
       timeout: 3s
       retries: 5
 
+  # One-shot service: creates the graphclaw bucket in MinIO on first run
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set local http://minio:9000 graphclaw ${MINIO_PASSWORD:-graphclaw_dev} &&
+        mc mb --ignore-existing local/graphclaw &&
+        echo 'MinIO bucket ready'
+      "
+    restart: "no"
+
   gateway:
     build:
       context: ..
@@ -76,15 +90,21 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
     ports:
       - "8000:8000"
     environment:
+      PYTHONPATH: /app
+      ENVIRONMENT: development
       DATABASE_URL: postgresql://graphclaw:${DB_PASSWORD:-graphclaw_dev}@db:5432/graphclaw
       SECRETS_BACKEND: env_file
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       REDIS_URL: redis://redis:6379
       STORAGE_ENDPOINT_URL: http://minio:9000
       STORAGE_BUCKET: graphclaw
+      AWS_ACCESS_KEY_ID: graphclaw
+      AWS_SECRET_ACCESS_KEY: ${MINIO_PASSWORD:-graphclaw_dev}
       # Gateway channels
       GATEWAY_ENABLED_CHANNELS: ${GATEWAY_ENABLED_CHANNELS:-email}
       # Email channel
@@ -103,6 +123,7 @@ services:
     volumes:
       - ../src:/app/src
       - ../tests:/app/tests
+      - ../infra:/app/infra
     entrypoint: ["python", "-m", "uvicorn"]
     command:
       - "graphclaw.gateway.server:app"
@@ -132,15 +153,20 @@ services:
       minio:
         condition: service_healthy
     environment:
+      PYTHONPATH: /app
+      ENVIRONMENT: development
       DATABASE_URL: postgresql://graphclaw:${DB_PASSWORD:-graphclaw_dev}@db:5432/graphclaw
       SECRETS_BACKEND: env_file
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       REDIS_URL: redis://redis:6379
       STORAGE_ENDPOINT_URL: http://minio:9000
       STORAGE_BUCKET: graphclaw
+      AWS_ACCESS_KEY_ID: graphclaw
+      AWS_SECRET_ACCESS_KEY: ${MINIO_PASSWORD:-graphclaw_dev}
     volumes:
       - ../src:/app/src
       - ../tests:/app/tests
+      - ../infra:/app/infra
     command: ["python", "-m", "pytest", "tests/", "--tb=short", "-q"]
 
 volumes:

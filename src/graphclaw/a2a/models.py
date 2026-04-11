@@ -34,7 +34,7 @@ Dependencies
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -59,7 +59,7 @@ class A2AKeyRef:
     user_id:
         Platform user ID (``USER-{uuid}``) of the user who registered the agent.
     created_at:
-        UTC timestamp when this key was first issued.
+        timezone.utc timestamp when this key was first issued.
     resource_node_id:
         Graph node ID for the ``ResourceNode`` backing this agent registration.
     """
@@ -167,7 +167,7 @@ class A2AKeyRotateResponse(BaseModel):
     plaintext_key:
         The new API key in ``wg_agent_*`` format.  Shown once; never stored.
     rotated_at:
-        UTC timestamp when the rotation was performed.
+        timezone.utc timestamp when the rotation was performed.
     """
 
     key_id: str = Field(..., description="Resource node ID of the agent registration.")
@@ -177,5 +177,5 @@ class A2AKeyRotateResponse(BaseModel):
     )
     rotated_at: datetime = Field(
         ...,
-        description="UTC timestamp when the key was rotated.",
+        description="timezone.utc timestamp when the key was rotated.",
     )

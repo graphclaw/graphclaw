@@ -37,7 +37,7 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from graphclaw.mcp.models import MCPTool, MCPToolCall, MCPToolResult
 from graphclaw.models.enums import MCPTransport, TrustTier
@@ -252,7 +252,7 @@ class MCPClient:
             If ``connect()`` has not been called.
         """
         call_id = str(uuid.uuid4())
-        requested_at = datetime.now(UTC)
+        requested_at = datetime.now(timezone.utc)
 
         call = MCPToolCall(
             call_id=call_id,

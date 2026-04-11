@@ -9,7 +9,7 @@ daily patterns.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 import pytest
 
@@ -22,7 +22,7 @@ from graphclaw.triggers.scheduler import TriggerScheduler
 
 
 def _utc(*args, **kwargs) -> datetime:
-    return datetime(*args, **kwargs, tzinfo=UTC)
+    return datetime(*args, **kwargs, tzinfo=timezone.utc)
 
 
 def _make_config(
@@ -186,7 +186,7 @@ def test_advance_non_cron_trigger_sets_none() -> None:
 
 
 def test_compute_next_cron_daily() -> None:
-    """'0 8 * * *' after 8am should produce next day at 8am UTC."""
+    """'0 8 * * *' after 8am should produce next day at 8am timezone.utc."""
     scheduler = TriggerScheduler()
     after = _utc(2026, 3, 18, 9, 0)  # 9am → already past 8am
     next_fire = scheduler._compute_next_cron("0 8 * * *", after)
@@ -205,11 +205,11 @@ def test_compute_next_cron_invalid_fields() -> None:
     """Non-wildcard day-of-month should raise ValueError."""
     scheduler = TriggerScheduler()
     with pytest.raises(ValueError, match="Unsupported cron expression"):
-        scheduler._compute_next_cron("0 8 1 * *", datetime.now(UTC))
+        scheduler._compute_next_cron("0 8 1 * *", datetime.now(timezone.utc))
 
 
 def test_compute_next_cron_wrong_field_count() -> None:
     """Wrong number of fields should raise ValueError."""
     scheduler = TriggerScheduler()
     with pytest.raises(ValueError, match="expected 5 fields"):
-        scheduler._compute_next_cron("0 8 * *", datetime.now(UTC))
+        scheduler._compute_next_cron("0 8 * *", datetime.now(timezone.utc))

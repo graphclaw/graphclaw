@@ -36,7 +36,7 @@ Dependencies
 - datetime: timedelta.
 - graphclaw.models.enums: ConfidenceLevel.
 - graphclaw.triggers.models: FollowupConfig, FollowUpTiming.
-- graphclaw.models.base: utcnow (timezone-aware UTC timestamp factory).
+- graphclaw.models.base: utcnow (timezone-aware timezone.utc timestamp factory).
 
 Notes
 -----
@@ -52,7 +52,7 @@ the interval by 20 %.  A recency_bonus > 1.0 is permitted but unusual.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from graphclaw.models.base import utcnow
 from graphclaw.models.enums import ConfidenceLevel
@@ -98,15 +98,15 @@ def compute_next_followup(config: FollowupConfig) -> datetime:
     """Return the next follow-up datetime derived from a FollowupConfig.
 
     Calls ``compute_followup_timing`` with the config's parameters and adds the
-    resulting interval to the current UTC time.
+    resulting interval to the current timezone.utc time.
 
     Args:
         config: FollowupConfig carrying the four timing parameters.
 
     Returns:
-        A timezone-aware UTC datetime in the future.
+        A timezone-aware timezone.utc datetime in the future.
     """
-    from datetime import datetime  # noqa: F401 — imported for type hint below
+    from datetime import datetime  # noqa: F401 — imported for type hint below, timezone
 
     days = compute_followup_timing(
         config.base_cadence_days,

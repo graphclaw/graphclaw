@@ -211,4 +211,45 @@ The following review issues are **addressed or resolved** by v1.1 additions (Sec
 
 ---
 
-*End of review notes. All items above are parked for discussion — none are blocking the current draft stage.*
+*End of original review notes. See Phase 4 progress section below.*
+
+---
+
+## Phase 4 Build Progress Update (2026-04-10)
+
+### Implementation Status vs. Review Issues
+
+| Issue | Status | Resolution |
+|-------|--------|------------|
+| **A1** File-based locking race | ✅ Resolved in Phase 3 | `auth/jwt.py` uses Redis jti revocation (atomic); agent state uses GraphStore node-level `version` field via Pydantic optimistic lock |
+| **A2** Container cost at scale | ⬜ Deferred to Phase 5 | Kubernetes/Fargate idle-to-zero in Phase 5 scope; containers are still always-on in local dev |
+| **A3** Polyglot persistence | ✅ Partially resolved | Single Postgres+AGE+pgvector engine; Redis only for pub/sub and jti revocation; no Neo4j/separate graph DB |
+| **A4** SQS naming | ✅ Resolved | `MessageBroker` ABC + `RedisBroker` impl; SQS-specific code removed from core |
+| **A5** Gateway single point of failure | ⬜ Deferred to Phase 5 | Multi-replica gateway behind load balancer in Phase 5 infra |
+| **A6** Rate limiting | ✅ Resolved | Gateway rate limiter (`gateway/rate_limiter.py`) + per-A2A-key limits in `a2a/middleware.py` |
+| **C1** GDPR vs. archive-never-delete | ✅ Resolved in Phase 3 | `compliance/gdpr.py` — PII anonymization on erasure, graph structure preserved |
+| **C3** Learning model | ✅ Resolved in Phase 3 | `models/scoring_weights.py` — EMA weight update on human override signal |
+| **C4** PII handling | ✅ Partially resolved | Log scrubbing (`infra/logger.py`), BYOK keys in SecretsClient; task content PII masking still TODO |
+| **D4** MD schema versioning | ✅ Resolved | `migrations/` runner with `schema_version` stamps |
+| **R1** Slack/Teams | ✅ Resolved in Phase 2 | `channels/slack/` and `channels/teams/` adapters delivered |
+| **R3** Bulk import | ✅ Resolved in Phase 4 | `connectors/import_/jira/`, `connectors/import_/asana/`, `connectors/import_/notion/` |
+| **R4** Calendar integration | ✅ Resolved in Phase 4 | `connectors/calendar/google/`, `connectors/calendar/outlook/` |
+
+### Issues Still Open
+
+| Priority | Count | Issues |
+|----------|-------|--------|
+| HIGH | 2 | A2 (container cost — Phase 5), C4 (task content PII masking — partial) |
+| MEDIUM | 5 | A5 (gateway HA — Phase 5), D1 (decision fatigue scoring), D2 (cross-goal conflict), R2 (LLM degraded mode), C2 (escalation-to-autonomy) |
+| LOW | 2 | C3 resolved, V3 (dropped log counter), V4 (58 principles) |
+
+### Wave 1 API Build (2026-04-10)
+
+The cockpit backend API Wave 1 is complete. Five new files delivered:
+- `api/deps.py` — FastAPI dependency injection for all 6 infrastructure providers + role escalation
+- `api/graph.py` — 11 endpoints (goals, goal tree, tasks CRUD, resources, edges CRUD)
+- `api/scoring.py` — 3 endpoints (score explanation, score history, simulate)
+- `api/state.py` — 3 endpoints (state history, valid transitions, manual transition)
+- `api/events.py` — 1 SSE endpoint (Redis pub/sub, graceful degradation to keepalive)
+
+These 18 endpoints unlock the core cockpit canvas (PRD §02, §08, §12) and real-time task updates.

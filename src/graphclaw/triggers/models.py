@@ -37,7 +37,7 @@ Dependencies
 ------------
 - pydantic: BaseModel, Field.
 - datetime: datetime.
-- graphclaw.models.base: utcnow (timezone-aware UTC timestamp factory).
+- graphclaw.models.base: utcnow (timezone-aware timezone.utc timestamp factory).
 
 Notes
 -----
@@ -48,7 +48,7 @@ callers can check its truthiness without an isinstance guard.  An empty key mean
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 from pydantic import BaseModel, Field

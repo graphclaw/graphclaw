@@ -24,7 +24,7 @@ Dependencies
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
 
 import pytest
@@ -59,7 +59,7 @@ def make_approval_task_dict(
         escalation_target_user_id=target,
         delegated_by_user_id="USER-alice",
     )
-    old_time = datetime.now(UTC) - timedelta(days=days_old)
+    old_time = datetime.now(timezone.utc) - timedelta(days=days_old)
     return {
         "id": "TSK-AB-0002-APR",
         "task_type": TaskType.APPROVAL,

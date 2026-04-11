@@ -40,7 +40,7 @@ from __future__ import annotations
 
 import re
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from graphclaw.gateway.schemas import InboundMessage
@@ -83,11 +83,11 @@ def normalize_teams(payload: dict[str, Any]) -> InboundMessage | None:
             try:
                 # Teams timestamps are ISO 8601; strip trailing Z if present
                 ts_clean = timestamp_str.rstrip("Z").replace("Z", "")
-                received_at = datetime.fromisoformat(ts_clean).replace(tzinfo=UTC)
+                received_at = datetime.fromisoformat(ts_clean).replace(tzinfo=timezone.utc)
             except ValueError:
-                received_at = datetime.now(UTC)
+                received_at = datetime.now(timezone.utc)
         else:
-            received_at = datetime.now(UTC)
+            received_at = datetime.now(timezone.utc)
 
         # Extract channel ID from channelData if available
         channel_data = payload.get("channelData", {})

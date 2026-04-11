@@ -18,7 +18,7 @@ License: Apache 2.0
 from __future__ import annotations
 
 import dataclasses
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 import pytest
 
@@ -206,8 +206,8 @@ class TestConnectorConfig:
 class TestCalendarEvent:
     """Tests for the CalendarEvent frozen dataclass."""
 
-    _now = datetime(2024, 1, 15, 10, 0, tzinfo=UTC)
-    _later = datetime(2024, 1, 15, 11, 0, tzinfo=UTC)
+    _now = datetime(2024, 1, 15, 10, 0, tzinfo=timezone.utc)
+    _later = datetime(2024, 1, 15, 11, 0, tzinfo=timezone.utc)
 
     def _make_event(self, **kwargs) -> CalendarEvent:
         defaults = dict(
@@ -228,7 +228,7 @@ class TestCalendarEvent:
     def test_frozen_cannot_mutate_start(self) -> None:
         """CalendarEvent.start should be immutable."""
         event = self._make_event()
-        new_dt = datetime(2024, 1, 20, 9, 0, tzinfo=UTC)
+        new_dt = datetime(2024, 1, 20, 9, 0, tzinfo=timezone.utc)
         with pytest.raises((dataclasses.FrozenInstanceError, TypeError)):
             event.start = new_dt  # type: ignore[misc]
 
@@ -270,8 +270,8 @@ class TestFreeBusySlot:
     def test_frozen(self) -> None:
         """FreeBusySlot should be immutable."""
         slot = FreeBusySlot(
-            start=datetime(2024, 1, 15, 9, 0, tzinfo=UTC),
-            end=datetime(2024, 1, 15, 10, 0, tzinfo=UTC),
+            start=datetime(2024, 1, 15, 9, 0, tzinfo=timezone.utc),
+            end=datetime(2024, 1, 15, 10, 0, tzinfo=timezone.utc),
             status="busy",
         )
         with pytest.raises((dataclasses.FrozenInstanceError, TypeError)):
@@ -280,8 +280,8 @@ class TestFreeBusySlot:
     def test_status_values(self) -> None:
         """All three status values should be storable."""
         base = dict(
-            start=datetime(2024, 1, 15, 9, 0, tzinfo=UTC),
-            end=datetime(2024, 1, 15, 10, 0, tzinfo=UTC),
+            start=datetime(2024, 1, 15, 9, 0, tzinfo=timezone.utc),
+            end=datetime(2024, 1, 15, 10, 0, tzinfo=timezone.utc),
         )
         for status in ("busy", "free", "tentative"):
             slot = FreeBusySlot(status=status, **base)
@@ -330,7 +330,7 @@ class TestImportBatch:
             items=[],
             source_system="jira",
             project_id="PROJ",
-            fetched_at=datetime.now(tz=UTC),
+            fetched_at=datetime.now(tz=timezone.utc),
         )
         assert batch.has_more is False
 
@@ -340,7 +340,7 @@ class TestImportBatch:
             items=[],
             source_system="jira",
             project_id="PROJ",
-            fetched_at=datetime.now(tz=UTC),
+            fetched_at=datetime.now(tz=timezone.utc),
         )
         assert batch.next_cursor is None
 
@@ -350,7 +350,7 @@ class TestImportBatch:
             items=[],
             source_system="jira",
             project_id="PROJ",
-            fetched_at=datetime.now(tz=UTC),
+            fetched_at=datetime.now(tz=timezone.utc),
             next_cursor="100",
             has_more=True,
         )
@@ -364,7 +364,7 @@ class TestImportBatch:
             items=[item],
             source_system="asana",
             project_id="proj-abc",
-            fetched_at=datetime.now(tz=UTC),
+            fetched_at=datetime.now(tz=timezone.utc),
         )
         assert len(batch.items) == 1
         assert batch.items[0] is item
@@ -375,7 +375,7 @@ class TestImportBatch:
             items=[],
             source_system="notion",
             project_id="db-xyz",
-            fetched_at=datetime.now(tz=UTC),
+            fetched_at=datetime.now(tz=timezone.utc),
         )
         batch.has_more = True
         batch.next_cursor = "next-page-token"

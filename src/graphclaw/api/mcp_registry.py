@@ -3,7 +3,8 @@
 Description
 -----------
 Provides REST endpoints for registering and managing MCP servers in the user's
-personal MCP Registry.
+personal MCP Registry.  Server metadata is persisted as ``MCPServerNode``
+vertices in the graph database.
 
 Endpoints
 ---------
@@ -18,9 +19,17 @@ All endpoints require a valid Bearer access token.
 
 Design Patterns
 ---------------
-- Stub storage: A module-level dict simulates per-user MCP server registries
-  until the graph store integration is implemented.
-- MCP-prefixed IDs: Server IDs follow the ``MCP-<hex>`` pattern matching the
+- MCPRegistry delegation: All node CRUD is routed through ``MCPRegistry``,
+  which manages ``MCPServerNode`` vertices and ``GRANTS_ACCESS_TO_MCP`` edges.
+- OfficialMCPRegistry search: The ``/search`` endpoint queries the live
+  registry at ``registry.modelcontextprotocol.io`` via ``OfficialMCPRegistry``.
+  It degrades gracefully to an empty list if the upstream is unreachable.
+- Ownership validation: ``get_mcp_server``, ``update_mcp_server``, and
+  ``delete_mcp_server`` verify ownership via the MCPRegistry's per-user edge
+  before allowing modifications.
+- TrustTier guard: ``MCPRegistry.update_trust`` enforces the BLOCKED → AUTO
+  escalation guard (must go through GATED first).
+- MCP-prefixed IDs: Server IDs follow ``MCP-[\w-]+`` matching the
   ``MCPServerNode`` validator.
 
 Public API
@@ -29,33 +38,36 @@ Public API
 
 Dependencies
 ------------
-- graphclaw.auth.middleware: require_auth.
-- fastapi: APIRouter, Depends, HTTPException, Query, status (third-party).
+- graphclaw.api.deps: CurrentUserDep, MCPRegistryDep.
+- graphclaw.mcp.official_registry: OfficialMCPRegistry.
+- graphclaw.models.enums: MCPTransport, TrustTier.
+- graphclaw.models.nodes: MCPServerNode.
+- graphclaw.models.base: generate_mcp_server_id.
+- fastapi: APIRouter, HTTPException, Query, status (third-party).
 - pydantic: BaseModel (third-party).
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel
 
-from graphclaw.auth.middleware import require_auth
+from graphclaw.api.deps import CurrentUserDep, GraphStoreDep, MCPRegistryDep
+from graphclaw.mcp.official_registry import OfficialMCPRegistry
+from graphclaw.models.base import utcnow
+from graphclaw.models.enums import MCPTransport, TrustTier
+from graphclaw.models.nodes import MCPServerNode
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/mcp-servers", tags=["app-api"])
 
-# ── Stub in-memory storage ─────────────────────────────────────────────────────
-
-# user_id -> list of MCP server dicts
-_mcp_servers: dict[str, list[dict[str, Any]]] = {}
-
-
-# ── Request / Response models ──────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Request / Response models
+# ---------------------------------------------------------------------------
 
 
 class MCPServerEntry(BaseModel):
@@ -93,10 +105,14 @@ class MCPRegistrySearchResult(BaseModel):
     name: str
     description: str
     transport: str
-    official: bool = False
+    publisher: str = ""
+    version: str = ""
+    official: bool = True
 
 
-# ── Routes ─────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
 
 
 @router.get(
@@ -104,13 +120,15 @@ class MCPRegistrySearchResult(BaseModel):
     response_model=list[MCPServerEntry],
     status_code=status.HTTP_200_OK,
     summary="List registered MCP servers",
-    description="Return all MCP servers registered for the authenticated user.",
+    description="Return all MCP servers registered for the authenticated user (enabled and disabled).",
 )
 async def list_mcp_servers(
-    user_id: str = Depends(require_auth),
+    user_id: CurrentUserDep,
+    mcp_registry: MCPRegistryDep,
 ) -> list[MCPServerEntry]:
-    servers = _mcp_servers.get(user_id, [])
-    return [MCPServerEntry(**s) for s in servers]
+    """List all MCP servers for the authenticated user."""
+    servers = await mcp_registry.list_for_user(user_id, enabled_only=False)
+    return [_node_to_entry(s) for s in servers]
 
 
 @router.post(
@@ -122,26 +140,45 @@ async def list_mcp_servers(
 )
 async def register_mcp_server(
     body: MCPServerRegisterRequest,
-    user_id: str = Depends(require_auth),
+    user_id: CurrentUserDep,
+    mcp_registry: MCPRegistryDep,
 ) -> MCPServerEntry:
+    """Register a new MCP server for the authenticated user."""
+    try:
+        transport = MCPTransport(body.transport)
+    except ValueError:
+        valid = [t.value for t in MCPTransport]
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid transport '{body.transport}'. Valid values: {valid}",
+        )
+
+    try:
+        trust_tier = TrustTier(body.trust_tier)
+    except ValueError:
+        valid_tiers = [t.value for t in TrustTier]
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid trust_tier '{body.trust_tier}'. Valid values: {valid_tiers}",
+        )
+
+    now = utcnow()
     server_id = f"MCP-{uuid4().hex[:12]}"
-    entry: dict[str, Any] = {
-        "server_id": server_id,
-        "name": body.name,
-        "transport": body.transport,
-        "endpoint_url": body.endpoint_url,
-        "trust_tier": body.trust_tier,
-        "scope": list(body.scope),
-        "enabled": True,
-    }
-    _mcp_servers.setdefault(user_id, []).append(entry)
-    logger.info(
-        "mcp-servers: registered '%s' (%s) for user_id=%s",
-        body.name,
-        server_id,
-        user_id,
+    node = MCPServerNode(
+        id=server_id,
+        name=body.name,
+        transport=transport,
+        endpoint_url=body.endpoint_url,
+        trust_tier=trust_tier,
+        scope=list(body.scope),
+        enabled=True,
+        created_at=now,
+        updated_at=now,
+        version=0,
     )
-    return MCPServerEntry(**entry)
+    await mcp_registry.register(user_id, node)
+    logger.info("mcp-servers: registered '%s' (%s) for user_id=%s", body.name, server_id, user_id)
+    return _node_to_entry(node)
 
 
 @router.get(
@@ -150,46 +187,34 @@ async def register_mcp_server(
     status_code=status.HTTP_200_OK,
     summary="Search the official MCP registry",
     description=(
-        "Search for available MCP servers in the official registry by name "
-        "or description.  Stub implementation returns an empty list until the "
-        "official MCP registry client is integrated."
+        "Search for available MCP servers in the official registry at "
+        "registry.modelcontextprotocol.io.  Returns an empty list if the "
+        "upstream registry is unreachable."
     ),
 )
 async def search_mcp_registry(
+    user_id: CurrentUserDep,  # noqa: ARG001 — required for auth
     q: str = Query(default="", description="Search query string"),
-    user_id: str = Depends(require_auth),  # noqa: ARG001
+    limit: int = Query(default=10, ge=1, le=50, description="Maximum results to return"),
 ) -> list[MCPRegistrySearchResult]:
-    """Search the official MCP registry.
-
-    Stub — full integration with the official registry will be added in a
-    future phase.  Returns the three pre-built adapters when ``q`` is empty
-    or matches.
-    """
-    prebuilt = [
-        MCPRegistrySearchResult(
-            name="google_calendar",
-            description="Google Calendar API via OAuth2",
-            transport="sse",
-            official=True,
-        ),
-        MCPRegistrySearchResult(
-            name="github",
-            description="GitHub REST API v3 via Personal Access Token",
-            transport="http",
-            official=True,
-        ),
-        MCPRegistrySearchResult(
-            name="slack",
-            description="Slack API via Bot Token",
-            transport="http",
-            official=True,
-        ),
-    ]
-    if q:
-        prebuilt = [
-            r for r in prebuilt if q.lower() in r.name.lower() or q.lower() in r.description.lower()
+    """Search the official MCP registry."""
+    try:
+        async with OfficialMCPRegistry() as reg:
+            listings = await reg.search(query=q, limit=limit)
+        return [
+            MCPRegistrySearchResult(
+                name=li.name,
+                description=li.description,
+                transport=li.transport,
+                publisher=getattr(li, "publisher", ""),
+                version=getattr(li, "version", ""),
+                official=True,
+            )
+            for li in listings
         ]
-    return prebuilt
+    except Exception as exc:
+        logger.warning("mcp-servers: official registry search failed: %s", exc)
+        return []
 
 
 @router.get(
@@ -201,16 +226,20 @@ async def search_mcp_registry(
 )
 async def get_mcp_server(
     server_id: str,
-    user_id: str = Depends(require_auth),
+    user_id: CurrentUserDep,
+    mcp_registry: MCPRegistryDep,
 ) -> MCPServerEntry:
-    servers = _mcp_servers.get(user_id, [])
-    for server in servers:
-        if server.get("server_id") == server_id:
-            return MCPServerEntry(**server)
-    raise HTTPException(
-        status_code=status.HTTP_404_NOT_FOUND,
-        detail=f"MCP server '{server_id}' not found",
-    )
+    """Return a specific MCP server belonging to the authenticated user."""
+    node = await mcp_registry.get(server_id)
+    if node is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"MCP server '{server_id}' not found")
+
+    # Verify ownership via the user's edge list
+    user_servers = await mcp_registry.list_for_user(user_id, enabled_only=False)
+    if not any(s.id == server_id for s in user_servers):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"MCP server '{server_id}' not found")
+
+    return _node_to_entry(node)
 
 
 @router.patch(
@@ -218,44 +247,208 @@ async def get_mcp_server(
     response_model=MCPServerEntry,
     status_code=status.HTTP_200_OK,
     summary="Update MCP server trust tier or enabled status",
-    description="Partially update a registered MCP server's trust tier or enabled flag.",
+    description=(
+        "Partially update a registered MCP server's trust tier or enabled flag.  "
+        "Note: BLOCKED servers cannot be promoted directly to AUTO — set to GATED first."
+    ),
 )
 async def update_mcp_server(
     server_id: str,
     body: MCPServerPatchRequest,
-    user_id: str = Depends(require_auth),
+    user_id: CurrentUserDep,
+    mcp_registry: MCPRegistryDep,
 ) -> MCPServerEntry:
-    servers = _mcp_servers.get(user_id, [])
-    for server in servers:
-        if server.get("server_id") == server_id:
-            if body.trust_tier is not None:
-                server["trust_tier"] = body.trust_tier
-            if body.enabled is not None:
-                server["enabled"] = body.enabled
-            logger.debug("mcp-servers: updated '%s' for user_id=%s", server_id, user_id)
-            return MCPServerEntry(**server)
-    raise HTTPException(
-        status_code=status.HTTP_404_NOT_FOUND,
-        detail=f"MCP server '{server_id}' not found",
-    )
+    """Update trust tier or enabled status for an MCP server."""
+    # Verify ownership
+    user_servers = await mcp_registry.list_for_user(user_id, enabled_only=False)
+    if not any(s.id == server_id for s in user_servers):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"MCP server '{server_id}' not found")
+
+    if body.trust_tier is not None:
+        try:
+            new_tier = TrustTier(body.trust_tier)
+        except ValueError:
+            valid_tiers = [t.value for t in TrustTier]
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Invalid trust_tier '{body.trust_tier}'. Valid values: {valid_tiers}",
+            )
+        try:
+            node = await mcp_registry.update_trust(server_id, new_tier)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+    else:
+        node = await mcp_registry.get(server_id)
+
+    if body.enabled is not None and node is not None:
+        if body.enabled:
+            await mcp_registry.enable(server_id)
+        else:
+            await mcp_registry.disable(server_id)
+        node = await mcp_registry.get(server_id)
+
+    if node is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"MCP server '{server_id}' not found")
+
+    logger.debug("mcp-servers: updated '%s' for user_id=%s", server_id, user_id)
+    return _node_to_entry(node)
 
 
 @router.delete(
     "/{server_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Deregister an MCP server",
-    description="Remove a registered MCP server from the user's personal registry.",
+    description=(
+        "Remove a registered MCP server from the user's personal registry.  "
+        "If the server has a secret_ref, the associated credential is also deleted."
+    ),
 )
 async def delete_mcp_server(
     server_id: str,
-    user_id: str = Depends(require_auth),
+    user_id: CurrentUserDep,
+    mcp_registry: MCPRegistryDep,
 ) -> None:
-    servers = _mcp_servers.get(user_id, [])
-    original_len = len(servers)
-    servers[:] = [s for s in servers if s.get("server_id") != server_id]
-    if len(servers) == original_len:
+    """Deregister an MCP server from the authenticated user's registry."""
+    # Verify ownership
+    user_servers = await mcp_registry.list_for_user(user_id, enabled_only=False)
+    if not any(s.id == server_id for s in user_servers):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"MCP server '{server_id}' not found")
+
+    await mcp_registry.deregister(server_id)
+    logger.info("mcp-servers: deregistered '%s' for user_id=%s", server_id, user_id)
+
+
+# ---------------------------------------------------------------------------
+# Mapping helpers
+# ---------------------------------------------------------------------------
+
+
+def _node_to_entry(node: MCPServerNode) -> MCPServerEntry:
+    """Map an ``MCPServerNode`` to an ``MCPServerEntry`` response."""
+    return MCPServerEntry(
+        server_id=node.id,
+        name=node.name,
+        transport=node.transport.value if hasattr(node.transport, "value") else str(node.transport),
+        endpoint_url=node.endpoint_url,
+        trust_tier=node.trust_tier.value if hasattr(node.trust_tier, "value") else str(node.trust_tier),
+        scope=list(node.scope),
+        enabled=node.enabled,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Wave 5 — Tools listing and MCP approvals
+# Note: These routes live on a *separate* router to avoid prefix collision with
+# /mcp-servers/{server_id} vs /mcp-approvals (different prefix).
+# ---------------------------------------------------------------------------
+
+mcp_approvals_router = APIRouter(prefix="/mcp-approvals", tags=["app-api"])
+
+
+class MCPToolOut(BaseModel):
+    """A single tool exposed by an MCP server."""
+
+    name: str
+    description: str = ""
+    input_schema: dict = {}
+    server_id: str
+
+
+class MCPApprovalOut(BaseModel):
+    """A pending MCP tool-call approval task."""
+
+    task_id: str
+    task_type: str = "APPROVAL"
+    state: str
+    assigned_to: str
+    title: str = ""
+    created_at: str | None = None
+
+
+@router.get(
+    "/{server_id}/tools",
+    response_model=list[MCPToolOut],
+    status_code=status.HTTP_200_OK,
+    summary="List MCP server tools",
+    description=(
+        "Return the tools advertised by the registered MCP server.  Attempts "
+        "a live connection and degrades gracefully to an empty list if the "
+        "server is unreachable."
+    ),
+)
+async def list_mcp_server_tools(
+    server_id: str,
+    user_id: CurrentUserDep,
+    mcp_registry: MCPRegistryDep,
+) -> list[MCPToolOut]:
+    """List tools from the specified MCP server; gracefully handles failures."""
+    # Verify ownership / existence
+    user_servers = await mcp_registry.list_for_user(user_id, enabled_only=False)
+    server_node = next((s for s in user_servers if s.id == server_id), None)
+    if server_node is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"MCP server '{server_id}' not found",
         )
-    logger.info("mcp-servers: deregistered '%s' for user_id=%s", server_id, user_id)
+
+    # Attempt live connection to list tools
+    try:
+        from graphclaw.mcp.client import MCPClient
+
+        client = MCPClient()
+        await client.connect(server_node)
+        try:
+            tools = await client.list_tools()
+        finally:
+            await client.disconnect()
+        return [
+            MCPToolOut(
+                name=t.name,
+                description=t.description,
+                input_schema=t.input_schema,
+                server_id=t.server_id,
+            )
+            for t in tools
+        ]
+    except Exception as exc:
+        logger.warning(
+            "mcp-servers: tools list failed for server_id=%s: %s",
+            server_id,
+            exc,
+        )
+        return []
+
+
+@mcp_approvals_router.get(
+    "",
+    response_model=list[MCPApprovalOut],
+    status_code=status.HTTP_200_OK,
+    summary="List pending MCP approvals",
+    description=(
+        "Return all pending MCP tool-call approval tasks for the authenticated user."
+    ),
+)
+async def list_mcp_approvals(
+    user_id: CurrentUserDep,
+    graph_store: GraphStoreDep,
+) -> list[MCPApprovalOut]:
+    """List APPROVAL tasks for MCP tool calls pending user review."""
+    from graphclaw.mcp.approval import GatedApprovalService
+
+    service = GatedApprovalService(graph_store=graph_store)
+    try:
+        raw_tasks = await service.get_pending_approvals(user_id)
+    except Exception as exc:
+        logger.warning("mcp-approvals: fetch failed: %s", exc)
+        return []
+
+    return [
+        MCPApprovalOut(
+            task_id=t.get("id", ""),
+            state=t.get("state", "PENDING"),
+            assigned_to=t.get("assigned_to", user_id),
+            title=t.get("title", ""),
+            created_at=str(t["created_at"]) if t.get("created_at") else None,
+        )
+        for t in raw_tasks
+    ]

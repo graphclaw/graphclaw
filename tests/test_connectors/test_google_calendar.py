@@ -17,7 +17,7 @@ License: Apache 2.0
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -102,8 +102,8 @@ class TestGoogleEventToCalendarEvent:
     def test_start_end_datetimes_parsed(self) -> None:
         """Start and end dateTime strings should be parsed to datetime objects."""
         event = _google_event_to_calendar_event(_GOOGLE_EVENT_RAW)
-        assert event.start == datetime(2024, 3, 1, 9, 0, tzinfo=UTC)
-        assert event.end == datetime(2024, 3, 1, 9, 30, tzinfo=UTC)
+        assert event.start == datetime(2024, 3, 1, 9, 0, tzinfo=timezone.utc)
+        assert event.end == datetime(2024, 3, 1, 9, 30, tzinfo=timezone.utc)
 
     def test_attendees_extracted(self) -> None:
         """Attendee email addresses should be extracted into a list."""
@@ -137,8 +137,8 @@ class TestGoogleEventToCalendarEvent:
 class TestCalendarEventToGoogleBody:
     """Tests for the CalendarEvent→Google API body mapping function."""
 
-    _now = datetime(2024, 3, 1, 9, 0, tzinfo=UTC)
-    _later = datetime(2024, 3, 1, 9, 30, tzinfo=UTC)
+    _now = datetime(2024, 3, 1, 9, 0, tzinfo=timezone.utc)
+    _later = datetime(2024, 3, 1, 9, 30, tzinfo=timezone.utc)
 
     def _make_event(self, **kwargs) -> CalendarEvent:
         defaults = dict(event_id=None, title="Meeting", start=self._now, end=self._later)
@@ -206,8 +206,8 @@ class TestCalendarEventToGoogleBody:
 class TestGoogleCalendarConnectorListEvents:
     """Tests for GoogleCalendarConnector.list_events with mocked API calls."""
 
-    _since = datetime(2024, 3, 1, 0, 0, tzinfo=UTC)
-    _until = datetime(2024, 3, 31, 23, 59, tzinfo=UTC)
+    _since = datetime(2024, 3, 1, 0, 0, tzinfo=timezone.utc)
+    _until = datetime(2024, 3, 31, 23, 59, tzinfo=timezone.utc)
 
     @pytest.mark.asyncio
     async def test_list_events_maps_response_correctly(self) -> None:
@@ -285,8 +285,8 @@ class TestGoogleCalendarConnectorListEvents:
 class TestGoogleCalendarConnectorCreateEvent:
     """Tests for GoogleCalendarConnector.create_event with mocked API calls."""
 
-    _now = datetime(2024, 3, 1, 9, 0, tzinfo=UTC)
-    _later = datetime(2024, 3, 1, 9, 30, tzinfo=UTC)
+    _now = datetime(2024, 3, 1, 9, 0, tzinfo=timezone.utc)
+    _later = datetime(2024, 3, 1, 9, 30, tzinfo=timezone.utc)
 
     def _make_event(self, **kwargs) -> CalendarEvent:
         defaults = dict(

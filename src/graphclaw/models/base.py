@@ -39,7 +39,7 @@ Public API
 - generate_workspace_id: Generate a WS-{uuid} ID.
 - generate_grant_id: Generate a GRANT-{uuid} ID.
 - generate_mcp_server_id: Generate an MCP-{short_uuid} ID.
-- utcnow: Return the current UTC datetime (timezone-aware).
+- utcnow: Return the current timezone.utc datetime (timezone-aware).
 - validate_id: Generic ID validator (pattern + entity name).
 - validate_task_id / validate_*_id: Thin wrappers around validate_id for Pydantic field_validator use.
 - validate_grant_id: Thin wrapper for visibility grant ID validation.
@@ -55,7 +55,7 @@ from __future__ import annotations
 
 import re
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -199,8 +199,8 @@ def generate_mcp_server_id() -> str:
 
 
 def utcnow() -> datetime:
-    """Return the current UTC datetime (timezone-aware)."""
-    return datetime.now(UTC)
+    """Return the current timezone.utc datetime (timezone-aware)."""
+    return datetime.now(timezone.utc)
 
 
 # ---------------------------------------------------------------------------

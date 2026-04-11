@@ -18,7 +18,7 @@ License: Apache 2.0
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -171,7 +171,7 @@ class TestRawIssueToImportItem:
     def test_due_date_parsed(self) -> None:
         """Due date string should be parsed into a datetime."""
         item = _raw_issue_to_import_item(_JIRA_ISSUE_RAW, _SERVER_URL)
-        assert item.due_date == datetime(2024, 4, 1, tzinfo=UTC)
+        assert item.due_date == datetime(2024, 4, 1, tzinfo=timezone.utc)
 
     def test_labels_include_labels_and_components(self) -> None:
         """Both Jira labels and component names should appear in ImportItem.labels."""
@@ -318,15 +318,15 @@ class TestJiraImportConnectorFetchItems:
 
     @pytest.mark.asyncio
     async def test_fetch_items_includes_fetched_at_timestamp(self) -> None:
-        """ImportBatch.fetched_at should be a recent UTC datetime."""
+        """ImportBatch.fetched_at should be a recent timezone.utc datetime."""
         connector = _make_connector()
         connector._client.post = AsyncMock(
             return_value=self._make_mock_response(_JIRA_SEARCH_RESPONSE)
         )
 
-        before = datetime.now(tz=UTC)
+        before = datetime.now(tz=timezone.utc)
         batch = await connector.fetch_items("PROJ")
-        after = datetime.now(tz=UTC)
+        after = datetime.now(tz=timezone.utc)
 
         assert before <= batch.fetched_at <= after
 
@@ -346,7 +346,7 @@ class TestJiraImportConnectorToTaskNodes:
             description="Users cannot log in",
             status="in_progress",
             priority="high",
-            due_date=datetime(2024, 4, 1, tzinfo=UTC),
+            due_date=datetime(2024, 4, 1, tzinfo=timezone.utc),
             assignee="Alice Smith",
             labels=["mobile", "auth"],
             url=f"{_SERVER_URL}/browse/PROJ-1",
@@ -398,7 +398,7 @@ class TestJiraImportConnectorToTaskNodes:
     async def test_due_date_preserved(self) -> None:
         """due_date should be preserved (including None)."""
         connector = _make_connector()
-        due = datetime(2024, 6, 1, tzinfo=UTC)
+        due = datetime(2024, 6, 1, tzinfo=timezone.utc)
         item = self._make_item(due_date=due)
         result = await connector.to_task_nodes([item])
         assert result[0]["due_date"] == due
