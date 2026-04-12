@@ -83,9 +83,15 @@ class TaskResolver:
     HIGH_THRESHOLD: float = 0.7
     MEDIUM_THRESHOLD: float = 0.4
 
-    def __init__(self, graph_repo: object | None = None, pool: object | None = None) -> None:
+    def __init__(
+        self,
+        graph_repo: object | None = None,
+        pool: object | None = None,
+        embedding_client: object | None = None,
+    ) -> None:
         self._repo = graph_repo
         self._pool = pool
+        self._embedding_client = embedding_client
 
     async def resolve(self, message_text: str, subject: str = "") -> TaskResolution:
         """Run the full resolution pipeline on *message_text* and *subject*.
@@ -155,8 +161,8 @@ class TaskResolver:
     async def _vector_search(self, body: str, subject: str) -> TaskResolution:
         """Query pgvector for the nearest-neighbour task to *body* + *subject*.
 
-        Builds an embedding text from the subject and the first 500 characters
-        of the body, then queries the ``task_embeddings`` table using cosine
+        Builds an embedding text from the subject and the first 300 characters
+        of the body, then queries the ``node_embeddings`` table using cosine
         similarity (``<=>`` operator). Confidence is assigned based on the
         similarity score against ``HIGH_THRESHOLD`` and ``MEDIUM_THRESHOLD``.
 
@@ -170,58 +176,61 @@ class TaskResolver:
             MEDIUM threshold.
 
         Notes:
-            This method provides the SQL template and threshold logic. A
-            production deployment must supply the embedding vector for
-            ``embedding_text`` (via an embedding API call) before passing it
-            as ``$1``. Currently returns an unmatched result because no
-            embedding model is wired up.
+            Backward compatible: if no ``embedding_client`` was provided at
+            construction, returns an unmatched ``TaskResolution``.
         """
-        embedding_text = f"{subject or ''} {body[:500]}".strip()
+        embedding_text = f"{subject or ''} {body[:300]}".strip()
         if not embedding_text:
             return TaskResolution()
 
-        # Embedding SQL template (requires a real embedding vector as $1):
-        # SELECT task_id, title,
-        #        1 - (embedding <=> $1::vector) AS similarity
-        # FROM task_embeddings
-        # ORDER BY embedding <=> $1::vector
-        # LIMIT 1
-        #
-        # Real implementation would call an embedding model, then:
-        #   async with self._pool.connection() as conn:
-        #       row = await conn.fetchrow(sql, embedding_vector)
-        #
-        # For now, attempt the query with a no-op and return unmatched.
+        # Backward compatibility: skip vector search if no embedding client.
+        if self._embedding_client is None:
+            return TaskResolution()
+
         try:
+            # Generate embedding for the search query.
+            embedding_vector = await self._embedding_client.embed(embedding_text)  # type: ignore[union-attr]
+
             async with self._pool.connection() as conn:  # type: ignore[union-attr]
                 row = await conn.fetchrow(
                     """
-                    SELECT task_id, title,
-                           1 - (embedding <=> $1::vector) AS similarity
-                    FROM task_embeddings
-                    ORDER BY embedding <=> $1::vector
+                    SELECT node_id, embedding,
+                           1 - (embedding <=> %s::vector) AS similarity
+                    FROM node_embeddings
+                    ORDER BY embedding <=> %s::vector
                     LIMIT 1
                     """,
-                    None,  # placeholder — real impl must supply embedding vector
+                    (embedding_vector, embedding_vector),
                 )
                 if row is None:
                     return TaskResolution()
                 similarity: float = float(row["similarity"])
+                task_id = row["node_id"]
+                # Fetch task title for matched_text (fallback to task_id if unavailable).
+                matched_text = task_id
+                if self._repo is not None:
+                    try:
+                        node = await self._repo.get_node(task_id)  # type: ignore[union-attr]
+                        if node:
+                            matched_text = node.get("title", task_id)
+                    except Exception:
+                        pass
+
                 if similarity >= self.HIGH_THRESHOLD:
                     return TaskResolution(
-                        task_id=row["task_id"],
+                        task_id=task_id,
                         matched_by=MatchedBy.VECTOR_SEARCH,
                         confidence=ConfidenceLevel.HIGH,
                         score=similarity,
-                        matched_text=row["title"],
+                        matched_text=matched_text,
                     )
                 if similarity >= self.MEDIUM_THRESHOLD:
                     return TaskResolution(
-                        task_id=row["task_id"],
+                        task_id=task_id,
                         matched_by=MatchedBy.VECTOR_SEARCH,
                         confidence=ConfidenceLevel.MEDIUM,
                         score=similarity,
-                        matched_text=row["title"],
+                        matched_text=matched_text,
                     )
         except Exception:
             pass

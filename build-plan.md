@@ -195,7 +195,59 @@
 
 ---
 
-### Phase 5 — Scale, Observability, Enterprise (Weeks 37-48)
+### Phase 4.5 — Intelligence Layer (Weeks 37-40) ✅ COMPLETE
+
+**Status:** Delivered. 1567 unit tests passing (57 new tests added in Phase 4.5). See `WS-P45-F-SUMMARY.md` and `verify_changes.py` / `verify_ws_p45_f.py` for verification.
+
+**Goal:** Close the context gap — every task node accumulates a communication log across all channels; every inbound message from any channel is classified and routed to the correct node or Betty's memory; Betty's agent actions and all communication events are durably logged to MinIO/S3 in a PII-safe structured format.
+
+**Design doc:** `docs/architecture/intelligence-layer.md`  
+**PRD sections:** 36 (Node Intelligence Layer), 37 (Embedding Pipeline)  
+**Test scenarios:** 5–9 in `docs/test-scenarios.md`
+
+**Dependencies:** Phase 4 complete, Docker stack running (gateway + MinIO + Redis + DB), `OPENAI_API_KEY` for embeddings.
+
+**Workstreams and agent assignments:**
+
+| ID | Workstream | Agent | Files | Phase order |
+|----|-----------|-------|-------|-------------|
+| WS-P45-A | Embedding Pipeline | `ws-a-database` + `ws-i-storage-logging` | `infra/embeddings.py` (new), `db/age/repository.py`, `inbound/resolver.py` | **First — prerequisite** |
+| WS-P45-B | Structured Log Sink | `ws-i-storage-logging` | `infra/logger.py`, `gateway/deps.py` | Parallel with A |
+| WS-P45-C | Node Intelligence Field | `ws-b-models` + `ws-a-database` | `models/nodes.py`, `db/age/repository.py` | Parallel with A+B |
+| WS-P45-D | InboundIntelligenceAgent | `ws-j-inbound-protocol` | `inbound/intelligence_agent.py` (new) | After A+C |
+| WS-P45-E | Event Consumer wiring + direct INBOUND consumer | `ws-e-cli-agent` | `agent/event_consumer.py`, `gateway/app.py` | After D |
+| WS-P45-F | AgentLoop: logger + graph summary + check_inbox tool | `ws-e-cli-agent` | `agent/loop.py` | After B+C |
+| WS-P45-G | Outbound intelligence logging + CheckinNode wiring | `ws-e-cli-agent` | `agent/event_consumer.py`, `db/age/repository.py` | After D+E |
+| WS-P45-H | Inbox summarize-and-archive + storage paths | `ws-i-storage-logging` | `infra/storage.py`, `agent/event_consumer.py` | After E |
+
+**Build order:**
+```
+Wave 1 (parallel): WS-P45-A (embeddings), WS-P45-B (log sink), WS-P45-C (node intelligence model)
+Wave 2 (parallel): WS-P45-D (InboundIntelligenceAgent), WS-P45-F (AgentLoop tool)
+Wave 3 (parallel): WS-P45-E (event consumer wiring), WS-P45-G (outbound logging), WS-P45-H (inbox)
+```
+
+**Key deliverables:**
+1. `EmbeddingClient` + embedding generation on task create/update + `TaskResolver` vector search wired ✓
+2. `AsyncLogger` MinIO/S3 sink with `min_level` filter and PII-safe allowlist event models ✓
+3. `intelligence: str | None` field on `TaskNode` + `GoalNode`; graph update helpers ✓
+4. `InboundIntelligenceAgent` with three-tier resolution waterfall (thread → task ID → vector) ✓
+5. Direct `INBOUND_MESSAGES` consumer in `AgentEventConsumer` (bypasses missing TriggerEngine in local dev) ✓
+6. Fixed `InboundProcessor` instantiation (broken since Phase 1) ✓
+7. Outbound intelligence log + `CheckinNode` creation + Redis checkin key + reply linking ✓
+8. Inbox two-track storage (`recent/` compact + `archive/` full) + `check_inbox` tool for Betty ✓
+9. Unmatched inbound → Betty asks user for direction ✓
+10. Structured JSONL logs in `{user_id}/logs/` + `_system/logs/` — CloudWatch-ingestible ✓
+
+**Scope explicitly excluded:**
+- GoalNode intelligence auto-update from inbound (goals not matched by InboundProcessor — deferred)
+- `link_message_to_task` tool (Betty can ask user; tool to action response deferred)
+- LLM re-consolidation of intelligence field when > 500 words (deferred — simple truncation in Phase 4.5)
+- MinIO SSE-KMS encryption for archive/ entries (required for production, deferred to Phase 5)
+
+---
+
+### Phase 5 — Scale, Observability, Enterprise (Weeks 41-52)
 
 **Goal:** Production hardening at 1,000+ users, full observability stack, enterprise features, compliance.
 

@@ -120,6 +120,8 @@ services:
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_USE_WEBHOOK: ${TELEGRAM_USE_WEBHOOK:-false}
       TELEGRAM_POLL_TIMEOUT: ${TELEGRAM_POLL_TIMEOUT:-30}
+      # Intelligence pipeline
+      GRAPHCLAW_USER_ID: ${GRAPHCLAW_USER_ID:-}
     volumes:
       - ../src:/app/src
       - ../tests:/app/tests

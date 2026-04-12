@@ -152,7 +152,10 @@
       "Bash(gh run:*)",
       "Bash(grep -v \"^\\\\s*$\")",
       "Bash(ruff check:*)",
-      "Bash(ruff format:*)"
+      "Bash(ruff format:*)",
+      "Bash(python -c \"import json,sys; jobs=json.load\\(sys.stdin\\)[''''jobs'''']; [print\\(f''''{j[\"\"name\"\"]}: {j[\"\"conclusion\"\"]}''''\\) for j in jobs]\")",
+      "Bash(python -c \"import json,sys; runs=json.load\\(sys.stdin\\); [print\\(r[''''databaseId''''], r[''''name''''], r[''''status'''']\\) for r in runs]\")",
+      "Bash(git push:*)"
     ]
   }
 }

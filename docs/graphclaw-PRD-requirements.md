@@ -50,6 +50,8 @@
 33. [Design Principles](#33-design-principles)
 34. [Architecture: MCP Server Integration](#34-architecture-mcp-server-integration)
 35. [Architecture: Application API Layer (Cockpit Backend)](#35-architecture-application-api-layer-cockpit-backend)
+36. [Architecture: Node Intelligence Layer](#36-architecture-node-intelligence-layer)
+37. [Architecture: Embedding Pipeline](#37-architecture-embedding-pipeline)
 
 ---
 
@@ -8932,3 +8934,250 @@ WebSocket (`/app/v1/chat/ws`) accepts the JWT as a `?token=` query parameter bec
 | Wave 4 — settings + agent | `settings.py` ext, `agent.py` | ⬜ Pending |
 | Wave 5 — skills + MCP + agents | `skill_registry.py` ext, `mcp_registry.py` ext, `agents.py` | ⬜ Pending |
 | Wave 6 — admin panel | `admin/` (9 modules) | ⬜ Pending |
+
+---
+
+## 36. Architecture: Node Intelligence Layer
+
+> **Status:** Approved for build — Phase 4.5 (2026-04-12)  
+> **Design doc:** `docs/architecture/intelligence-layer.md`
+
+### 36.1 Motivation
+
+Every task node accumulates context over its lifetime: emails sent, replies received, decisions made, updates from Telegram or any other channel. Today this context lives nowhere — it evaporates between agent turns. Briefings lack the narrative. Betty's graph summary shows state and score but not history. The node intelligence field closes this gap.
+
+The intelligence layer introduces three interconnected capabilities:
+
+1. **Node-level `intelligence` field** — a per-task/goal text blob in the graph that accumulates the communication log and decisions across all channels
+2. **InboundIntelligenceAgent** — a lightweight inline processor that runs on every inbound message, classifies it, and routes task-specific content to the graph node and general observations to Betty's working memory
+3. **Structured S3 log sink** — all agent actions and communication events written as JSONL to MinIO/S3, feedable to CloudWatch, with PII-safe allowlist-only event models
+
+### 36.2 Two-Tier Context Model
+
+| Tier | Storage | Purpose |
+|---|---|---|
+| **Agent memory** | MinIO `{user_id}/agents/{agent_id}/memory/working/context.md` | Betty's cross-task planning, user behavioral patterns, general discussion — NOT tied to a specific node |
+| **Node intelligence** | Graph `TaskNode.intelligence`, `GoalNode.intelligence` | Per-task/goal: channel thread summaries, outbound log, decisions, context for briefings |
+
+Agent memory serves Betty's global context across all tasks. Node intelligence is scoped to a single task and travels with it.
+
+### 36.3 Intelligence Field Schema
+
+Added to `TaskNode` and `GoalNode` in `src/graphclaw/models/nodes.py`:
+
+```python
+intelligence: str | None = None
+```
+
+Stored as a JSON-encoded string in Apache AGE (same serialization pattern as `update_log` and `state_history`).
+
+**Entry format** — one line per event:
+
+```
+[{ISO-date}] {channel} | {direction} | {summary}
+
+Examples:
+[2026-03-07] email | outbound | Sent deadline reminder to Soni re: deliverable submission
+[2026-04-12] telegram | inbound | Soni confirmed upload by EOD today
+[2026-04-13] email | outbound | Sent "Re: Deliverable" to soni@acme.com
+```
+
+**Size limit:** ~500 words. When exceeded, oldest entries trimmed and replaced with `... {N} older entries archived`.
+
+### 36.4 InboundIntelligenceAgent
+
+A lightweight inline LLM processor — not a conversational agent, never user-facing.
+
+**Identity in MinIO:**
+```
+{user_id}/agents/intelligence-processor/
+├── config.json           ← model, prompt version, confidence thresholds
+└── execution_log/
+    └── {YYYY-MM-DD}.jsonl
+```
+
+No `profile.md`, no `memory/` tiers. Its output IS its memory — written to task nodes and Betty's `working/context.md`.
+
+**Channel coverage:** Processes inbound messages from all registered channels. `InboundMessage.channel` field ("email", "telegram", "api", "cli", "whatsapp", "teams") determines the channel label in the intelligence entry. No per-channel code changes needed.
+
+**Single LLM call per message:** Returns:
+- `task_entry` — 60-word log line for this task (null if not task-specific)
+- `memory_note` — one-line behavioral/project observation for Betty's memory (null if nothing to learn)
+
+**LLM model:** Configurable via `INTELLIGENCE_AGENT_MODEL` env var. Default: lightweight model (haiku/mini) for cost efficiency.
+
+### 36.5 Task Resolution Waterfall
+
+Three tiers in priority order. First match wins.
+
+| Tier | Method | Confidence |
+|---|---|---|
+| 1 | `in_reply_to` / `tg_reply_to_message_id` → Redis checkin lookup | Deterministic |
+| 2 | TaskID regex `TSK-[A-Z]+-[0-9]+-[A-Z]+` in message body | 1.0 |
+| 3 | Vector embedding cosine search on `node_embeddings` table | Scored (0.0–1.0) |
+
+**Confidence thresholds for Tier 3:**
+
+| Similarity | Action |
+|---|---|
+| ≥ 0.70 (HIGH) | Update node intelligence directly |
+| 0.40–0.70 (MEDIUM) | Update node with `[unverified-match]` tag + note in Betty's context |
+| < 0.40 (LOW) | Unmatched |
+| Two results within 0.05 | Ambiguous → unmatched |
+
+**Unmatched handling:**
+- Known sender (in graph as ResourceNode/UserNode) → Betty actively asks user about the message
+- Unknown sender → `inbox/recent/` only, no notification
+
+### 36.6 Outbound Intelligence Logging
+
+When Betty sends an outbound message in context of a task:
+
+1. Appends log line to `task.intelligence`: `[{date}] {channel} | outbound | Sent "{subject[:60]}" to {recipient}`
+2. Creates a `CheckinNode` in graph with `outbound_message`, linked via `REFERS_TO` to task
+3. Stores `checkin:{original_msg_id} → {checkin_id, task_id}` in Redis (TTL 7 days) for tier-1 resolution of reply
+
+When reply arrives matching a known checkin: `update_checkin_response(checkin_id, body)` completes the `CheckinNode` record.
+
+### 36.7 Inbox Summarize-and-Archive
+
+**Problem:** Storing full email bodies in MinIO for every message would grow unbounded.
+
+**Solution:** Two-track storage per inbound message:
+
+```
+{user_id}/inbox/
+├── recent/
+│   └── {ISO}-{msg_id}.json    ← compact: sender, subject, 150-char preview,
+│                                  channel, task_id, signal, archive_ref
+└── archive/
+    └── {ISO}-{msg_id}.json    ← full original: body, headers, attachments
+```
+
+Betty's `check_inbox` tool reads `recent/` only — always small, always fast. Full content available via `archive_ref`.
+
+### 36.8 PII / PHI Safety
+
+**Allowlist-only log events:** Each `event_type` has an explicit set of safe fields. No message body, subject, or raw text is ever written to a durable log sink.
+
+**Message content in logs:** `args_summary` for tool calls replaces known sensitive keys (`body`, `content`, `subject`, `to`, `text`) with `"[{key}: {N} chars]"`.
+
+**Intelligence field scrubbing:** Before writing to graph, regex patterns for SSN, credit card, and phone number formats are replaced with `[REDACTED-PII]`. LLM summarization abstracts content; the regex is a safety net.
+
+**Archive files** (full email bodies) are:
+- Encrypted at rest (MinIO SSE-S3 or SSE-KMS)
+- Scoped to `{user_id}/inbox/archive/` — covered by GDPR erasure when `{user_id}/` prefix is deleted
+- Never indexed beyond the 150-char `body_summary` in the recent entry
+
+### 36.9 Structured Log Sink
+
+**Log folder structure:**
+
+```
+_system/logs/{service}/{YYYY-MM-DD}/{HH00Z}.jsonl   ← infra events, no user PII
+{user_id}/logs/agent/{YYYY-MM-DD}/{HH00Z}.jsonl     ← tool_call, message, scoring_cycle
+{user_id}/logs/inbound/{YYYY-MM-DD}/{HH00Z}.jsonl   ← inbound_processed, intelligence_update
+```
+
+Hourly rolling files. Format: newline-delimited JSON (same as existing `AsyncLogger` output).
+
+In local dev these files land in MinIO. In production, `AsyncLogger` continues writing to stdout, which ECS/EKS log drivers ship to CloudWatch automatically — no code change needed for the production path.
+
+### 36.10 Implementation Files
+
+| File | Change |
+|---|---|
+| `src/graphclaw/infra/logger.py` | Add StorageClient sink, `min_level` filter, `AsyncLogger.create()` factory |
+| `src/graphclaw/gateway/deps.py` | Wire storage into AsyncLogger on startup |
+| `src/graphclaw/models/nodes.py` | Add `intelligence: str | None` to `TaskNode`, `GoalNode` |
+| `src/graphclaw/db/age/repository.py` | Add `update_node_intelligence`, `get_node_intelligence`, `create_checkin_node`, `update_checkin_response` |
+| `src/graphclaw/inbound/intelligence_agent.py` | NEW: `InboundIntelligenceAgent` class |
+| `src/graphclaw/agent/event_consumer.py` | Wire intelligence agent, fix InboundProcessor call, add direct INBOUND_MESSAGES consumer, add outbound logging |
+| `src/graphclaw/agent/loop.py` | Add `_logger`, intelligence snippet in graph summary, `check_inbox` tool |
+| `src/graphclaw/infra/storage.py` | Add `agent_inbox_recent_prefix`, `agent_inbox_archive` path helpers |
+
+---
+
+## 37. Architecture: Embedding Pipeline
+
+> **Status:** Phase 4.5 prerequisite — must build before Section 36 Tier-3 resolution works  
+> **Design doc:** `docs/architecture/intelligence-layer.md` §6
+
+### 37.1 Current State
+
+The pgvector infrastructure is fully provisioned but entirely disconnected from the application layer.
+
+| Component | Status |
+|---|---|
+| `CREATE EXTENSION vector` in `init-db.sql` | ✅ Done |
+| `node_embeddings (node_id TEXT, embedding vector(1536), computed_at TIMESTAMPTZ)` | ✅ Done |
+| `IVFFlat (vector_cosine_ops, lists=100)` index | ✅ Done |
+| `EmbeddingInputs` sub-model on `TaskNode` | ✅ Done |
+| `EmbeddingClient` — embedding generation code | ❌ Not implemented |
+| Trigger on task create/update | ❌ Not implemented |
+| `TaskResolver._vector_search()` vector parameter | ⚠️ Stub (passes `None`, always returns unmatched) |
+| Table name in `TaskResolver` SQL | ⚠️ Bug (`task_embeddings` should be `node_embeddings`) |
+
+### 37.2 EmbeddingClient
+
+**File:** `src/graphclaw/infra/embeddings.py` (new)
+
+Wraps OpenAI embedding API (or LiteLLM proxy for multi-provider support).
+
+```python
+class EmbeddingClient:
+    def __init__(self, api_key: str, model: str = "text-embedding-3-small"): ...
+    async def embed(self, text: str) -> list[float]: ...
+    async def embed_batch(self, texts: list[str]) -> list[list[float]]: ...
+    async def close(self) -> None: ...
+```
+
+**Env vars:** `EMBEDDING_MODEL` (default `text-embedding-3-small`, 1536 dimensions), `OPENAI_API_KEY`.
+
+### 37.3 Embedding Text Construction
+
+For a `TaskNode`: `f"{task.title} {task.description} {task.embedding_inputs.goal_context}"` (uses the existing `EmbeddingInputs` model fields).
+
+For inbound message matching: `f"{inbound.subject} {inbound.body[:300]}"`.
+
+### 37.4 Trigger Strategy
+
+**On task create/update:** fire-and-forget via `asyncio.create_task()` so task creation response is not blocked. Upsert into `node_embeddings`:
+
+```sql
+INSERT INTO node_embeddings (node_id, embedding, computed_at)
+VALUES ($1, $2::vector, NOW())
+ON CONFLICT (node_id) DO UPDATE
+  SET embedding = EXCLUDED.embedding,
+      computed_at = EXCLUDED.computed_at;
+```
+
+**Not triggered on:** scoring cycles, briefing generation, or read-only queries.
+
+### 37.5 Resolver Fix
+
+Two changes to `src/graphclaw/inbound/resolver.py`:
+1. Table name: `task_embeddings` → `node_embeddings`
+2. Generate embedding vector from inbound text, pass as `$1` rather than `None`
+
+Existing confidence thresholds are correct — no change to threshold values.
+
+### 37.6 Confidence Thresholds
+
+Defined in `TaskResolver` (existing, no change needed):
+
+```python
+HIGH_THRESHOLD = 0.7    # similarity ≥ 0.7 → HIGH confidence match
+MEDIUM_THRESHOLD = 0.4  # 0.4 ≤ similarity < 0.7 → MEDIUM confidence
+                        # similarity < 0.4 → LOW (unmatched)
+```
+
+Ambiguous results (two matches within 0.05 of each other) are always treated as unmatched regardless of absolute score.
+
+### 37.7 Implementation Files
+
+| File | Change |
+|---|---|
+| `src/graphclaw/infra/embeddings.py` | NEW: `EmbeddingClient` |
+| `src/graphclaw/db/age/repository.py` | Add embedding upsert after `create_node()` / `update_node()` for `TaskNode` |
+| `src/graphclaw/inbound/resolver.py` | Fix table name bug; wire `EmbeddingClient` for vector search |

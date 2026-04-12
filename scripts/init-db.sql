@@ -66,7 +66,11 @@ SELECT create_vlabel('graphclaw', 'MCPServerNode');
 SELECT create_elabel('graphclaw', 'GRANTS_ACCESS_TO_MCP');
 
 -- Embedding storage -----------------------------------------------------------
--- Stores pre-computed text-embedding-3-small (1536-d) vectors for graph nodes.
+-- Stores pre-computed embedding vectors for graph nodes (primarily tasks).
+-- The application uses OpenAI's text-embedding-3-small model (1536 dimensions)
+-- by default. Override via EMBEDDING_MODEL env var, but the dimension must remain
+-- 1536 to use the existing IVFFlat index.
+--
 -- node_id mirrors the AGE vertex id cast to TEXT.
 
 CREATE TABLE IF NOT EXISTS node_embeddings (

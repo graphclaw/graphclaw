@@ -80,12 +80,14 @@ class EmailSender:
         username: str,
         password: str,
         use_tls: bool = True,
+        start_tls: bool = False,
     ) -> None:
         self._host = host
         self._port = port
         self._username = username
         self._password = password
         self._use_tls = use_tls
+        self._start_tls = start_tls
 
     # ------------------------------------------------------------------
     # Public interface
@@ -135,6 +137,7 @@ class EmailSender:
             username=self._username,
             password=self._password,
             use_tls=self._use_tls,
+            start_tls=self._start_tls,
         )
         logger.debug("EmailSender: sent to %s", recipient)
 

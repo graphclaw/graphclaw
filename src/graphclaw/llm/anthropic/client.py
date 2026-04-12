@@ -78,18 +78,63 @@ class AnthropicLLMClient(LLMClient):
     def _split_messages(
         messages: list[LLMMessage],
     ) -> tuple[str, list[dict[str, Any]]]:
-        """Separate system message from conversation messages.
+        """Separate system message and translate conversation to Anthropic format.
 
-        Anthropic requires the system prompt as a top-level parameter,
-        not in the messages list.
+        Anthropic requires:
+        - system prompt as a top-level parameter (not in messages list)
+        - assistant messages with tool calls use a content *list* of text + tool_use blocks
+        - tool results are sent as user messages with tool_result content blocks
+        - consecutive tool results are batched into a single user message
         """
         system = ""
         conversation: list[dict[str, Any]] = []
+
         for m in messages:
             if m.role == "system":
                 system = m.content
+                continue
+
+            if m.role == "assistant":
+                if m.tool_calls:
+                    # Build content list: optional text block + tool_use blocks
+                    content_list: list[dict[str, Any]] = []
+                    if m.content:
+                        content_list.append({"type": "text", "text": m.content})
+                    for tc in m.tool_calls:
+                        content_list.append(
+                            {
+                                "type": "tool_use",
+                                "id": tc.id,
+                                "name": tc.name,
+                                "input": tc.arguments,
+                            }
+                        )
+                    conversation.append({"role": "assistant", "content": content_list})
+                else:
+                    conversation.append({"role": "assistant", "content": m.content})
+
+            elif m.role == "tool":
+                # Tool results → user message with tool_result content block.
+                # Batch consecutive tool results into a single user message.
+                tool_result_block: dict[str, Any] = {
+                    "type": "tool_result",
+                    "tool_use_id": m.tool_call_id or "",
+                    "content": m.content,
+                }
+                if (
+                    conversation
+                    and conversation[-1]["role"] == "user"
+                    and isinstance(conversation[-1]["content"], list)
+                ):
+                    # Append to existing tool-result user message
+                    conversation[-1]["content"].append(tool_result_block)  # type: ignore[index]
+                else:
+                    conversation.append({"role": "user", "content": [tool_result_block]})
+
             else:
+                # "user" and any other role
                 conversation.append({"role": m.role, "content": m.content})
+
         return system, conversation
 
     @staticmethod

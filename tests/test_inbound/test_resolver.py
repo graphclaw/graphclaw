@@ -138,7 +138,7 @@ async def test_resolve_vector_search_high_confidence() -> None:
     """Vector search match with similarity >= 0.7 → HIGH confidence."""
     mock_pool = MagicMock()
     mock_conn = AsyncMock()
-    mock_row = {"task_id": "TSK-VV-1111-DEL", "title": "Deploy service", "similarity": 0.85}
+    mock_row = {"node_id": "TSK-VV-1111-DEL", "similarity": 0.85}
     mock_conn.fetchrow = AsyncMock(return_value=mock_row)
     mock_pool.connection = MagicMock(
         return_value=AsyncMock(
@@ -146,8 +146,12 @@ async def test_resolve_vector_search_high_confidence() -> None:
             __aexit__=AsyncMock(return_value=False),
         )
     )
+    mock_embedding_client = AsyncMock()
+    mock_embedding_client.embed = AsyncMock(return_value=[0.1] * 1536)
+    mock_repo = AsyncMock()
+    mock_repo.get_node = AsyncMock(return_value={"title": "Deploy service"})
 
-    resolver = TaskResolver(pool=mock_pool)
+    resolver = TaskResolver(pool=mock_pool, graph_repo=mock_repo, embedding_client=mock_embedding_client)
     result = await resolver.resolve("Deploy the new service to production")
 
     assert result.task_id == "TSK-VV-1111-DEL"
@@ -161,7 +165,7 @@ async def test_resolve_vector_search_medium_confidence() -> None:
     """Vector search match with 0.4 <= similarity < 0.7 → MEDIUM confidence."""
     mock_pool = MagicMock()
     mock_conn = AsyncMock()
-    mock_row = {"task_id": "TSK-MM-2222-ATM", "title": "Medium match task", "similarity": 0.55}
+    mock_row = {"node_id": "TSK-MM-2222-ATM", "similarity": 0.55}
     mock_conn.fetchrow = AsyncMock(return_value=mock_row)
     mock_pool.connection = MagicMock(
         return_value=AsyncMock(
@@ -169,8 +173,10 @@ async def test_resolve_vector_search_medium_confidence() -> None:
             __aexit__=AsyncMock(return_value=False),
         )
     )
+    mock_embedding_client = AsyncMock()
+    mock_embedding_client.embed = AsyncMock(return_value=[0.1] * 1536)
 
-    resolver = TaskResolver(pool=mock_pool)
+    resolver = TaskResolver(pool=mock_pool, embedding_client=mock_embedding_client)
     result = await resolver.resolve("Some vaguely related update message")
 
     assert result.task_id == "TSK-MM-2222-ATM"

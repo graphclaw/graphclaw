@@ -169,10 +169,13 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
 
                     if broker is not None:
                         dispatcher = OutboundDispatcher.from_env(broker=broker)
+                        default_user_id = os.environ.get("GRAPHCLAW_USER_ID", "")
                         _agent_event_consumer = AgentEventConsumer(
                             broker=broker,
                             agent_loop=agent_loop,
                             dispatcher=dispatcher,
+                            default_user_id=default_user_id,
+                            storage=app.state.storage_client,
                         )
                         await _agent_event_consumer.start()
                         app.state.agent_event_consumer = _agent_event_consumer
