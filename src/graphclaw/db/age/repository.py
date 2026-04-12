@@ -48,6 +48,7 @@ after type conversion.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -83,9 +84,11 @@ class AgeGraphStore(GraphStore):
         self,
         pool: AsyncConnectionPool,
         graph_name: str = GRAPH_NAME,
+        embedding_client: object | None = None,
     ) -> None:
         self._pool = pool
         self._graph = graph_name
+        self._embedding_client = embedding_client
 
     # ------------------------------------------------------------------
     # Node CRUD
@@ -119,6 +122,11 @@ class AgeGraphStore(GraphStore):
             row = await result.fetchone()
         created = _extract_properties(row[0]) if row else props
         logger.debug("create_node", extra={"label": label, "id": props.get("id")})
+
+        # Fire-and-forget embedding generation for task nodes.
+        if label.startswith("Task") and self._embedding_client is not None:
+            asyncio.create_task(self._generate_embedding_safe(created))
+
         return created
 
     async def get_node(self, node_id: str) -> dict | None:
@@ -168,6 +176,12 @@ class AgeGraphStore(GraphStore):
             return None
         updated = _extract_properties(row[0])
         logger.debug("update_node", extra={"node_id": node_id, "keys": list(updates)})
+
+        # Fire-and-forget embedding re-generation for task nodes.
+        label = updated.get("node_type", updated.get("label", ""))
+        if label and label.startswith("Task") and self._embedding_client is not None:
+            asyncio.create_task(self._generate_embedding_safe(updated))
+
         return updated
 
     async def delete_node(self, node_id: str) -> None:
@@ -364,6 +378,230 @@ class AgeGraphStore(GraphStore):
                 """
             )
         logger.debug("delete_edge", extra={"edge_id": edge_id})
+
+    # ------------------------------------------------------------------
+    # Intelligence Layer — Task/Goal Intelligence Log Helpers
+    # ------------------------------------------------------------------
+
+    async def update_node_intelligence(self, node_id: str, intelligence_text: str) -> None:
+        """Append/replace the intelligence field on a task or goal node.
+
+        Parameters
+        ----------
+        node_id:
+            The ``id`` property of the task or goal node.
+        intelligence_text:
+            Plain string (markdown blob) to store in the node's intelligence field.
+        """
+        from datetime import datetime, timezone
+
+        eid = _escape(node_id)
+        text_escaped = _escape(intelligence_text)
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        async with get_connection(self._pool) as conn:
+            await conn.execute(
+                f"""
+                SELECT * FROM cypher('{self._graph}', $$
+                    MATCH (n {{id: '{eid}'}})
+                    SET n.intelligence = '{text_escaped}', n.updated_at = '{now_iso}'
+                $$) as (v agtype)
+                """
+            )
+        logger.debug("update_node_intelligence", extra={"node_id": node_id})
+
+    async def get_node_intelligence(self, node_id: str) -> str | None:
+        """Read only the intelligence field from a node.
+
+        Returns None if node not found or field is null.
+
+        Parameters
+        ----------
+        node_id:
+            The ``id`` property of the task or goal node.
+        """
+        eid = _escape(node_id)
+        async with get_connection(self._pool) as conn:
+            result = await conn.execute(
+                f"""
+                SELECT * FROM cypher('{self._graph}', $$
+                    MATCH (n {{id: '{eid}'}})
+                    RETURN n.intelligence
+                $$) as (intel agtype)
+                """
+            )
+            row = await result.fetchone()
+        if row is None:
+            return None
+        intel = _parse_agtype(row[0])
+        return intel if intel is not None else None
+
+    async def create_checkin_node(
+        self,
+        task_id: str,
+        outbound_message: str,
+        channel: str,
+        agent_id: str,
+        recipient: str,
+    ) -> str:
+        """Create a CheckinNode and a REFERS_TO edge to the given task.
+
+        Returns the checkin node id.
+
+        Parameters
+        ----------
+        task_id:
+            Task ID this checkin refers to.
+        outbound_message:
+            The message text being sent.
+        channel:
+            Channel identifier (e.g. 'email', 'slack').
+        agent_id:
+            The agent that created this checkin.
+        recipient:
+            The resource ID or email receiving this checkin.
+        """
+        from datetime import datetime, timezone
+
+        from graphclaw.models.base import generate_checkin_node_id
+
+        checkin_id = generate_checkin_node_id()
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        eid_checkin = _escape(checkin_id)
+        eid_task = _escape(task_id)
+        eid_outbound = _escape(outbound_message)
+        eid_channel = _escape(channel)
+        eid_agent = _escape(agent_id)
+        eid_recipient = _escape(recipient)
+
+        async with get_connection(self._pool) as conn:
+            await conn.execute(
+                f"""
+                SELECT * FROM cypher('{self._graph}', $$
+                    MATCH (t {{id: '{eid_task}'}})
+                    CREATE (c:CheckinNode {{
+                        id: '{eid_checkin}',
+                        created_at: '{now_iso}',
+                        updated_at: '{now_iso}',
+                        version: 1,
+                        target_resource: '{eid_recipient}',
+                        created_by: '{eid_agent}',
+                        task_refs: ['{eid_task}'],
+                        state: 'SCHEDULED',
+                        outbound_message: '{eid_outbound}',
+                        channel: '{eid_channel}'
+                    }})
+                    CREATE (c)-[:REFERS_TO]->(t)
+                    RETURN c
+                $$) as (v agtype)
+                """
+            )
+        logger.debug("create_checkin_node", extra={"checkin_id": checkin_id, "task_id": task_id})
+        return checkin_id
+
+    async def update_checkin_response(self, checkin_id: str, inbound_response: str) -> None:
+        """Set the inbound_response field on an existing CheckinNode.
+
+        Parameters
+        ----------
+        checkin_id:
+            The ``id`` property of the CheckinNode.
+        inbound_response:
+            The response text received.
+        """
+        from datetime import datetime, timezone
+
+        eid = _escape(checkin_id)
+        response_escaped = _escape(inbound_response)
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        async with get_connection(self._pool) as conn:
+            await conn.execute(
+                f"""
+                SELECT * FROM cypher('{self._graph}', $$
+                    MATCH (n:CheckinNode {{id: '{eid}'}})
+                    SET n.inbound_response = '{response_escaped}', n.updated_at = '{now_iso}'
+                $$) as (v agtype)
+                """
+            )
+        logger.debug("update_checkin_response", extra={"checkin_id": checkin_id})
+
+    # ------------------------------------------------------------------
+    # Embedding operations
+    # ------------------------------------------------------------------
+
+    async def upsert_node_embedding(
+        self,
+        node_id: str,
+        embedding: list[float],
+    ) -> None:
+        """Insert or update the embedding vector for a graph node.
+
+        Parameters
+        ----------
+        node_id:
+            The ``id`` property of the graph node whose embedding is being stored.
+        embedding:
+            A 1536-dimension float vector (e.g. from ``text-embedding-3-small``).
+
+        Notes
+        -----
+        Uses ``INSERT ... ON CONFLICT`` to handle both new and updated
+        embeddings in a single query. The ``computed_at`` timestamp is
+        updated on every upsert.
+        """
+        async with get_connection(self._pool) as conn:
+            await conn.execute(
+                """
+                INSERT INTO node_embeddings (node_id, embedding, computed_at)
+                VALUES (%s, %s::vector, NOW())
+                ON CONFLICT (node_id) DO UPDATE
+                  SET embedding = EXCLUDED.embedding,
+                      computed_at = EXCLUDED.computed_at
+                """,
+                (node_id, embedding),
+            )
+        logger.debug("upsert_node_embedding", extra={"node_id": node_id})
+
+    async def _generate_embedding_safe(self, node_props: dict) -> None:
+        """Generate and store an embedding for a task node (background task).
+
+        This method is called via ``asyncio.create_task()`` after task node
+        creation or update. All exceptions are caught and logged to ensure
+        embedding failures never propagate back to the caller.
+
+        Parameters
+        ----------
+        node_props:
+            Full property dict of the task node (must include ``id``, ``title``,
+            and ``description`` keys).
+        """
+        try:
+            node_id = node_props.get("id")
+            if not node_id:
+                return
+
+            title = node_props.get("title", "")
+            description = node_props.get("description", "")
+            # Extract goal_context from embedded embedding_inputs if present.
+            embedding_inputs = node_props.get("embedding_inputs", {})
+            goal_context = ""
+            if isinstance(embedding_inputs, dict):
+                goal_context = embedding_inputs.get("goal_context", "")
+
+            embedding_text = f"{title} {description} {goal_context}".strip()
+            if not embedding_text:
+                return
+
+            embedding_vector = await self._embedding_client.embed(embedding_text)  # type: ignore[union-attr]
+            await self.upsert_node_embedding(node_id, embedding_vector)
+
+        except Exception as exc:
+            logger.warning(
+                "Embedding generation failed (non-fatal)",
+                extra={"node_id": node_props.get("id"), "error": str(exc)},
+            )
 
 
 # ---------------------------------------------------------------------------

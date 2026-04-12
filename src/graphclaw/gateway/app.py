@@ -144,6 +144,46 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
             app.state.scoring_engine = ScoringEngine()
             logger.info("GraphClaw: scoring engine initialised")
 
+            # AgentLoop + LLM client + AgentEventConsumer
+            _agent_event_consumer = None
+            if database_url:
+                try:
+                    from graphclaw.agent.event_consumer import AgentEventConsumer  # noqa: PLC0415
+                    from graphclaw.agent.loop import AgentLoop  # noqa: PLC0415
+                    from graphclaw.agent.outbound import OutboundDispatcher  # noqa: PLC0415
+                    from graphclaw.llm.factory import create_llm_client  # noqa: PLC0415
+                    from graphclaw.state.machine import StateMachine  # noqa: PLC0415
+
+                    llm_client = create_llm_client("anthropic")
+                    agent_id = os.environ.get("AGENT_ID", "main")
+                    agent_loop = AgentLoop(
+                        graph_repo=app.state.graph_store,
+                        scoring_engine=app.state.scoring_engine,
+                        state_machine=StateMachine(),
+                        llm_client=llm_client,
+                        storage_client=app.state.storage_client,
+                        agent_id=agent_id,
+                    )
+                    app.state.agent_loop = agent_loop
+                    logger.info("GraphClaw: agent loop initialised (agent_id=%s)", agent_id)
+
+                    if broker is not None:
+                        dispatcher = OutboundDispatcher.from_env(broker=broker)
+                        _agent_event_consumer = AgentEventConsumer(
+                            broker=broker,
+                            agent_loop=agent_loop,
+                            dispatcher=dispatcher,
+                        )
+                        await _agent_event_consumer.start()
+                        app.state.agent_event_consumer = _agent_event_consumer
+                        logger.info("GraphClaw: agent event consumer started")
+                except Exception as exc:  # noqa: BLE001
+                    logger.error(
+                        "GraphClaw: agent loop/consumer initialisation failed — %s",
+                        exc,
+                        exc_info=exc,
+                    )
+
         except Exception as exc:  # noqa: BLE001
             logger.error("GraphClaw: service initialisation error — %s", exc, exc_info=exc)
 
@@ -151,6 +191,9 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
         yield
 
         # ── Shutdown ──────────────────────────────────────────────────────
+        if _agent_event_consumer is not None:
+            await _agent_event_consumer.stop()
+            logger.info("GraphClaw: agent event consumer stopped")
         await registry.stop_all()
 
         if broker is not None:
@@ -246,6 +289,7 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
                 token = auth_header[7:]
                 try:
                     from graphclaw.auth.middleware import get_jwt_service
+
                     svc = get_jwt_service()
                     payload = svc.verify_token(token)
                     role = payload.get("role", "USER")

@@ -276,6 +276,34 @@ class StoragePaths:
         """Prefix to list all attachments for a user."""
         return f"{user_id}/attachments/"
 
+    # ------------------------------------------------------------------
+    # Agent inbox paths
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def agent_inbox_recent_prefix(user_id: str, agent_id: str) -> str:
+        """Prefix to list all recent inbox entries for an agent.
+
+        Example: ``usr-abc123/agents/main/inbox/recent/``
+        """
+        return f"{user_id}/agents/{agent_id}/inbox/recent/"
+
+    @staticmethod
+    def agent_inbox_recent(user_id: str, agent_id: str, entry_name: str) -> str:
+        """One recent inbox entry for an agent.
+
+        Example: ``usr-abc123/agents/main/inbox/recent/2026-04-12-msg-xyz.md``
+        """
+        return f"{user_id}/agents/{agent_id}/inbox/recent/{entry_name}"
+
+    @staticmethod
+    def agent_inbox_archive(user_id: str, agent_id: str, entry_name: str) -> str:
+        """One archived inbox entry for an agent.
+
+        Example: ``usr-abc123/agents/main/inbox/archive/2026-04-11-msg-abc.md``
+        """
+        return f"{user_id}/agents/{agent_id}/inbox/archive/{entry_name}"
+
 
 class StorageClient(ABC):
     """Abstract interface for object storage backends."""
