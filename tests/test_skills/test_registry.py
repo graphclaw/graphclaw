@@ -359,9 +359,9 @@ async def test_install_from_github() -> None:
     assert installed.version == "1.2.0"
     assert installed.source_type == SkillSourceType.GITHUB
 
-    # Verify cache path structure
+    # Verify cache path structure — user_id is now the root prefix
     h8 = _source_hash8(source.uri)
-    expected_path = f"skills/cache/user-1/{h8}/test-skill/SKILL.md"
+    expected_path = f"user-1/skills/cache/{h8}/test-skill/SKILL.md"
     assert installed.skill_file_path == expected_path
 
     # StorageClient.write should have been called with SKILL.md content and the path

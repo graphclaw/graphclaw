@@ -31,6 +31,7 @@ import typer
 from graphclaw.cli.agent_commands import app as agent_app
 from graphclaw.cli.goal_commands import app as goal_app
 from graphclaw.cli.graph_commands import app as graph_app
+from graphclaw.cli.intelligence_commands import app as intelligence_app
 from graphclaw.cli.task_commands import app as task_app
 
 app = typer.Typer(
@@ -43,6 +44,7 @@ app.add_typer(task_app, name="task")
 app.add_typer(goal_app, name="goal")
 app.add_typer(agent_app, name="agent")
 app.add_typer(graph_app, name="graph")
+app.add_typer(intelligence_app, name="intelligence")
 
 
 if __name__ == "__main__":

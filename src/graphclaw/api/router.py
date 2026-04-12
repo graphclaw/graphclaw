@@ -13,7 +13,8 @@ Wave 2 (complete)    — approvals, settings, skill_registry, mcp_registry stub�
 Wave 3 (complete)    — chat, config, secrets
 Wave 4 (complete)    — settings ext (+11 routes), agent (+6 routes)
 Wave 5 (complete)    — skill_registry ext (+4), mcp_registry ext (+2), agents (+7)
-Wave 6 (pending)     — admin/* (9 files)
+Wave 6 (complete)    — admin/* (9 files)
+Wave 7 (complete)    — intelligence hub (agent profile, memory, skill authoring)
 
 Design Patterns
 ---------------
@@ -63,6 +64,9 @@ from graphclaw.api.mcp_registry import mcp_approvals_router
 # ── Wave 6: Admin panel ───────────────────────────────────────────────────────
 from graphclaw.api.admin.router import admin_router
 
+# ── Wave 7: Intelligence Hub ──────────────────────────────────────────────────
+from graphclaw.api.intelligence import router as intelligence_router
+
 app_router = APIRouter(prefix="/app/v1", tags=["app-api"])
 
 # Existing
@@ -93,3 +97,6 @@ app_router.include_router(mcp_approvals_router)
 
 # Wave 6
 app_router.include_router(admin_router)
+
+# Wave 7
+app_router.include_router(intelligence_router)

@@ -51,6 +51,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel
 
 from graphclaw.api.deps import CurrentUserDep, SkillRegistryDep, StorageClientDep
+from graphclaw.infra.storage import StoragePaths
 from graphclaw.skills.registry_models import SkillSource, SkillSourceType
 
 logger = logging.getLogger(__name__)
@@ -332,11 +333,8 @@ def _source_to_response(src: Any) -> SkillSourceResponse:
 # Wave 5 — Feedback, Workers, Executions, Test
 # ---------------------------------------------------------------------------
 
-_EXECUTIONS_PATH_TEMPLATE = "skills/executions/{user_id}/{skill_id}.json"
-
-
 def _executions_path(user_id: str, skill_id: str) -> str:
-    return _EXECUTIONS_PATH_TEMPLATE.format(user_id=user_id, skill_id=skill_id)
+    return StoragePaths.skill_executions(user_id, skill_id)
 
 
 class SkillFeedbackRequest(BaseModel):

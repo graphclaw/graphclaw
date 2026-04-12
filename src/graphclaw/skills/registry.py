@@ -72,7 +72,7 @@ from typing import Any
 
 import httpx
 
-from graphclaw.infra.storage import StorageClient
+from graphclaw.infra.storage import StorageClient, StoragePaths
 from graphclaw.skills.models import SkillDefinition
 from graphclaw.skills.parser import SkillParser
 from graphclaw.skills.registry_models import (
@@ -83,22 +83,22 @@ from graphclaw.skills.registry_models import (
 )
 
 # ---------------------------------------------------------------------------
-# Path helpers
+# Path helpers — delegate to StoragePaths for multi-tenant isolation
 # ---------------------------------------------------------------------------
 
 _LOCAL_DEFINITIONS_DIR = pathlib.Path(__file__).parent / "definitions"
 
 
 def _sources_path(user_id: str) -> str:
-    return f"skills/registry/{user_id}/sources.json"
+    return StoragePaths.skill_registry_sources(user_id)
 
 
 def _installed_path(user_id: str) -> str:
-    return f"skills/registry/{user_id}/installed.json"
+    return StoragePaths.skill_registry_installed(user_id)
 
 
 def _cache_path(user_id: str, source_hash8: str, skill_name: str) -> str:
-    return f"skills/cache/{user_id}/{source_hash8}/{skill_name}/SKILL.md"
+    return StoragePaths.skill_cache(user_id, source_hash8, skill_name)
 
 
 def _source_hash8(uri: str) -> str:

@@ -40,10 +40,9 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-logger = logging.getLogger(__name__)
+from graphclaw.infra.storage import StoragePaths
 
-# S3 prefix for all attachment objects
-_ATTACHMENTS_PREFIX = "attachments"
+logger = logging.getLogger(__name__)
 
 
 class AttachmentHandler:
@@ -65,24 +64,24 @@ class AttachmentHandler:
         self,
         channel: str,
         attachments: list[dict[str, Any]],
+        user_id: str,
         channel_config: Any | None = None,
-        bucket: str = "graphclaw",
     ) -> list[str]:
         """Download and store all attachments for a message.
 
         Args:
             channel: Channel name (``"whatsapp"`` or ``"telegram"``).
             attachments: List of raw attachment dicts from channel normalizer.
+            user_id: Owner of the attachments — determines the storage prefix.
             channel_config: Channel config object (``WhatsAppConfig`` or
                 ``TelegramConfig``) with API credentials.
-            bucket: S3/MinIO bucket name.
 
         Returns:
             List of storage keys for successfully stored attachments.
         """
         keys: list[str] = []
         for attachment in attachments:
-            key = await self.process(channel, attachment, channel_config, bucket)
+            key = await self.process(channel, attachment, user_id, channel_config)
             if key:
                 keys.append(key)
         return keys
@@ -91,16 +90,16 @@ class AttachmentHandler:
         self,
         channel: str,
         attachment: dict[str, Any],
+        user_id: str,
         channel_config: Any | None = None,
-        bucket: str = "graphclaw",
     ) -> str | None:
         """Download and store a single attachment.
 
         Args:
             channel: Channel name.
             attachment: Raw attachment dict from channel normalizer.
+            user_id: Owner of the attachment — determines the storage prefix.
             channel_config: Channel config with API credentials.
-            bucket: S3/MinIO bucket name.
 
         Returns:
             Storage key string on success, ``None`` on failure.
@@ -127,9 +126,9 @@ class AttachmentHandler:
             if data is None:
                 return None
 
-            key = self._build_storage_key(channel, attachment, content_type)
-            await self._storage.write(bucket, key, data)
-            logger.info("AttachmentHandler: stored attachment at %s/%s", bucket, key)
+            key = self._build_storage_key(channel, attachment, content_type, user_id)
+            await self._storage.write(key, data)
+            logger.info("AttachmentHandler: stored attachment at %s", key)
             return key
 
         except Exception as exc:  # noqa: BLE001
@@ -258,18 +257,19 @@ class AttachmentHandler:
         channel: str,
         attachment: dict[str, Any],
         content_type: str,
+        user_id: str,
     ) -> str:
-        """Build a deterministic S3 key for an attachment.
+        """Build a deterministic per-user S3 key for an attachment.
 
-        Format: ``attachments/{channel}/{YYYY-MM-DD}/{msg_id}/{unique}_{filename}``
+        Format: ``{user_id}/attachments/{channel}/{YYYY-MM-DD}/{msg_id}/{unique}_{filename}``
         """
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        msg_id = attachment.get("msg_id", "unknown").replace("/", "_")
+        msg_id = attachment.get("msg_id", "unknown")
         filename = attachment.get("filename", "") or _filename_from_type(
             attachment.get("type", "file"), content_type
         )
         unique = uuid.uuid4().hex[:8]
-        return f"{_ATTACHMENTS_PREFIX}/{channel}/{today}/{msg_id}/{unique}_{filename}"
+        return StoragePaths.attachment(user_id, channel, today, msg_id, f"{unique}_{filename}")
 
 
 def _infer_mime(file_path: str) -> str:

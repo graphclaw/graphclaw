@@ -26,6 +26,7 @@ RUN pip install --no-cache-dir \
     "boto3>=1.35.0" \
     "litellm>=1.50.0" \
     "fastapi>=0.115.0" \
+    "python-multipart>=0.0.9" \
     "uvicorn[standard]>=0.34.0" \
     "aiosmtplib>=3.0.0" \
     "PyYAML>=6.0" \

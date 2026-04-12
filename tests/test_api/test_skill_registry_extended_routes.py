@@ -225,7 +225,7 @@ def test_list_executions_returns_stored_records() -> None:
             "cost_usd": 0.001,
         }
     ]
-    path = f"skills/executions/{_TEST_USER}/research-skill.json"
+    path = f"{_TEST_USER}/skills/executions/research-skill.json"
     storage._data[path] = json.dumps(records).encode()
 
     client = TestClient(app)

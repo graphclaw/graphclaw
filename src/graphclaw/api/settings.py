@@ -48,6 +48,7 @@ from graphclaw.api.deps import (
     SecretsClientDep,
     StorageClientDep,
 )
+from graphclaw.infra.storage import StoragePaths
 from graphclaw.models.base import utcnow
 
 logger = logging.getLogger(__name__)
@@ -58,11 +59,9 @@ router = APIRouter(prefix="/settings", tags=["app-api"])
 # Storage helpers
 # ---------------------------------------------------------------------------
 
-_SETTINGS_PATH_TEMPLATE = "agents/{user_id}/config.json"
-
 
 def _settings_path(user_id: str) -> str:
-    return _SETTINGS_PATH_TEMPLATE.format(user_id=user_id)
+    return StoragePaths.user_config(user_id)
 
 
 def _default_settings(user_id: str) -> dict[str, Any]:
@@ -357,8 +356,6 @@ async def deactivate_channel(
 # Scoring weights routes
 # ---------------------------------------------------------------------------
 
-_WEIGHTS_PATH_TEMPLATE = "agents/{user_id}/scoring_weights.json"
-
 _DEFAULT_WEIGHTS: dict[str, float] = {
     "W1_timeline": 0.25,
     "W2_dependencies": 0.20,
@@ -371,7 +368,7 @@ _DEFAULT_WEIGHTS: dict[str, float] = {
 
 
 def _weights_path(user_id: str) -> str:
-    return _WEIGHTS_PATH_TEMPLATE.format(user_id=user_id)
+    return StoragePaths.user_scoring_weights(user_id)
 
 
 async def _load_weights(user_id: str, storage_client: Any) -> dict[str, float]:
