@@ -71,7 +71,6 @@ if TYPE_CHECKING:
 
 from graphclaw.infra.storage import StoragePaths
 
-
 __all__ = [
     "IntelligenceUpdate",
     "InboundIntelligenceAgent",

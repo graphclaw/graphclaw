@@ -104,23 +104,26 @@ class AgentEventConsumer:
         self._running = True
         self._task = asyncio.create_task(self._consume_loop())
         self._inbound_task = asyncio.create_task(self._consume_inbound_loop())
-        
+
         # Wire InboundIntelligenceAgent if LLM is available
         if (
             self._loop is not None
-            and hasattr(self._loop, '_llm')
+            and hasattr(self._loop, "_llm")
             and self._loop._llm is not None  # noqa: SLF001
             and self._storage is not None
         ):
-            from graphclaw.inbound.intelligence_agent import InboundIntelligenceAgent  # noqa: PLC0415
+            from graphclaw.inbound.intelligence_agent import (
+                InboundIntelligenceAgent,  # noqa: PLC0415
+            )
+
             self._intelligence_agent = InboundIntelligenceAgent(
                 llm=self._loop._llm,  # noqa: SLF001
-                graph_repo=getattr(self._loop, '_repo', None),
+                graph_repo=getattr(self._loop, "_repo", None),
                 storage=self._storage,
                 memory_lock=self._memory_lock,
                 logger=None,
             )
-        
+
         logger.info("AgentEventConsumer: started")
 
     async def stop(self) -> None:
@@ -260,7 +263,11 @@ class AgentEventConsumer:
             if not self._running:
                 break
             try:
-                data = json.loads(raw_message) if isinstance(raw_message, (str, bytes)) else raw_message
+                data = (
+                    json.loads(raw_message)
+                    if isinstance(raw_message, (str, bytes))
+                    else raw_message
+                )
                 inbound = InboundMessage(**data)
             except Exception as exc:  # noqa: BLE001
                 logger.error("AgentEventConsumer: failed to parse inbound message: %s", exc)
@@ -274,14 +281,14 @@ class AgentEventConsumer:
     async def _process_raw_inbound(self, inbound: Any) -> None:
         """Process an inbound message: resolve task, update intelligence, write inbox, optionally reply."""
         user_id = self._default_user_id
-        agent_id = self._loop._agent_id if hasattr(self._loop, '_agent_id') else "main"  # noqa: SLF001
+        agent_id = self._loop._agent_id if hasattr(self._loop, "_agent_id") else "main"  # noqa: SLF001
 
         # 1. Run InboundProcessor — resolves task, extracts signal
         from graphclaw.inbound.extractor import StatusExtractor  # noqa: PLC0415
         from graphclaw.inbound.processor import InboundProcessor  # noqa: PLC0415
         from graphclaw.inbound.resolver import TaskResolver  # noqa: PLC0415
 
-        resolver = TaskResolver(graph_repo=getattr(self._loop, '_repo', None))
+        resolver = TaskResolver(graph_repo=getattr(self._loop, "_repo", None))
         extractor = StatusExtractor()
         processor = InboundProcessor(resolver, extractor, broker=self._broker)
         try:
@@ -393,12 +400,12 @@ class AgentEventConsumer:
         """Append an outbound log entry to the task node's intelligence field."""
         if not task_id:
             return
-        repo = getattr(self._loop, '_repo', None)
+        repo = getattr(self._loop, "_repo", None)
         if repo is None:
             return
         try:
             today = datetime.now(timezone.utc).date().isoformat()
-            log_line = f"[{today}] {channel} | outbound | Sent \"{subject[:60]}\" to {recipient}"
+            log_line = f'[{today}] {channel} | outbound | Sent "{subject[:60]}" to {recipient}'
             existing = await repo.get_node_intelligence(task_id)
             new_text = log_line + "\n" + (existing or "")
             # Trim to 500 words
@@ -419,8 +426,8 @@ class AgentEventConsumer:
         recipient: str,
     ) -> None:
         """Create CheckinNode in graph and store Redis key for reply matching."""
-        repo = getattr(self._loop, '_repo', None)
-        agent_id = self._loop._agent_id if hasattr(self._loop, '_agent_id') else "main"  # noqa: SLF001
+        repo = getattr(self._loop, "_repo", None)
+        agent_id = self._loop._agent_id if hasattr(self._loop, "_agent_id") else "main"  # noqa: SLF001
         if repo is None:
             return
         try:
@@ -436,10 +443,12 @@ class AgentEventConsumer:
                 key = f"checkin:{original_msg_id}"
                 value = json.dumps({"checkin_id": checkin_id, "task_id": task_id})
                 try:
-                    if hasattr(self._broker, 'set'):
+                    if hasattr(self._broker, "set"):
                         await self._broker.set(key, value, ex=604800)  # type: ignore[attr-defined]
                     else:
-                        logger.debug("AgentEventConsumer: broker has no set() — checkin not stored in Redis")
+                        logger.debug(
+                            "AgentEventConsumer: broker has no set() — checkin not stored in Redis"
+                        )
                 except Exception:  # noqa: BLE001
                     pass
         except Exception as exc:  # noqa: BLE001
@@ -522,7 +531,7 @@ class AgentEventConsumer:
         message = (
             f"I received a message from {inbound.sender} via {inbound.channel} "
             f"that I couldn't match to any active task.\n\n"
-            f"It says: \"{summary}{'...' if len(inbound.body or '') > 200 else ''}\"\n\n"
+            f'It says: "{summary}{"..." if len(inbound.body or "") > 200 else ""}"\n\n'
             f"What should I do with it? (Reply with a task ID or instructions.)"
         )
 

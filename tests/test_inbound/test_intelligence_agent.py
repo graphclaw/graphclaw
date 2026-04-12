@@ -32,18 +32,14 @@ import json
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
-
 from graphclaw.gateway.schemas import InboundMessage
 from graphclaw.inbound.intelligence_agent import (
-    InboundIntelligenceAgent,
-    IntelligenceUpdate,
     MAX_INTELLIGENCE_WORDS,
+    InboundIntelligenceAgent,
     _scrub_pii,
 )
 from graphclaw.inbound.models import InboundResult, StatusExtraction, TaskResolution
 from graphclaw.models.enums import ConfidenceLevel, MatchedBy, TaskState
-
 
 # ---------------------------------------------------------------------------
 # Fixtures / factories
@@ -193,9 +189,7 @@ async def test_process_prepends_to_existing_intelligence() -> None:
     """New log line is prepended to existing intelligence (newest first)."""
     existing = "[2026-04-11] email | inbound | sent files"
     llm_resp = _make_llm_response("email | inbound | confirmed receipt", None)
-    agent, _, mock_repo, _ = _make_agent(
-        llm_response=llm_resp, existing_intelligence=existing
-    )
+    agent, _, mock_repo, _ = _make_agent(llm_response=llm_resp, existing_intelligence=existing)
 
     await agent.process(
         inbound=_make_inbound(),
@@ -216,9 +210,7 @@ async def test_process_trims_intelligence_over_word_limit() -> None:
     # Create existing intelligence that is already near the limit
     long_existing = " ".join(["word"] * (MAX_INTELLIGENCE_WORDS - 5))
     llm_resp = _make_llm_response("long update with many words that pushes over limit", None)
-    agent, _, mock_repo, _ = _make_agent(
-        llm_response=llm_resp, existing_intelligence=long_existing
-    )
+    agent, _, mock_repo, _ = _make_agent(llm_response=llm_resp, existing_intelligence=long_existing)
 
     await agent.process(
         inbound=_make_inbound(),
@@ -273,9 +265,7 @@ async def test_process_appends_under_recent_context_heading() -> None:
     """Memory note is inserted after '## Recent Context' heading."""
     existing = b"# Working Context\n\n## Recent Context\nOld note\n"
     llm_resp = _make_llm_response(None, "New observation about user")
-    agent, _, _, mock_storage = _make_agent(
-        llm_response=llm_resp, existing_context=existing
-    )
+    agent, _, _, mock_storage = _make_agent(llm_response=llm_resp, existing_context=existing)
 
     await agent.process(
         inbound=_make_inbound(),
@@ -295,9 +285,7 @@ async def test_process_creates_recent_context_heading_if_absent() -> None:
     """If '## Recent Context' absent, memory note is appended at end."""
     existing = b"# Working Context\nSome other content\n"
     llm_resp = _make_llm_response(None, "Learned preference")
-    agent, _, _, mock_storage = _make_agent(
-        llm_response=llm_resp, existing_context=existing
-    )
+    agent, _, _, mock_storage = _make_agent(llm_response=llm_resp, existing_context=existing)
 
     await agent.process(
         inbound=_make_inbound(),

@@ -159,7 +159,7 @@ class AgentLoop:
         queue = await self._engine.score_all(tasks, context)
         self._last_queue = queue
         logger.info("AgentLoop: scoring cycle complete — %d items in queue", len(queue))
-        
+
         # Log scoring cycle completion
         if self._logger:
             self._logger.log(
@@ -171,7 +171,7 @@ class AgentLoop:
                 top_task_id=queue[0].node_id if queue else None,
                 queue_depth=len(queue),
             )
-        
+
         return queue
 
     async def build_scoring_context(self, tasks: list[TaskNode]) -> ScoringContext:
@@ -445,7 +445,7 @@ class AgentLoop:
                 tools=tools,
             )
             elapsed_ms = (time.monotonic() - t0) * 1000
-            
+
             # Log LLM response
             if self._logger and response.usage:
                 self._logger.log(
@@ -544,7 +544,7 @@ class AgentLoop:
         lines = ["Top priorities:"]
         total_chars = 0
         max_chars = 2500
-        
+
         for entry in self._last_queue[:5]:
             task = task_index.get(entry.node_id)
             if task is None:
@@ -552,16 +552,16 @@ class AgentLoop:
                 lines.append(line)
                 total_chars += len(line) + 1
                 continue
-            
+
             deadline = ""
             if task.timeline and task.timeline.deadline:
                 deadline = f" (due {task.timeline.deadline.date()})"
-            
+
             main_line = (
                 f"- [{entry.rank}] {task.title} | state={task.state}"
                 f" | score={entry.final_score:.2f}{deadline}"
             )
-            
+
             # Add intelligence snippet if available and space permits
             ctx_line = ""
             if task.intelligence and total_chars + len(main_line) + 200 < max_chars:
@@ -569,14 +569,14 @@ class AgentLoop:
                 if len(task.intelligence) > 180:
                     snippet += "…"
                 ctx_line = f"    [ctx: {snippet}]"
-            
+
             lines.append(main_line)
             total_chars += len(main_line) + 1
-            
+
             if ctx_line:
                 lines.append(ctx_line)
                 total_chars += len(ctx_line) + 1
-        
+
         return "\n".join(lines)
 
     # ------------------------------------------------------------------
@@ -762,7 +762,7 @@ class AgentLoop:
                 result = await self._tool_check_inbox(user_id, arguments)
             else:
                 result = {"error": f"Unknown tool: {name}"}
-            
+
             # Log successful tool execution
             if self._logger and "error" not in result:
                 self._logger.log(
@@ -773,7 +773,7 @@ class AgentLoop:
                     user_id=user_id,
                     latency_ms=int((time.monotonic() - t0) * 1000),
                 )
-            
+
             return result
         except Exception as exc:  # noqa: BLE001
             logger.warning("AgentLoop: tool %s raised %s", name, exc)
@@ -960,22 +960,23 @@ class AgentLoop:
         """Read recent compact inbox entries from MinIO inbox/recent/ prefix."""
         if self._storage is None:
             return json.dumps({"error": "storage not configured"})
-        
+
         limit = min(int(args.get("limit", 5)), 20)
         from_sender = args.get("from_sender", "").lower().strip()
         channel_filter = args.get("channel", "").lower().strip()
-        
+
         from graphclaw.infra.storage import StoragePaths
+
         prefix = StoragePaths.agent_inbox_recent_prefix(user_id, self._agent_id)
-        
+
         try:
             keys = await self._storage.list_objects(prefix)  # returns list of object keys
         except Exception:
             return json.dumps({"error": "could not list inbox"})
-        
+
         # Sort keys (ISO-prefixed, so alphabetical = chronological)
         keys = sorted(keys, reverse=True)  # newest first
-        
+
         results = []
         for key in keys:
             if len(results) >= limit:
@@ -985,22 +986,24 @@ class AgentLoop:
                 entry = json.loads(raw.decode())
             except Exception:
                 continue
-            
+
             # Apply filters
             if from_sender and from_sender not in entry.get("sender", "").lower():
                 continue
             if channel_filter and entry.get("channel", "") != channel_filter:
                 continue
-            
-            results.append({
-                "sender": entry.get("sender"),
-                "subject": entry.get("subject"),
-                "body_summary": entry.get("body_summary"),
-                "channel": entry.get("channel"),
-                "received_at": entry.get("received_at"),
-                "task_id_matched": entry.get("task_id_matched"),
-            })
-        
+
+            results.append(
+                {
+                    "sender": entry.get("sender"),
+                    "subject": entry.get("subject"),
+                    "body_summary": entry.get("body_summary"),
+                    "channel": entry.get("channel"),
+                    "received_at": entry.get("received_at"),
+                    "task_id_matched": entry.get("task_id_matched"),
+                }
+            )
+
         if not results:
             return json.dumps({"message": "No recent inbox messages found.", "count": 0})
         return json.dumps({"messages": results, "count": len(results)})

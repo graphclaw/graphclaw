@@ -27,13 +27,10 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
-
-import pytest
+from unittest.mock import AsyncMock, MagicMock
 
 from graphclaw.agent.event_consumer import AgentEventConsumer
 from graphclaw.triggers.models import TriggerEvent, TriggerType
-
 
 # ---------------------------------------------------------------------------
 # Fixture helpers
@@ -47,10 +44,12 @@ def _make_consumer(
 ) -> tuple[AgentEventConsumer, AsyncMock, AsyncMock, AsyncMock]:
     """Return an AgentEventConsumer with all dependencies mocked."""
     mock_broker = AsyncMock()
+
     # consume() returns an async generator — use AsyncMock with __aiter__
     async def _empty_gen(*_a, **_kw):
         return
-        yield  # make it an async generator  # noqa: unreachable
+        yield  # make it an async generator  # noqa: RET901
+
     mock_broker.consume = MagicMock(side_effect=_empty_gen)
 
     mock_loop = AsyncMock()
@@ -121,7 +120,9 @@ def test_register_user_channels_stores_channels() -> None:
 
 def test_register_user_channels_overwrites_existing() -> None:
     """Calling register_user_channels() twice replaces the previous entry."""
-    consumer, _, _, _ = _make_consumer(user_channels={"usr-001": [{"channel": "email", "to": "old@x.com"}]})
+    consumer, _, _, _ = _make_consumer(
+        user_channels={"usr-001": [{"channel": "email", "to": "old@x.com"}]}
+    )
     new_channels = [{"channel": "telegram", "to": "123456"}]
     consumer.register_user_channels("usr-001", new_channels)
     assert consumer._user_channels["usr-001"] == new_channels
@@ -320,7 +321,6 @@ async def test_write_inbox_entries_recent_has_body_summary() -> None:
     """Recent entry contains body_summary (first 150 chars)."""
     from graphclaw.gateway.schemas import InboundMessage
     from graphclaw.inbound.models import InboundResult, StatusExtraction, TaskResolution
-    from graphclaw.models.enums import ConfidenceLevel, MatchedBy
 
     mock_storage = AsyncMock()
     written_data = []

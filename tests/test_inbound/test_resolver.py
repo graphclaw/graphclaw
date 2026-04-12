@@ -151,7 +151,9 @@ async def test_resolve_vector_search_high_confidence() -> None:
     mock_repo = AsyncMock()
     mock_repo.get_node = AsyncMock(return_value={"title": "Deploy service"})
 
-    resolver = TaskResolver(pool=mock_pool, graph_repo=mock_repo, embedding_client=mock_embedding_client)
+    resolver = TaskResolver(
+        pool=mock_pool, graph_repo=mock_repo, embedding_client=mock_embedding_client
+    )
     result = await resolver.resolve("Deploy the new service to production")
 
     assert result.task_id == "TSK-VV-1111-DEL"

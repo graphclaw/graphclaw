@@ -29,7 +29,6 @@ import pytest
 
 from graphclaw.infra.embeddings import EmbeddingClient, create_embedding_client
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -136,9 +135,7 @@ async def test_embed_returns_vector() -> None:
     client = EmbeddingClient(api_key="sk-test")
     expected = [0.1, 0.2, 0.3]
     mock_oai = AsyncMock()
-    mock_oai.embeddings.create = AsyncMock(
-        return_value=_make_openai_response([expected])
-    )
+    mock_oai.embeddings.create = AsyncMock(return_value=_make_openai_response([expected]))
     with patch("openai.AsyncOpenAI", return_value=mock_oai):
         await client.start()
         result = await client.embed("hello world")
@@ -189,9 +186,7 @@ async def test_embed_batch_returns_vectors_in_order() -> None:
     vec1 = [0.1, 0.2]
     vec2 = [0.3, 0.4]
     mock_oai = AsyncMock()
-    mock_oai.embeddings.create = AsyncMock(
-        return_value=_make_openai_response([vec1, vec2])
-    )
+    mock_oai.embeddings.create = AsyncMock(return_value=_make_openai_response([vec1, vec2]))
     with patch("openai.AsyncOpenAI", return_value=mock_oai):
         await client.start()
         result = await client.embed_batch(["text one", "text two"])
@@ -205,9 +200,7 @@ async def test_embed_batch_skips_empty_strings() -> None:
     client = EmbeddingClient(api_key="sk-test")
     vec_for_valid = [0.5, 0.6]
     mock_oai = AsyncMock()
-    mock_oai.embeddings.create = AsyncMock(
-        return_value=_make_openai_response([vec_for_valid])
-    )
+    mock_oai.embeddings.create = AsyncMock(return_value=_make_openai_response([vec_for_valid]))
     with patch("openai.AsyncOpenAI", return_value=mock_oai):
         await client.start()
         # texts[0] is empty, texts[1] is valid
