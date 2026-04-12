@@ -396,7 +396,9 @@ class S3StorageClient(StorageClient):
             except botocore.exceptions.ClientError as exc:
                 code = exc.response.get("Error", {}).get("Code", "")
                 if code in ("NoSuchKey", "404"):
-                    raise FileNotFoundError(f"Object not found: s3://{self._bucket}/{path}") from exc
+                    raise FileNotFoundError(
+                        f"Object not found: s3://{self._bucket}/{path}"
+                    ) from exc
                 raise
 
         return await asyncio.to_thread(_read)

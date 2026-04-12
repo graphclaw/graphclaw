@@ -51,6 +51,7 @@ def test_invite_member_no_org_returns_404() -> None:
 def _seed_org(graph_store, owner_id: str = _ADMIN_USER) -> str:
     org_id = "ORG-admintest001"
     from graphclaw.models.base import utcnow
+
     graph_store._nodes[org_id] = {
         "id": org_id,
         "name": "Test Org",
@@ -116,9 +117,14 @@ def test_put_features_persists() -> None:
     """PUT /admin/features persists the policy."""
     app, _, _, _ = make_admin_app()
     client = TestClient(app)
-    body = {"enable_agent_canvas": False, "enable_mcp_integration": True,
-            "enable_skill_marketplace": True, "enable_multi_channel": False,
-            "enable_a2a": True, "extra": {}}
+    body = {
+        "enable_agent_canvas": False,
+        "enable_mcp_integration": True,
+        "enable_skill_marketplace": True,
+        "enable_multi_channel": False,
+        "enable_a2a": True,
+        "extra": {},
+    }
     response = client.put("/app/v1/admin/features", json=body)
     assert response.status_code == 200
     assert response.json()["enable_agent_canvas"] is False
@@ -208,8 +214,12 @@ def test_put_budget_persists() -> None:
     """PUT /admin/llm/budget persists the budget config."""
     app, _, _, _ = make_admin_app()
     client = TestClient(app)
-    body = {"daily_limit_usd": 50.0, "monthly_limit_usd": 1000.0,
-            "alert_threshold_pct": 0.9, "cost_anomaly_sigma": 2.5}
+    body = {
+        "daily_limit_usd": 50.0,
+        "monthly_limit_usd": 1000.0,
+        "alert_threshold_pct": 0.9,
+        "cost_anomaly_sigma": 2.5,
+    }
     response = client.put("/app/v1/admin/llm/budget", json=body)
     assert response.status_code == 200
     assert response.json()["daily_limit_usd"] == 50.0
@@ -233,9 +243,14 @@ def test_put_judge_config_persists() -> None:
     """PUT /admin/llm-judge/config persists judge config."""
     app, _, _, _ = make_admin_app()
     client = TestClient(app)
-    body = {"enabled": True, "judge_model": "claude-haiku-4-5-20251001",
-            "sample_rate": 0.2, "criteria": ["accuracy"],
-            "auto_flag_threshold": 0.5, "extra": {}}
+    body = {
+        "enabled": True,
+        "judge_model": "claude-haiku-4-5-20251001",
+        "sample_rate": 0.2,
+        "criteria": ["accuracy"],
+        "auto_flag_threshold": 0.5,
+        "extra": {},
+    }
     response = client.put("/app/v1/admin/llm-judge/config", json=body)
     assert response.status_code == 200
     assert response.json()["enabled"] is True
@@ -280,7 +295,16 @@ def test_validate_guardrails_valid() -> None:
     client = TestClient(app)
     body = {
         "version": "1.0",
-        "rules": [{"rule_id": "R1", "name": "No swearing", "pattern": "badword", "action": "BLOCK", "enabled": True, "description": ""}],
+        "rules": [
+            {
+                "rule_id": "R1",
+                "name": "No swearing",
+                "pattern": "badword",
+                "action": "BLOCK",
+                "enabled": True,
+                "description": "",
+            }
+        ],
     }
     response = client.post("/app/v1/admin/guardrails/validate", json=body)
     assert response.status_code == 200
@@ -291,7 +315,14 @@ def test_validate_guardrails_duplicate_id() -> None:
     """POST /admin/guardrails/validate returns valid=False for duplicate rule IDs."""
     app, _, _, _ = make_admin_app()
     client = TestClient(app)
-    rule = {"rule_id": "R1", "name": "Rule", "pattern": "test", "action": "BLOCK", "enabled": True, "description": ""}
+    rule = {
+        "rule_id": "R1",
+        "name": "Rule",
+        "pattern": "test",
+        "action": "BLOCK",
+        "enabled": True,
+        "description": "",
+    }
     body = {"version": "1.0", "rules": [rule, rule]}
     response = client.post("/app/v1/admin/guardrails/validate", json=body)
     data = response.json()
@@ -338,9 +369,16 @@ def test_put_sso_persists() -> None:
     """PUT /admin/sso persists the SSO config."""
     app, _, _, _ = make_admin_app()
     client = TestClient(app)
-    body = {"provider": "google", "enabled": True, "enforced": False,
-            "client_id": "cid", "issuer_url": "https://accounts.google.com",
-            "metadata_url": "", "allowed_domains": ["example.com"], "extra": {}}
+    body = {
+        "provider": "google",
+        "enabled": True,
+        "enforced": False,
+        "client_id": "cid",
+        "issuer_url": "https://accounts.google.com",
+        "metadata_url": "",
+        "allowed_domains": ["example.com"],
+        "extra": {},
+    }
     response = client.put("/app/v1/admin/sso", json=body)
     assert response.status_code == 200
     assert response.json()["provider"] == "google"

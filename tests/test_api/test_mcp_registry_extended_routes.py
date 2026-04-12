@@ -93,9 +93,7 @@ def test_list_tools_unreachable_server_returns_empty() -> None:
     app, store = _make_app()
 
     # Seed the server
-    asyncio.get_event_loop().run_until_complete(
-        _seed_server(store, "MCP-testtools001")
-    )
+    asyncio.get_event_loop().run_until_complete(_seed_server(store, "MCP-testtools001"))
     client = TestClient(app)
     # The server at localhost:9999 won't be reachable — should degrade to []
     response = client.get("/app/v1/mcp-servers/MCP-testtools001/tools")

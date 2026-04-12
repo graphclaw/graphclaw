@@ -113,7 +113,9 @@ def format_task_panel(task: TaskNode, console: Console | None = None) -> None:
     out = console or _console
 
     deadline_str = (
-        task.timeline.deadline.strftime("%Y-%m-%d %H:%M timezone.utc") if task.timeline.deadline else "None"
+        task.timeline.deadline.strftime("%Y-%m-%d %H:%M timezone.utc")
+        if task.timeline.deadline
+        else "None"
     )
     effort_str = (
         f"{task.timeline.estimated_effort_days}d"

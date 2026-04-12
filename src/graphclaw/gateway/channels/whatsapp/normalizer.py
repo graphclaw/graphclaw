@@ -61,7 +61,11 @@ def normalize_whatsapp(payload: dict[str, Any]) -> list[InboundMessage]:
                     body = msg.get("text", {}).get("body", "")
                     msg_id = msg.get("id", str(uuid.uuid4()))
                     ts = int(msg.get("timestamp", 0))
-                    received_at = datetime.fromtimestamp(ts, tz=timezone.utc) if ts else datetime.now(timezone.utc)
+                    received_at = (
+                        datetime.fromtimestamp(ts, tz=timezone.utc)
+                        if ts
+                        else datetime.now(timezone.utc)
+                    )
 
                     messages.append(
                         InboundMessage(

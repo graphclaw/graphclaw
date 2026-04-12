@@ -227,32 +227,29 @@ def working_compact(
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         session_label = label or uuid.uuid4().hex[:8]
         entry_name = f"{today}-compact-{session_label}.md"
-        episodic_path = StoragePaths.agent_memory_episodic_entry(
-            user_id, agent_id, entry_name
-        )
+        episodic_path = StoragePaths.agent_memory_episodic_entry(user_id, agent_id, entry_name)
 
         try:
             original = await client.read(working_path)
             archive = (
                 f"# Compacted Context — {today}\n\n"
                 f"*Session: {session_label}*\n\n"
-                f"## Original Working Context\n\n"
-                + original.decode()
+                f"## Original Working Context\n\n" + original.decode()
             )
             await client.write(episodic_path, archive.encode(), content_type="text/markdown")
             console.print(f"[blue]→[/blue] Archived to [bold]{entry_name}[/bold]")
         except FileNotFoundError:
             console.print("[yellow]⚠[/yellow] No existing working context to archive")
 
-        await client.write(
-            working_path, summary_text.encode(), content_type="text/markdown"
-        )
+        await client.write(working_path, summary_text.encode(), content_type="text/markdown")
         console.print("[green]✓[/green] Working context replaced with compact summary")
 
     if summary:
         asyncio.run(_run(summary))
     else:
-        console.print("[bold]Enter compact summary[/bold] (Ctrl+D or empty line + Enter to finish):")
+        console.print(
+            "[bold]Enter compact summary[/bold] (Ctrl+D or empty line + Enter to finish):"
+        )
         lines: list[str] = []
         try:
             while True:
@@ -309,9 +306,7 @@ def episodic_show(
         except FileNotFoundError:
             err_console.print(f"[red]Not found:[/red] {path}")
             raise SystemExit(1)
-        console.print(
-            Panel(Syntax(raw.decode(), "markdown", theme="github-dark"), title=path)
-        )
+        console.print(Panel(Syntax(raw.decode(), "markdown", theme="github-dark"), title=path))
 
     asyncio.run(_run())
 
@@ -383,9 +378,7 @@ def semantic_show(
         except FileNotFoundError:
             err_console.print(f"[red]Not found:[/red] topic '{topic}'")
             raise SystemExit(1)
-        console.print(
-            Panel(Syntax(raw.decode(), "markdown", theme="github-dark"), title=path)
-        )
+        console.print(Panel(Syntax(raw.decode(), "markdown", theme="github-dark"), title=path))
 
     asyncio.run(_run())
 
@@ -455,9 +448,7 @@ def skill_show(
         except FileNotFoundError:
             err_console.print(f"[red]Not found:[/red] authored skill '{skill_id}'")
             raise SystemExit(1)
-        console.print(
-            Panel(Syntax(raw.decode(), "markdown", theme="github-dark"), title=path)
-        )
+        console.print(Panel(Syntax(raw.decode(), "markdown", theme="github-dark"), title=path))
 
     asyncio.run(_run())
 
@@ -497,7 +488,9 @@ def skill_create(
             raise SystemExit(1)
 
         await client.write(path, content, content_type="text/markdown")
-        console.print(f"[green]✓[/green] Authored skill [bold]{sid}[/bold] created at [dim]{path}[/dim]")
+        console.print(
+            f"[green]✓[/green] Authored skill [bold]{sid}[/bold] created at [dim]{path}[/dim]"
+        )
 
     asyncio.run(_run())
 
@@ -592,8 +585,14 @@ def skill_paths(
         (f"agent_profile ({agent_id})", StoragePaths.agent_profile(user_id, agent_id)),
         (f"agent_config ({agent_id})", StoragePaths.agent_config(user_id, agent_id)),
         (f"memory_working ({agent_id})", StoragePaths.agent_memory_working(user_id, agent_id)),
-        (f"memory_episodic prefix ({agent_id})", StoragePaths.agent_memory_episodic_prefix(user_id, agent_id)),
-        (f"memory_semantic prefix ({agent_id})", StoragePaths.agent_memory_semantic_prefix(user_id, agent_id)),
+        (
+            f"memory_episodic prefix ({agent_id})",
+            StoragePaths.agent_memory_episodic_prefix(user_id, agent_id),
+        ),
+        (
+            f"memory_semantic prefix ({agent_id})",
+            StoragePaths.agent_memory_semantic_prefix(user_id, agent_id),
+        ),
         ("skill_registry_sources", StoragePaths.skill_registry_sources(user_id)),
         ("skill_registry_installed", StoragePaths.skill_registry_installed(user_id)),
         (f"skill_authored ({skill_id})", StoragePaths.skill_authored(user_id, skill_id)),

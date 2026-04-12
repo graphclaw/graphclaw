@@ -221,6 +221,12 @@ class TaskNode(BaseNode):
     # Inbound update log
     update_log: list[UpdateLogEntry] = []
 
+    # Intelligence log
+    intelligence: str | None = None
+    """Human-readable markdown text blob accumulating the communication log and 
+    decisions for this task across all channels. Each entry is formatted as 
+    [{ISO-date}] {channel} | {direction} | {summary}."""
+
     # Type-specific metadata (discriminated union on task_type)
     type_metadata: TypeMetadata | None = None
 
@@ -328,6 +334,10 @@ class GoalNode(BaseNode):
 
     title: str
     description: str
+    intelligence: str | None = None
+    """Human-readable markdown text blob accumulating the communication log and 
+    decisions for this goal across all channels. Each entry is formatted as 
+    [{ISO-date}] {channel} | {direction} | {summary}."""
     owner: str | None = None  # user_id
     state: GoalState = GoalState.ACTIVE
     timeline: GoalTimeline = GoalTimeline()

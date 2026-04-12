@@ -82,14 +82,28 @@ class JudgeStats(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-@router.get("/config", response_model=JudgeConfig, status_code=status.HTTP_200_OK, summary="Get judge config")
-async def get_judge_config(admin_user_id: AdminUserDep, storage_client: StorageClientDep) -> JudgeConfig:
+@router.get(
+    "/config",
+    response_model=JudgeConfig,
+    status_code=status.HTTP_200_OK,
+    summary="Get judge config",
+)
+async def get_judge_config(
+    admin_user_id: AdminUserDep, storage_client: StorageClientDep
+) -> JudgeConfig:
     data = await _load_json(_JUDGE_CONFIG_PATH, storage_client)
     return JudgeConfig(**data) if data else JudgeConfig()
 
 
-@router.put("/config", response_model=JudgeConfig, status_code=status.HTTP_200_OK, summary="Update judge config")
-async def put_judge_config(body: JudgeConfig, admin_user_id: AdminUserDep, storage_client: StorageClientDep) -> JudgeConfig:
+@router.put(
+    "/config",
+    response_model=JudgeConfig,
+    status_code=status.HTTP_200_OK,
+    summary="Update judge config",
+)
+async def put_judge_config(
+    body: JudgeConfig, admin_user_id: AdminUserDep, storage_client: StorageClientDep
+) -> JudgeConfig:
     await _save_json(_JUDGE_CONFIG_PATH, storage_client, body.model_dump())
     return body
 

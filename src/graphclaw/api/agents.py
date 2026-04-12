@@ -155,9 +155,7 @@ async def _save_definition(
 ) -> None:
     """Write an agent definition to storage."""
     raw = json.dumps(data, default=str).encode()
-    await storage_client.write(
-        _def_path(user_id, agent_id), raw, content_type="application/json"
-    )
+    await storage_client.write(_def_path(user_id, agent_id), raw, content_type="application/json")
 
 
 async def _save_version(
@@ -213,10 +211,7 @@ async def list_agents(
         return []
 
     # Filter to only top-level definition files (exclude versions/)
-    def_paths = [
-        p for p in all_paths
-        if p.endswith(".json") and "/versions/" not in p
-    ]
+    def_paths = [p for p in all_paths if p.endswith(".json") and "/versions/" not in p]
 
     definitions: list[AgentDefinition] = []
     for path in def_paths:

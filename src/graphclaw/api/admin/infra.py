@@ -42,7 +42,9 @@ async def _load_json(path: str, storage_client: Any, default: Any = None) -> Any
 
 
 async def _save_json(path: str, storage_client: Any, data: Any) -> None:
-    await storage_client.write(path, json.dumps(data, default=str).encode(), content_type="application/json")
+    await storage_client.write(
+        path, json.dumps(data, default=str).encode(), content_type="application/json"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -133,7 +135,12 @@ class MigrationApplyResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-@router.get("/deployment/status", response_model=DeploymentStatus, status_code=status.HTTP_200_OK, summary="Deployment status")
+@router.get(
+    "/deployment/status",
+    response_model=DeploymentStatus,
+    status_code=status.HTTP_200_OK,
+    summary="Deployment status",
+)
 async def get_deployment_status(admin_user_id: AdminUserDep) -> DeploymentStatus:
     """Return a stub deployment status (live data requires cloud probe)."""
     return DeploymentStatus(
@@ -144,19 +151,36 @@ async def get_deployment_status(admin_user_id: AdminUserDep) -> DeploymentStatus
     )
 
 
-@router.get("/deployment/config", response_model=DeploymentConfig, status_code=status.HTTP_200_OK, summary="Deployment config")
-async def get_deployment_config(admin_user_id: AdminUserDep, storage_client: StorageClientDep) -> DeploymentConfig:
+@router.get(
+    "/deployment/config",
+    response_model=DeploymentConfig,
+    status_code=status.HTTP_200_OK,
+    summary="Deployment config",
+)
+async def get_deployment_config(
+    admin_user_id: AdminUserDep, storage_client: StorageClientDep
+) -> DeploymentConfig:
     data = await _load_json(_DEPLOY_CONFIG_PATH, storage_client)
     return DeploymentConfig(**data) if data else DeploymentConfig()
 
 
-@router.get("/cluster/health", response_model=ClusterHealth, status_code=status.HTTP_200_OK, summary="Cluster health")
+@router.get(
+    "/cluster/health",
+    response_model=ClusterHealth,
+    status_code=status.HTTP_200_OK,
+    summary="Cluster health",
+)
 async def get_cluster_health(admin_user_id: AdminUserDep) -> ClusterHealth:
     """Return a stub cluster health (live data requires infra probes)."""
     return ClusterHealth(status="unknown")
 
 
-@router.get("/backups", response_model=list[BackupEntry], status_code=status.HTTP_200_OK, summary="List backups")
+@router.get(
+    "/backups",
+    response_model=list[BackupEntry],
+    status_code=status.HTTP_200_OK,
+    summary="List backups",
+)
 async def list_backups(
     admin_user_id: AdminUserDep,
     limit: int = Query(default=20, ge=1, le=100),
@@ -165,12 +189,19 @@ async def list_backups(
     return []
 
 
-@router.get("/security/status", response_model=SecurityStatus, status_code=status.HTTP_200_OK, summary="Security status")
+@router.get(
+    "/security/status",
+    response_model=SecurityStatus,
+    status_code=status.HTTP_200_OK,
+    summary="Security status",
+)
 async def get_security_status(admin_user_id: AdminUserDep) -> SecurityStatus:
     return SecurityStatus(overall="ok", open_issues=0)
 
 
-@router.get("/alarms", response_model=list[Alarm], status_code=status.HTTP_200_OK, summary="List alarms")
+@router.get(
+    "/alarms", response_model=list[Alarm], status_code=status.HTTP_200_OK, summary="List alarms"
+)
 async def list_alarms(
     admin_user_id: AdminUserDep,
     storage_client: StorageClientDep,
@@ -183,7 +214,12 @@ async def list_alarms(
     return alarms
 
 
-@router.patch("/alarms/{alarm_id}", response_model=Alarm, status_code=status.HTTP_200_OK, summary="Acknowledge/resolve alarm")
+@router.patch(
+    "/alarms/{alarm_id}",
+    response_model=Alarm,
+    status_code=status.HTTP_200_OK,
+    summary="Acknowledge/resolve alarm",
+)
 async def patch_alarm(
     alarm_id: str,
     body: AlarmPatchRequest,
@@ -194,7 +230,9 @@ async def patch_alarm(
     alarms: list[dict] = data if isinstance(data, list) else []
     target = next((a for a in alarms if a.get("alarm_id") == alarm_id), None)
     if target is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Alarm '{alarm_id}' not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Alarm '{alarm_id}' not found"
+        )
     if body.acknowledged is not None:
         target["acknowledged"] = body.acknowledged
     if body.resolved is not None:
@@ -205,8 +243,15 @@ async def patch_alarm(
     return Alarm(**target)
 
 
-@router.get("/migrations", response_model=list[Migration], status_code=status.HTTP_200_OK, summary="List migrations")
-async def list_migrations(admin_user_id: AdminUserDep, storage_client: StorageClientDep) -> list[Migration]:
+@router.get(
+    "/migrations",
+    response_model=list[Migration],
+    status_code=status.HTTP_200_OK,
+    summary="List migrations",
+)
+async def list_migrations(
+    admin_user_id: AdminUserDep, storage_client: StorageClientDep
+) -> list[Migration]:
     data = await _load_json(_MIGRATIONS_PATH, storage_client, default=[])
     return [Migration(**m) for m in (data if isinstance(data, list) else [])]
 

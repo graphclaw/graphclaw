@@ -171,7 +171,9 @@ async def install_skill(
     except KeyError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except Exception as exc:
-        logger.error("skills: install failed skill=%s source=%s: %s", body.skill_name, body.source_uri, exc)
+        logger.error(
+            "skills: install failed skill=%s source=%s: %s", body.skill_name, body.source_uri, exc
+        )
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Failed to install skill '{body.skill_name}': {exc}",
@@ -296,7 +298,9 @@ def _installed_to_entry(sk: Any) -> SkillEntry:
         version=sk.version,
         description=getattr(sk, "description", ""),
         source_uri=sk.source_uri,
-        source_type=sk.source_type.value if hasattr(sk.source_type, "value") else str(sk.source_type),
+        source_type=sk.source_type.value
+        if hasattr(sk.source_type, "value")
+        else str(sk.source_type),
         tags=list(sk.tags) if sk.tags else [],
         enabled=True,
     )
@@ -310,7 +314,9 @@ def _listing_to_entry(li: Any) -> SkillEntry:
         version=li.version,
         description=getattr(li, "description", ""),
         source_uri=li.source_uri,
-        source_type=li.source_type.value if hasattr(li.source_type, "value") else str(li.source_type),
+        source_type=li.source_type.value
+        if hasattr(li.source_type, "value")
+        else str(li.source_type),
         tags=list(li.tags) if li.tags else [],
         enabled=True,
     )
@@ -323,7 +329,9 @@ def _source_to_response(src: Any) -> SkillSourceResponse:
         last_fetched = str(src.last_fetched_at)
     return SkillSourceResponse(
         source_uri=src.uri,
-        source_type=src.source_type.value if hasattr(src.source_type, "value") else str(src.source_type),
+        source_type=src.source_type.value
+        if hasattr(src.source_type, "value")
+        else str(src.source_type),
         name=src.name or src.uri,
         last_fetched_at=last_fetched,
     )
@@ -332,6 +340,7 @@ def _source_to_response(src: Any) -> SkillSourceResponse:
 # ---------------------------------------------------------------------------
 # Wave 5 — Feedback, Workers, Executions, Test
 # ---------------------------------------------------------------------------
+
 
 def _executions_path(user_id: str, skill_id: str) -> str:
     return StoragePaths.skill_executions(user_id, skill_id)
@@ -449,9 +458,7 @@ async def list_workers(
     return [
         WorkerStatusOut(
             worker_id=ws.worker_id,
-            state=(
-                ws.state.value if hasattr(ws.state, "value") else str(ws.state)
-            ),
+            state=(ws.state.value if hasattr(ws.state, "value") else str(ws.state)),
             current_job_id=ws.current_job_id,
             last_heartbeat=ws.last_heartbeat,
             jobs_completed=ws.jobs_completed,

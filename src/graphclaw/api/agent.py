@@ -128,9 +128,7 @@ def _cfg_to_response(cfg: Any) -> TriggerConfigResponse:
     return TriggerConfigResponse(
         trigger_id=cfg.trigger_id,
         trigger_type=(
-            cfg.trigger_type.value
-            if hasattr(cfg.trigger_type, "value")
-            else str(cfg.trigger_type)
+            cfg.trigger_type.value if hasattr(cfg.trigger_type, "value") else str(cfg.trigger_type)
         ),
         user_id=cfg.user_id,
         enabled=cfg.enabled,
@@ -227,9 +225,7 @@ async def get_action_queue(
                 else str(entry.autonomy_level)
             ),
             explanation=(
-                entry.explanation.model_dump()
-                if hasattr(entry.explanation, "model_dump")
-                else {}
+                entry.explanation.model_dump() if hasattr(entry.explanation, "model_dump") else {}
             ),
             batched_with=list(entry.batched_with),
         )

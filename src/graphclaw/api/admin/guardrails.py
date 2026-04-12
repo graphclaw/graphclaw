@@ -100,14 +100,25 @@ class GuardrailMetrics(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-@router.get("", response_model=GuardrailRules, status_code=status.HTTP_200_OK, summary="Get guardrail rules")
-async def get_guardrails(admin_user_id: AdminUserDep, storage_client: StorageClientDep) -> GuardrailRules:
+@router.get(
+    "", response_model=GuardrailRules, status_code=status.HTTP_200_OK, summary="Get guardrail rules"
+)
+async def get_guardrails(
+    admin_user_id: AdminUserDep, storage_client: StorageClientDep
+) -> GuardrailRules:
     data = await _load_json(_RULES_PATH, storage_client)
     return GuardrailRules(**data) if data else GuardrailRules()
 
 
-@router.put("", response_model=GuardrailRules, status_code=status.HTTP_200_OK, summary="Replace guardrail rules")
-async def put_guardrails(body: GuardrailRules, admin_user_id: AdminUserDep, storage_client: StorageClientDep) -> GuardrailRules:
+@router.put(
+    "",
+    response_model=GuardrailRules,
+    status_code=status.HTTP_200_OK,
+    summary="Replace guardrail rules",
+)
+async def put_guardrails(
+    body: GuardrailRules, admin_user_id: AdminUserDep, storage_client: StorageClientDep
+) -> GuardrailRules:
     await _save_json(_RULES_PATH, storage_client, body.model_dump())
     return body
 
@@ -167,11 +178,7 @@ async def test_guardrails(
         except re.error:
             pass
 
-    blocked = any(
-        r.action == "BLOCK"
-        for r in rules_data.rules
-        if r.rule_id in triggered
-    )
+    blocked = any(r.action == "BLOCK" for r in rules_data.rules if r.rule_id in triggered)
     return GuardrailTestResponse(
         blocked=blocked,
         triggered_rules=triggered,
@@ -179,7 +186,14 @@ async def test_guardrails(
     )
 
 
-@router.get("/metrics", response_model=GuardrailMetrics, status_code=status.HTTP_200_OK, summary="Get guardrail metrics")
-async def get_guardrail_metrics(admin_user_id: AdminUserDep, storage_client: StorageClientDep) -> GuardrailMetrics:
+@router.get(
+    "/metrics",
+    response_model=GuardrailMetrics,
+    status_code=status.HTTP_200_OK,
+    summary="Get guardrail metrics",
+)
+async def get_guardrail_metrics(
+    admin_user_id: AdminUserDep, storage_client: StorageClientDep
+) -> GuardrailMetrics:
     data = await _load_json(_METRICS_PATH, storage_client)
     return GuardrailMetrics(**data) if data else GuardrailMetrics()

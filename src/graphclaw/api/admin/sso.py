@@ -81,8 +81,12 @@ async def get_sso(admin_user_id: AdminUserDep, storage_client: StorageClientDep)
     return SSOConfig(**data) if data else SSOConfig()
 
 
-@router.put("", response_model=SSOConfig, status_code=status.HTTP_200_OK, summary="Replace SSO config")
-async def put_sso(body: SSOConfig, admin_user_id: AdminUserDep, storage_client: StorageClientDep) -> SSOConfig:
+@router.put(
+    "", response_model=SSOConfig, status_code=status.HTTP_200_OK, summary="Replace SSO config"
+)
+async def put_sso(
+    body: SSOConfig, admin_user_id: AdminUserDep, storage_client: StorageClientDep
+) -> SSOConfig:
     await _save_json(_SSO_CONFIG_PATH, storage_client, body.model_dump())
     return body
 
@@ -94,14 +98,20 @@ async def put_sso(body: SSOConfig, admin_user_id: AdminUserDep, storage_client: 
     summary="Test SSO connection",
     description="Attempt to reach the SSO provider's discovery endpoint.",
 )
-async def test_sso(admin_user_id: AdminUserDep, storage_client: StorageClientDep) -> SSOTestResponse:
+async def test_sso(
+    admin_user_id: AdminUserDep, storage_client: StorageClientDep
+) -> SSOTestResponse:
     """Test SSO connectivity by probing the issuer URL (graceful degradation)."""
     data = await _load_json(_SSO_CONFIG_PATH, storage_client)
     config = SSOConfig(**data) if data else SSOConfig()
     if not config.enabled or not config.issuer_url:
-        return SSOTestResponse(reachable=False, error="SSO not configured", provider=config.provider)
+        return SSOTestResponse(
+            reachable=False, error="SSO not configured", provider=config.provider
+        )
     # In production this would probe config.issuer_url; here we return a stub.
-    return SSOTestResponse(reachable=False, error="SSO probe not yet wired to live issuer", provider=config.provider)
+    return SSOTestResponse(
+        reachable=False, error="SSO probe not yet wired to live issuer", provider=config.provider
+    )
 
 
 @router.patch(

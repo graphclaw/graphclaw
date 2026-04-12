@@ -27,6 +27,7 @@ _TEST_USER = "USER-test-skills-ext-001"
 # Fake SkillRegistryService
 # ---------------------------------------------------------------------------
 
+
 class FakeInstalledSkill:
     def __init__(self, skill_id: str, name: str = "test-skill") -> None:
         self.skill_id = skill_id
@@ -40,14 +41,13 @@ class FakeInstalledSkill:
 
         class SkillSourceTypeStub:
             value = "local"
+
         self.source_type = SkillSourceTypeStub()
 
     def record_usage(self, quality_score: float | None = None) -> None:
         self.usage_count += 1
         if quality_score is not None:
-            self.avg_quality_score = (
-                0.2 * quality_score + 0.8 * self.avg_quality_score
-            )
+            self.avg_quality_score = 0.2 * quality_score + 0.8 * self.avg_quality_score
 
 
 class FakeSkillRegistry:

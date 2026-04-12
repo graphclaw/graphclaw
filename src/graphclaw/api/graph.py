@@ -193,7 +193,9 @@ async def get_goal_tree(
     """Return the subtree rooted at *goal_id*."""
     goal = await graph_store.get_node(goal_id)
     if goal is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Goal '{goal_id}' not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Goal '{goal_id}' not found"
+        )
 
     # Gather tasks belonging to this goal
     task_filters: dict[str, Any] = {"parent_goal_id": goal_id}
@@ -278,7 +280,9 @@ async def get_task(
     """Return task detail for *task_id*."""
     task = await graph_store.get_node(task_id)
     if task is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Task '{task_id}' not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Task '{task_id}' not found"
+        )
 
     # Gather all incident edges (both directions)
     out_edges = await graph_store.get_edges(task_id, direction="out")
@@ -359,7 +363,9 @@ async def update_task(
     """Partial-update a TaskNode."""
     existing = await graph_store.get_node(task_id)
     if existing is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Task '{task_id}' not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Task '{task_id}' not found"
+        )
 
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
     if not updates:
@@ -367,7 +373,9 @@ async def update_task(
 
     updated = await graph_store.update_node(task_id, updates)
     if updated is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Task '{task_id}' not found after update")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Task '{task_id}' not found after update"
+        )
 
     logger.info("graph: updated task %s fields=%s user_id=%s", task_id, list(updates), user_id)
     return updated
@@ -387,7 +395,9 @@ async def delete_task(
     """Delete *task_id* from the graph."""
     existing = await graph_store.get_node(task_id)
     if existing is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Task '{task_id}' not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Task '{task_id}' not found"
+        )
 
     await graph_store.delete_node(task_id)
     logger.info("graph: deleted task %s by user_id=%s", task_id, user_id)
@@ -435,9 +445,7 @@ async def list_resources(
     response_model=EdgeListResponse,
     status_code=status.HTTP_200_OK,
     summary="List edges",
-    description=(
-        "Return graph edges, optionally filtered by type, source node, or target node."
-    ),
+    description=("Return graph edges, optionally filtered by type, source node, or target node."),
 )
 async def list_edges(
     user_id: CurrentUserDep,

@@ -67,7 +67,9 @@ def normalize_telegram(update: dict[str, Any]) -> list[InboundMessage]:
         sender_name = _sender_display(from_obj)
 
         ts = int(msg.get("date", 0))
-        received_at = datetime.fromtimestamp(ts, tz=timezone.utc) if ts else datetime.now(timezone.utc)
+        received_at = (
+            datetime.fromtimestamp(ts, tz=timezone.utc) if ts else datetime.now(timezone.utc)
+        )
 
         chat_id = str(msg.get("chat", {}).get("id", sender_id))
         msg_id = f"tg-{update.get('update_id', uuid.uuid4().hex)}"

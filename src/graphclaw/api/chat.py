@@ -145,7 +145,7 @@ async def get_chat_history(
     """Return paginated chat history for the authenticated user."""
     history = await _load_history(user_id, storage_client)
     start = int(cursor) if cursor and cursor.isdigit() else 0
-    page = history[start: start + limit]
+    page = history[start : start + limit]
     next_cursor = str(start + limit) if start + limit < len(history) else None
     return ChatHistoryResponse(
         messages=[ChatMessage(**m) for m in page],

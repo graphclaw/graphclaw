@@ -518,6 +518,7 @@ async def list_organizations(
             if isinstance(m, str):
                 try:
                     import json as _json
+
                     m = _json.loads(m)
                 except Exception:
                     continue

@@ -232,12 +232,16 @@ async def get_mcp_server(
     """Return a specific MCP server belonging to the authenticated user."""
     node = await mcp_registry.get(server_id)
     if node is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"MCP server '{server_id}' not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"MCP server '{server_id}' not found"
+        )
 
     # Verify ownership via the user's edge list
     user_servers = await mcp_registry.list_for_user(user_id, enabled_only=False)
     if not any(s.id == server_id for s in user_servers):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"MCP server '{server_id}' not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"MCP server '{server_id}' not found"
+        )
 
     return _node_to_entry(node)
 
@@ -262,7 +266,9 @@ async def update_mcp_server(
     # Verify ownership
     user_servers = await mcp_registry.list_for_user(user_id, enabled_only=False)
     if not any(s.id == server_id for s in user_servers):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"MCP server '{server_id}' not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"MCP server '{server_id}' not found"
+        )
 
     if body.trust_tier is not None:
         try:
@@ -288,7 +294,9 @@ async def update_mcp_server(
         node = await mcp_registry.get(server_id)
 
     if node is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"MCP server '{server_id}' not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"MCP server '{server_id}' not found"
+        )
 
     logger.debug("mcp-servers: updated '%s' for user_id=%s", server_id, user_id)
     return _node_to_entry(node)
@@ -312,7 +320,9 @@ async def delete_mcp_server(
     # Verify ownership
     user_servers = await mcp_registry.list_for_user(user_id, enabled_only=False)
     if not any(s.id == server_id for s in user_servers):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"MCP server '{server_id}' not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"MCP server '{server_id}' not found"
+        )
 
     await mcp_registry.deregister(server_id)
     logger.info("mcp-servers: deregistered '%s' for user_id=%s", server_id, user_id)
@@ -330,7 +340,9 @@ def _node_to_entry(node: MCPServerNode) -> MCPServerEntry:
         name=node.name,
         transport=node.transport.value if hasattr(node.transport, "value") else str(node.transport),
         endpoint_url=node.endpoint_url,
-        trust_tier=node.trust_tier.value if hasattr(node.trust_tier, "value") else str(node.trust_tier),
+        trust_tier=node.trust_tier.value
+        if hasattr(node.trust_tier, "value")
+        else str(node.trust_tier),
         scope=list(node.scope),
         enabled=node.enabled,
     )
@@ -424,9 +436,7 @@ async def list_mcp_server_tools(
     response_model=list[MCPApprovalOut],
     status_code=status.HTTP_200_OK,
     summary="List pending MCP approvals",
-    description=(
-        "Return all pending MCP tool-call approval tasks for the authenticated user."
-    ),
+    description=("Return all pending MCP tool-call approval tasks for the authenticated user."),
 )
 async def list_mcp_approvals(
     user_id: CurrentUserDep,

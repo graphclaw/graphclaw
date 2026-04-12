@@ -164,7 +164,9 @@ async def get_task_score(
     """Return the current ScoreExplanation for *task_id*."""
     task = await graph_store.get_node(task_id)
     if task is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Task '{task_id}' not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Task '{task_id}' not found"
+        )
 
     scoring = task.get("scoring") or task.get("score_block") or {}
     if not scoring:
@@ -197,7 +199,9 @@ async def get_task_score_history(
     """Return scoring history for *task_id*."""
     task = await graph_store.get_node(task_id)
     if task is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Task '{task_id}' not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Task '{task_id}' not found"
+        )
 
     scoring = task.get("scoring") or task.get("score_block") or {}
     scores: list[ScoreExplanation] = []
@@ -251,8 +255,13 @@ async def simulate_score(
 
     # Apply any weight overrides — we rebuild the factor list with new weights.
     weights: dict[str, float] = {
-        "w1": 0.25, "w2": 0.20, "w3": 0.20,
-        "w4": 0.15, "w5": 0.10, "w6": 0.05, "w7": 0.05,
+        "w1": 0.25,
+        "w2": 0.20,
+        "w3": 0.20,
+        "w4": 0.15,
+        "w5": 0.10,
+        "w6": 0.05,
+        "w7": 0.05,
     }
     if body.modified_weights:
         for k, v in body.modified_weights.items():

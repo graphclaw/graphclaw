@@ -361,8 +361,7 @@ async def compact_working_context(
         archive_content = (
             f"# Compacted Context — {today}\n\n"
             f"*Session: {session_label}*\n\n"
-            f"## Original Working Context\n\n"
-            + original.decode()
+            f"## Original Working Context\n\n" + original.decode()
         )
         await storage_client.write(
             episodic_path, archive_content.encode(), content_type="text/markdown"
@@ -371,12 +370,12 @@ async def compact_working_context(
         pass  # Nothing to archive — working context was empty
 
     # Replace working context with the supplied summary
-    await storage_client.write(
-        working_path, body.summary.encode(), content_type="text/markdown"
-    )
+    await storage_client.write(working_path, body.summary.encode(), content_type="text/markdown")
     logger.info(
         "intelligence: compact done agent_id=%s archived_as=%s user_id=%s",
-        agent_id, entry_name, user_id,
+        agent_id,
+        entry_name,
+        user_id,
     )
     return CompactResponse(
         agent_id=agent_id,
@@ -405,11 +404,7 @@ async def list_episodic_memory(
     """List episodic memory entries from object storage."""
     prefix = StoragePaths.agent_memory_episodic_prefix(user_id, agent_id)
     all_keys = await storage_client.list_objects(prefix)
-    entries = [
-        MemoryListEntry(key=k.split("/")[-1], path=k)
-        for k in all_keys
-        if k.endswith(".md")
-    ]
+    entries = [MemoryListEntry(key=k.split("/")[-1], path=k) for k in all_keys if k.endswith(".md")]
     return MemoryListResponse(agent_id=agent_id, memory_type="episodic", entries=entries)
 
 
@@ -457,7 +452,9 @@ async def delete_episodic_entry(
     await storage_client.delete(path)
     logger.info(
         "intelligence: episodic entry deleted agent_id=%s entry=%s user_id=%s",
-        agent_id, entry_name, user_id,
+        agent_id,
+        entry_name,
+        user_id,
     )
 
 
@@ -541,7 +538,9 @@ async def write_semantic_topic(
     await storage_client.write(path, body.content.encode(), content_type="text/markdown")
     logger.info(
         "intelligence: semantic topic written agent_id=%s topic=%s user_id=%s",
-        agent_id, topic, user_id,
+        agent_id,
+        topic,
+        user_id,
     )
     return MemoryContentResponse(
         agent_id=agent_id, memory_type="semantic", key=topic, content=body.content
@@ -565,7 +564,9 @@ async def delete_semantic_topic(
     await storage_client.delete(path)
     logger.info(
         "intelligence: semantic topic deleted agent_id=%s topic=%s user_id=%s",
-        agent_id, topic, user_id,
+        agent_id,
+        topic,
+        user_id,
     )
 
 
@@ -720,11 +721,11 @@ async def fork_authored_skill(
     await storage_client.write(fork_path, raw, content_type="text/markdown")
     logger.info(
         "intelligence: skill forked original=%s fork=%s user_id=%s",
-        skill_id, fork_id, user_id,
+        skill_id,
+        fork_id,
+        user_id,
     )
-    return ForkResponse(
-        original_skill_id=skill_id, forked_skill_id=fork_id, path=fork_path
-    )
+    return ForkResponse(original_skill_id=skill_id, forked_skill_id=fork_id, path=fork_path)
 
 
 @router.post(
@@ -798,7 +799,5 @@ async def import_skill_file(
     path = StoragePaths.skill_authored(user_id, skill_id)
 
     await storage_client.write(path, raw, content_type="text/markdown")
-    logger.info(
-        "intelligence: skill imported skill_id=%s user_id=%s", skill_id, user_id
-    )
+    logger.info("intelligence: skill imported skill_id=%s user_id=%s", skill_id, user_id)
     return AuthoredSkillResponse(skill_id=skill_id, content=content)

@@ -106,7 +106,9 @@ async def get_state_history(
     """Return state transition history for *task_id*."""
     task = await graph_store.get_node(task_id)
     if task is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Task '{task_id}' not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Task '{task_id}' not found"
+        )
 
     history: list[dict[str, Any]] = task.get("state_history") or []
     start = int(cursor) if cursor and cursor.isdigit() else 0
@@ -134,7 +136,9 @@ async def get_valid_transitions(
     """Return valid next states for *task_id*."""
     task = await graph_store.get_node(task_id)
     if task is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Task '{task_id}' not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Task '{task_id}' not found"
+        )
 
     current_raw: str = task.get("state", "PENDING")
     try:
@@ -170,7 +174,9 @@ async def transition_task(
     """Drive *task_id* to ``body.target_state``."""
     raw_task = await graph_store.get_node(task_id)
     if raw_task is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Task '{task_id}' not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Task '{task_id}' not found"
+        )
 
     # Validate target state string.
     try:

@@ -91,49 +91,102 @@ class MarketplacePolicy(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-@router.get("", response_model=FeaturePolicy, status_code=status.HTTP_200_OK, summary="Get feature policy")
-async def get_features(admin_user_id: AdminUserDep, storage_client: StorageClientDep) -> FeaturePolicy:
+@router.get(
+    "", response_model=FeaturePolicy, status_code=status.HTTP_200_OK, summary="Get feature policy"
+)
+async def get_features(
+    admin_user_id: AdminUserDep, storage_client: StorageClientDep
+) -> FeaturePolicy:
     data = await _load_json(_FEATURE_POLICY_PATH, storage_client)
     return FeaturePolicy(**data) if data else FeaturePolicy()
 
 
-@router.put("", response_model=FeaturePolicy, status_code=status.HTTP_200_OK, summary="Replace feature policy")
-async def put_features(body: FeaturePolicy, admin_user_id: AdminUserDep, storage_client: StorageClientDep) -> FeaturePolicy:
+@router.put(
+    "",
+    response_model=FeaturePolicy,
+    status_code=status.HTTP_200_OK,
+    summary="Replace feature policy",
+)
+async def put_features(
+    body: FeaturePolicy, admin_user_id: AdminUserDep, storage_client: StorageClientDep
+) -> FeaturePolicy:
     await _save_json(_FEATURE_POLICY_PATH, storage_client, body.model_dump())
     return body
 
 
-@router.get("/channels", response_model=ChannelPolicy, status_code=status.HTTP_200_OK, summary="Get channel policy")
-async def get_channel_policy(admin_user_id: AdminUserDep, storage_client: StorageClientDep) -> ChannelPolicy:
+@router.get(
+    "/channels",
+    response_model=ChannelPolicy,
+    status_code=status.HTTP_200_OK,
+    summary="Get channel policy",
+)
+async def get_channel_policy(
+    admin_user_id: AdminUserDep, storage_client: StorageClientDep
+) -> ChannelPolicy:
     data = await _load_json(_CHANNEL_POLICY_PATH, storage_client)
     return ChannelPolicy(**data) if data else ChannelPolicy()
 
 
-@router.put("/channels", response_model=ChannelPolicy, status_code=status.HTTP_200_OK, summary="Replace channel policy")
-async def put_channel_policy(body: ChannelPolicy, admin_user_id: AdminUserDep, storage_client: StorageClientDep) -> ChannelPolicy:
+@router.put(
+    "/channels",
+    response_model=ChannelPolicy,
+    status_code=status.HTTP_200_OK,
+    summary="Replace channel policy",
+)
+async def put_channel_policy(
+    body: ChannelPolicy, admin_user_id: AdminUserDep, storage_client: StorageClientDep
+) -> ChannelPolicy:
     await _save_json(_CHANNEL_POLICY_PATH, storage_client, body.model_dump())
     return body
 
 
-@router.get("/mcp-allowlist", response_model=MCPAllowlist, status_code=status.HTTP_200_OK, summary="Get MCP allowlist")
-async def get_mcp_allowlist(admin_user_id: AdminUserDep, storage_client: StorageClientDep) -> MCPAllowlist:
+@router.get(
+    "/mcp-allowlist",
+    response_model=MCPAllowlist,
+    status_code=status.HTTP_200_OK,
+    summary="Get MCP allowlist",
+)
+async def get_mcp_allowlist(
+    admin_user_id: AdminUserDep, storage_client: StorageClientDep
+) -> MCPAllowlist:
     data = await _load_json(_MCP_ALLOWLIST_PATH, storage_client)
     return MCPAllowlist(**data) if data else MCPAllowlist()
 
 
-@router.put("/mcp-allowlist", response_model=MCPAllowlist, status_code=status.HTTP_200_OK, summary="Replace MCP allowlist")
-async def put_mcp_allowlist(body: MCPAllowlist, admin_user_id: AdminUserDep, storage_client: StorageClientDep) -> MCPAllowlist:
+@router.put(
+    "/mcp-allowlist",
+    response_model=MCPAllowlist,
+    status_code=status.HTTP_200_OK,
+    summary="Replace MCP allowlist",
+)
+async def put_mcp_allowlist(
+    body: MCPAllowlist, admin_user_id: AdminUserDep, storage_client: StorageClientDep
+) -> MCPAllowlist:
     await _save_json(_MCP_ALLOWLIST_PATH, storage_client, body.model_dump())
     return body
 
 
-@router.get("/marketplace", response_model=MarketplacePolicy, status_code=status.HTTP_200_OK, summary="Get marketplace policy")
-async def get_marketplace_policy(admin_user_id: AdminUserDep, storage_client: StorageClientDep) -> MarketplacePolicy:
+@router.get(
+    "/marketplace",
+    response_model=MarketplacePolicy,
+    status_code=status.HTTP_200_OK,
+    summary="Get marketplace policy",
+)
+async def get_marketplace_policy(
+    admin_user_id: AdminUserDep, storage_client: StorageClientDep
+) -> MarketplacePolicy:
     data = await _load_json(_MARKETPLACE_POLICY_PATH, storage_client)
     return MarketplacePolicy(**data) if data else MarketplacePolicy()
 
 
-@router.put("/marketplace", response_model=MarketplacePolicy, status_code=status.HTTP_200_OK, summary="Replace marketplace policy")
-async def put_marketplace_policy(body: MarketplacePolicy, admin_user_id: AdminUserDep, storage_client: StorageClientDep) -> MarketplacePolicy:
+@router.put(
+    "/marketplace",
+    response_model=MarketplacePolicy,
+    status_code=status.HTTP_200_OK,
+    summary="Replace marketplace policy",
+)
+async def put_marketplace_policy(
+    body: MarketplacePolicy, admin_user_id: AdminUserDep, storage_client: StorageClientDep
+) -> MarketplacePolicy:
     await _save_json(_MARKETPLACE_POLICY_PATH, storage_client, body.model_dump())
     return body

@@ -157,7 +157,9 @@ def test_compact_replaces_working_context(client: TestClient) -> None:
     assert "test-ses" in body["archived_as"]
 
 
-def test_compact_working_is_replaced_with_summary(client: TestClient, storage: FakeStorageClient) -> None:
+def test_compact_working_is_replaced_with_summary(
+    client: TestClient, storage: FakeStorageClient
+) -> None:
     ctx = "Old working context"
     client.put(
         f"/app/v1/intelligence/agents/{_AGENT_ID}/memory/working",
@@ -460,6 +462,4 @@ def test_intelligence_paths_are_scoped_to_user(storage: FakeStorageClient) -> No
     )
 
     for path in storage._data:
-        assert path.startswith(_TEST_USER + "/"), (
-            f"Found a path not under user prefix: {path!r}"
-        )
+        assert path.startswith(_TEST_USER + "/"), f"Found a path not under user prefix: {path!r}"

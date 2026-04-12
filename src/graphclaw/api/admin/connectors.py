@@ -97,7 +97,9 @@ class ConnectorHealthResponse(BaseModel):
     status_code=status.HTTP_200_OK,
     summary="List connectors",
 )
-async def list_connectors(admin_user_id: AdminUserDep, storage_client: StorageClientDep) -> list[ConnectorOut]:
+async def list_connectors(
+    admin_user_id: AdminUserDep, storage_client: StorageClientDep
+) -> list[ConnectorOut]:
     data = await _load_connectors(storage_client)
     return [ConnectorOut(**c) for c in data]
 

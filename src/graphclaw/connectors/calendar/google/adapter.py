@@ -186,8 +186,12 @@ class GoogleCalendarConnector(CalendarConnector):
         calendar_id: str = "primary",
     ) -> list[CalendarEvent]:
         """List all events in the given time window from the specified calendar."""
-        time_min = since.isoformat() if since.tzinfo else since.replace(tzinfo=timezone.utc).isoformat()
-        time_max = until.isoformat() if until.tzinfo else until.replace(tzinfo=timezone.utc).isoformat()
+        time_min = (
+            since.isoformat() if since.tzinfo else since.replace(tzinfo=timezone.utc).isoformat()
+        )
+        time_max = (
+            until.isoformat() if until.tzinfo else until.replace(tzinfo=timezone.utc).isoformat()
+        )
 
         def _fetch() -> list[dict]:
             events_result = (
@@ -266,8 +270,12 @@ class GoogleCalendarConnector(CalendarConnector):
         calendar_id: str = "primary",
     ) -> list[FreeBusySlot]:
         """Query the free/busy information for the given time range."""
-        time_min = since.isoformat() if since.tzinfo else since.replace(tzinfo=timezone.utc).isoformat()
-        time_max = until.isoformat() if until.tzinfo else until.replace(tzinfo=timezone.utc).isoformat()
+        time_min = (
+            since.isoformat() if since.tzinfo else since.replace(tzinfo=timezone.utc).isoformat()
+        )
+        time_max = (
+            until.isoformat() if until.tzinfo else until.replace(tzinfo=timezone.utc).isoformat()
+        )
 
         body = {
             "timeMin": time_min,

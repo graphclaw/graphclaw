@@ -159,7 +159,9 @@ async def get_secrets_status(
         await secrets_client.get_secret(_user_key(user_id, "_health_probe_"))
     except KeyError:
         # KeyError means the backend responded — it's reachable
-        return SecretsStatusResponse(backend=backend_name, reachable=True, detail="Backend is reachable")
+        return SecretsStatusResponse(
+            backend=backend_name, reachable=True, detail="Backend is reachable"
+        )
     except Exception as exc:
         logger.warning("secrets: health probe failed: %s", exc)
         return SecretsStatusResponse(backend=backend_name, reachable=False, detail=str(exc))

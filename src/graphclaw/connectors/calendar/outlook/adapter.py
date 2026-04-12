@@ -202,8 +202,12 @@ class OutlookCalendarConnector(CalendarConnector):
         calendar_id: str = "primary",
     ) -> list[CalendarEvent]:
         """List events from the MS Graph calendarView endpoint."""
-        start_dt = since.isoformat() if since.tzinfo else since.replace(tzinfo=timezone.utc).isoformat()
-        end_dt = until.isoformat() if until.tzinfo else until.replace(tzinfo=timezone.utc).isoformat()
+        start_dt = (
+            since.isoformat() if since.tzinfo else since.replace(tzinfo=timezone.utc).isoformat()
+        )
+        end_dt = (
+            until.isoformat() if until.tzinfo else until.replace(tzinfo=timezone.utc).isoformat()
+        )
 
         if calendar_id == "primary":
             url = "/me/calendarView"
@@ -262,8 +266,12 @@ class OutlookCalendarConnector(CalendarConnector):
         calendar_id: str = "primary",
     ) -> list[FreeBusySlot]:
         """Query free/busy via the MS Graph getSchedule endpoint."""
-        start_dt = since.isoformat() if since.tzinfo else since.replace(tzinfo=timezone.utc).isoformat()
-        end_dt = until.isoformat() if until.tzinfo else until.replace(tzinfo=timezone.utc).isoformat()
+        start_dt = (
+            since.isoformat() if since.tzinfo else since.replace(tzinfo=timezone.utc).isoformat()
+        )
+        end_dt = (
+            until.isoformat() if until.tzinfo else until.replace(tzinfo=timezone.utc).isoformat()
+        )
 
         # getSchedule requires the user's email; fetch it from /me
         me_resp = await self._client.get("/me", params={"$select": "mail,userPrincipalName"})

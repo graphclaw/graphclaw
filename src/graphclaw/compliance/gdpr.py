@@ -237,7 +237,9 @@ class GDPRService:
                     if len(parts) >= 3:
                         month_str = parts[2]  # YYYY-MM
                         try:
-                            month_dt = datetime.strptime(month_str, "%Y-%m").replace(tzinfo=timezone.utc)
+                            month_dt = datetime.strptime(month_str, "%Y-%m").replace(
+                                tzinfo=timezone.utc
+                            )
                             # If the entire month is older than the cutoff, delete.
                             if month_dt < cutoff.replace(
                                 day=1, hour=0, minute=0, second=0, microsecond=0

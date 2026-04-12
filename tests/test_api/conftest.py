@@ -74,7 +74,8 @@ class FakeGraphStore(GraphStore):
             edges = [e for e in self._edges if e.get("target_id") == node_id]
         else:
             edges = [
-                e for e in self._edges
+                e
+                for e in self._edges
                 if e.get("source_id") == node_id or e.get("target_id") == node_id
             ]
         if edge_type:

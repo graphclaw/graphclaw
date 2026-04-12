@@ -140,7 +140,9 @@ async def approve_task(
     """Drive an APPROVAL task to COMPLETE."""
     raw_task = await graph_store.get_node(task_id)
     if raw_task is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Task '{task_id}' not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Task '{task_id}' not found"
+        )
 
     _assert_approval_ownership(raw_task, user_id, task_id)
 
@@ -183,7 +185,9 @@ async def deny_task(
     """Transition an APPROVAL task to CANCELLED."""
     raw_task = await graph_store.get_node(task_id)
     if raw_task is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Task '{task_id}' not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Task '{task_id}' not found"
+        )
 
     _assert_approval_ownership(raw_task, user_id, task_id)
 
@@ -219,11 +223,7 @@ def _assert_approval_ownership(raw_task: dict[str, Any], user_id: str, task_id: 
     tasks from ownership mismatches.
     """
     is_approval = raw_task.get("task_type") == TaskType.APPROVAL.value
-    owner = (
-        raw_task.get("assigned_to")
-        or raw_task.get("owned_by")
-        or raw_task.get("created_by")
-    )
+    owner = raw_task.get("assigned_to") or raw_task.get("owned_by") or raw_task.get("created_by")
     if not is_approval or owner != user_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

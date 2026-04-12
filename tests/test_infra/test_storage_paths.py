@@ -80,7 +80,9 @@ def test_different_users_produce_different_paths() -> None:
 
     assert StoragePaths.user_config(user_a) != StoragePaths.user_config(user_b)
     assert StoragePaths.agent_profile(user_a, "main") != StoragePaths.agent_profile(user_b, "main")
-    assert StoragePaths.skill_registry_installed(user_a) != StoragePaths.skill_registry_installed(user_b)
+    assert StoragePaths.skill_registry_installed(user_a) != StoragePaths.skill_registry_installed(
+        user_b
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -189,17 +191,13 @@ def test_skill_executions_path() -> None:
 
 
 def test_attachment_path_basic() -> None:
-    path = StoragePaths.attachment(
-        _USER, "email", "2026-04-11", "msg-001", "report.pdf"
-    )
+    path = StoragePaths.attachment(_USER, "email", "2026-04-11", "msg-001", "report.pdf")
     assert path == f"{_USER}/attachments/email/2026-04-11/msg-001/report.pdf"
 
 
 def test_attachment_path_sanitises_slashes_in_msg_id() -> None:
     """Slashes in msg_id must be replaced with underscores."""
-    path = StoragePaths.attachment(
-        _USER, "whatsapp", "2026-04-11", "wa/12345/msg", "image.jpg"
-    )
+    path = StoragePaths.attachment(_USER, "whatsapp", "2026-04-11", "wa/12345/msg", "image.jpg")
     assert "/" not in path.split("attachments/whatsapp/2026-04-11/")[1].split("/")[0]
 
 
