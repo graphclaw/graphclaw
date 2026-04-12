@@ -170,9 +170,18 @@ Content-Type: application/json
 
 ## Authentication
 
-The gateway API currently has no authentication (single-user Phase 1). OAuth 2.0 + JWT authentication will be added in Phase 3.
+The cockpit API (`/app/v1/...`) requires a valid Bearer JWT token on every request.
 
-For local development, the API is accessible directly. For any external exposure, put it behind a reverse proxy (nginx/Caddy) with TLS.
+**Flow:**
+1. `GET /auth/login` — redirects to the configured OAuth 2.0 provider (Google, GitHub, or Microsoft) using PKCE
+2. `GET /auth/callback` — exchanges the auth code for an access token + refresh token; returns a signed JWT
+3. Include the JWT as `Authorization: Bearer {token}` on all `/app/v1/` requests
+4. `POST /auth/refresh` — exchange a refresh token for a new access token (token rotation is enforced)
+5. `POST /auth/logout` — revokes the refresh token
+
+The gateway inbound/outbound endpoints (`/api/v1/inbound`, `/api/v1/outbound`) use channel-specific authentication (HMAC signatures, webhook secrets) rather than user JWTs.
+
+For local development, set `AUTH_BYPASS_SECRET` in your environment to skip OAuth and issue tokens directly. Never use this in production.
 
 ---
 
@@ -196,10 +205,10 @@ http://localhost:8080/openapi.json
 
 Each channel adapter may also expose channel-specific webhook endpoints for receiving messages directly from provider APIs (e.g., WhatsApp webhook, Telegram webhook). These are registered by the `ChannelAdapter` implementation and documented per-channel.
 
-| Channel | Webhook path (planned) | Auth method |
-|---------|----------------------|-------------|
-| Email | N/A (uses IMAP polling) | — |
-| WhatsApp (Phase 2) | `/webhooks/whatsapp` | HMAC-SHA256 |
-| Telegram (Phase 2) | `/webhooks/telegram` | Secret token header |
-| Slack (Phase 5) | `/webhooks/slack` | HMAC-SHA256 |
-| Teams (Phase 5) | `/webhooks/teams` | HMAC-SHA256 |
+| Channel | Webhook path | Auth method | Status |
+|---------|-------------|-------------|--------|
+| Email | N/A (uses IMAP polling) | — | Implemented |
+| WhatsApp | `/webhooks/whatsapp` | HMAC-SHA256 | Implemented |
+| Telegram | `/webhooks/telegram` | Secret token header | Implemented |
+| Slack | `/webhooks/slack` | HMAC-SHA256 | Implemented |
+| Teams | `/webhooks/teams` | HMAC-SHA256 | Implemented |

@@ -54,10 +54,12 @@ Concrete impl          — implements the ABC for a specific technology
 | Channel | Path | Protocol |
 |---------|------|----------|
 | `email` | `src/graphclaw/gateway/channels/email/` | IMAP polling + SMTP send |
-| _(Phase 2)_ | `src/graphclaw/gateway/channels/whatsapp/` | Webhook + HMAC |
-| _(Phase 2)_ | `src/graphclaw/gateway/channels/telegram/` | Webhook + bot token |
-| _(Phase 5)_ | `src/graphclaw/gateway/channels/slack/` | OAuth 2.0 + Events API |
-| _(Phase 5)_ | `src/graphclaw/gateway/channels/teams/` | OAuth 2.0 + Activity Feed |
+| `whatsapp` | `src/graphclaw/gateway/channels/whatsapp/` | Webhook + HMAC-SHA256 |
+| `telegram` | `src/graphclaw/gateway/channels/telegram/` | Webhook + bot token header |
+| `slack` | `src/graphclaw/gateway/channels/slack/` | OAuth 2.0 + Events API |
+| `teams` | `src/graphclaw/gateway/channels/teams/` | OAuth 2.0 + Activity Feed |
+
+All five channels are fully implemented. WhatsApp and Telegram are webhook-based; Slack and Teams use OAuth 2.0 app installations.
 
 ---
 
@@ -98,11 +100,29 @@ Concrete impl          — implements the ABC for a specific technology
 
 | ABC | File | Backends |
 |-----|------|----------|
-| `StorageClient` | `storage.py` | `MinIOStorageClient` (local), `S3StorageClient` (prod) |
-| `MessageBroker` | `broker.py` | `RedisBroker` (local), `SQSBroker` (prod) |
-| `SecretsClient` | `secrets.py` | `EnvFileClient` (local), `AWSSecretsClient` (Phase 3), `HashiCorpVaultClient` (Phase 3) |
+| `StorageClient` | `storage.py` | `S3StorageClient` — serves both MinIO (local dev) and AWS S3 (production) via `endpoint_url`; use `StorageConfig.from_env()` to construct transparently |
+| `MessageBroker` | `broker.py` | `RedisMessageBroker` — single implementation used in both local and production (ElastiCache); `SQSBroker` is planned for the scale phase, see [`docs/future-phases.md`](../future-phases.md) |
+| `SecretsClient` | `secrets.py` | `EnvFileClient` (local dev), `AWSSecretsClient` (production), `HashiCorpVaultClient` (enterprise) — all three fully implemented |
+
+**Path registry:** `StoragePaths` in `storage.py` — static class that is the single source of truth for all `{user_id}/` prefixed object paths. No code may construct storage path strings by hand; always call `StoragePaths.<method>()`. See [`docs/architecture/08-object-storage-model.md`](architecture/08-object-storage-model.md).
+
+**Config factory:** `StorageConfig.from_env()` reads `STORAGE_BUCKET`, `STORAGE_ENDPOINT_URL`, and `STORAGE_REGION` from environment and returns a configured `StorageConfig`. Call `.create_client()` on the result to get a ready-to-use `S3StorageClient`. This makes MinIO ↔ S3 selection transparent — callers never reference `S3StorageClient` directly.
 
 **Logging:** `AsyncLogger` in `infra/logger.py` — structured JSON, session_id tracing, async buffered writes.
+
+**Message broker design note:** The `MessageBroker` ABC uses Redis Lists (`LPUSH` / `BRPOP`) rather than Redis Pub/Sub. Lists provide durable queue semantics (messages persist until consumed) whereas Pub/Sub is ephemeral (messages lost if no subscriber is connected). Redis Pub/Sub is used separately for real-time SSE event streaming to the cockpit UI (`graphclaw:events:{user_id}` per-user channels) — a different system from the application queues.
+
+**Queue names** (defined in `infra/broker.py` as `QueueNames`):
+
+| Constant | Queue name | Role |
+|----------|-----------|------|
+| `INBOUND_MESSAGES` | `inbound_messages` | All channels → inbound processor |
+| `TRIGGER_EVENTS` | `trigger_events` | Trigger engine → agent orchestrator |
+| `SKILL_JOBS` | `skill_jobs` | API → skill worker pool (consumer planned) |
+| `STATUS_UPDATES` | `status_updates` | Inbound processor → state machine (consumer planned) |
+| `OUTBOUND_MESSAGES` | `outbound_messages` | Agent/API → channel senders |
+
+> **Note:** `BrokerConfig.backend` accepts `"redis"` or `"sqs"` but no factory reads it yet — `RedisMessageBroker` is always instantiated directly. Wiring this field to a factory is part of the SQS implementation plan in `docs/future-phases.md`.
 
 ---
 
@@ -139,7 +159,9 @@ See [`docs/db-backends.md`](db-backends.md) for the full guide. Summary:
 
 ## Dependency Injection
 
-All ABCs flow into the application via constructor injection. No global state, no service locators.
+### Gateway / Agent Loop (constructor injection)
+
+All ABCs flow into the agent loop and gateway services via constructor injection. No global state, no service locators.
 
 ```python
 # Example: wiring the application
@@ -154,5 +176,33 @@ agent_loop = AgentLoop(
     llm_client=llm_client,
 )
 ```
+
+### Cockpit API (FastAPI dependency injection)
+
+The cockpit API layer (`src/graphclaw/api/`) uses **FastAPI's `Depends()` system** via `src/graphclaw/api/deps.py`. Each HTTP request receives its own scoped instances — no module-level singletons in the API layer.
+
+```python
+# src/graphclaw/api/deps.py — key dependency providers
+async def get_storage_client() -> StorageClient: ...      # S3StorageClient per request
+async def get_skill_registry_service() -> SkillRegistryService: ...
+async def require_auth(token: str = Security(...)) -> str: ...  # returns user_id
+
+# Type aliases used in route signatures
+CurrentUserDep = Annotated[str, Depends(require_auth)]
+StorageClientDep = Annotated[StorageClient, Depends(get_storage_client)]
+
+# Example route
+@router.get("/intelligence/agents/{agent_id}/profile")
+async def get_profile(
+    agent_id: str,
+    user_id: CurrentUserDep,       # resolved from Bearer token
+    storage_client: StorageClientDep,  # resolved fresh per request
+) -> AgentProfileResponse: ...
+```
+
+**Benefits:**
+- Every API handler is independently testable by overriding dependencies in `app.dependency_overrides`
+- `StorageClient` is never a module-level singleton — safe for concurrent requests
+- Auth is enforced at the dependency level; routes cannot accidentally bypass it
 
 This pattern makes every component independently testable with mock implementations.

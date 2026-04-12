@@ -19,46 +19,99 @@ These endpoints exist in the codebase. Some are stubs (in-memory) and need real 
 |---|------|--------|----------|-------|
 | 1 | `GET /auth/login` | Real | `auth/routes.py` | OAuth 2.0 + PKCE |
 | 2 | `GET /auth/callback` | Real | `auth/routes.py` | |
-| 3 | `POST /auth/refresh` | Real | `auth/routes.py` | |
-| 4 | `POST /auth/logout` | Real | `auth/routes.py` | |
+| 3 | `POST /auth/refresh` | Real | `auth/routes.py` | Token rotation enforced |
+| 4 | `POST /auth/logout` | Real | `auth/routes.py` | Revokes refresh token |
 | 5 | `GET /auth/me` | Real | `auth/routes.py` | |
 | 6 | `POST /api/v1/inbound` | Real | `gateway/app.py` | |
 | 7 | `POST /api/v1/outbound` | Real | `gateway/app.py` | |
 | 8 | `POST /api/v1/trigger` | Real | `gateway/app.py` | |
-| 9 | `GET/POST /webhooks/whatsapp` | Real | `gateway/app.py` | |
-| 10 | `GET/POST /webhooks/telegram` | Real | `gateway/app.py` | |
-| 11 | `GET /health` | Real | `api/health.py` | |
-| 12 | `GET /health/ready` | Real | `api/health.py` | |
-| 13 | `GET /ready` | Real | `api/health.py` | |
-| 14 | `GET /app/v1/settings` | **Stub** | `api/routes.py` | Needs: S3 config read |
-| 15 | `PATCH /app/v1/settings` | **Stub** | `api/routes.py` | Needs: S3 config write |
-| 16 | `GET /app/v1/settings/channels` | **Stub** | `api/routes.py` | Needs: real channel status |
-| 17 | `GET /app/v1/approvals` | **Stub** | `api/routes.py` | Needs: graph query |
-| 18 | `POST /app/v1/approvals/{id}/approve` | **Stub** | `api/routes.py` | Needs: state transition |
-| 19 | `POST /app/v1/approvals/{id}/deny` | **Stub** | `api/routes.py` | Needs: state transition |
-| 20 | `GET /app/v1/skills` | **Stub** | `api/routes.py` | Needs: registry query |
-| 21 | `POST /app/v1/skills/install` | **Stub** | `api/routes.py` | |
-| 22 | `DELETE /app/v1/skills/{id}` | **Stub** | `api/routes.py` | |
-| 23 | `GET /app/v1/skills/search` | **Stub** | `api/routes.py` | |
-| 24 | `GET /app/v1/skills/sources` | **Stub** | `api/routes.py` | |
-| 25 | `POST /app/v1/skills/sources` | **Stub** | `api/routes.py` | |
-| 26 | `DELETE /app/v1/skills/sources/{uri}` | **Stub** | `api/routes.py` | |
-| 27 | `GET /app/v1/mcp-servers` | **Stub** | `api/routes.py` | |
-| 28 | `POST /app/v1/mcp-servers` | **Stub** | `api/routes.py` | |
-| 29 | `PATCH /app/v1/mcp-servers/{id}` | **Stub** | `api/routes.py` | |
-| 30 | `DELETE /app/v1/mcp-servers/{id}` | **Stub** | `api/routes.py` | |
-| 31 | `GET /app/v1/mcp-servers/search` | **Stub** | `api/routes.py` | |
-| 32 | `GET /app/v1/compliance/export` | Real | `compliance/` | |
-| 33 | `POST /app/v1/compliance/erasure` | Real | `compliance/` | |
-| 34 | `GET /app/v1/compliance/erasure/{id}` | Real | `compliance/` | |
-| 35 | `POST /api/v1/a2a/agents` | Real | `a2a/routes.py` | |
-| 36 | `GET /api/v1/a2a/agents` | Real | `a2a/routes.py` | |
-| 37 | `DELETE /api/v1/a2a/agents` | Real | `a2a/routes.py` | |
-| 38 | `POST /api/v1/task-update` | Real | `a2a/routes.py` | |
+| 9 | `GET/POST /webhooks/whatsapp` | Real | `gateway/app.py` | HMAC-SHA256 verified |
+| 10 | `GET/POST /webhooks/telegram` | Real | `gateway/app.py` | Secret token header verified |
+| 11 | `GET/POST /webhooks/slack` | Real | `gateway/app.py` | HMAC-SHA256 verified |
+| 12 | `GET/POST /webhooks/teams` | Real | `gateway/app.py` | HMAC-SHA256 verified |
+| 13 | `GET /health` | Real | `api/health.py` | |
+| 14 | `GET /health/ready` | Real | `api/health.py` | |
+| 15 | `GET /ready` | Real | `api/health.py` | |
+| 16 | `GET /app/v1/settings` | Real | `api/settings.py` | Reads `{user_id}/config.json` via StorageClient |
+| 17 | `PATCH /app/v1/settings` | Real | `api/settings.py` | Writes `{user_id}/config.json` |
+| 18 | `GET /app/v1/settings/channels` | Real | `api/settings.py` | Returns live channel registry status |
+| 19 | `GET /app/v1/settings/scoring-weights` | Real | `api/settings.py` | Reads `{user_id}/scoring_weights.json` |
+| 20 | `PATCH /app/v1/settings/scoring-weights` | Real | `api/settings.py` | Writes scoring weights |
+| 21 | `GET /app/v1/approvals` | Real | `api/approvals.py` | Queries APPROVAL nodes from GraphStore |
+| 22 | `POST /app/v1/approvals/{id}/approve` | Real | `api/approvals.py` | State transition via StateMachine |
+| 23 | `POST /app/v1/approvals/{id}/deny` | Real | `api/approvals.py` | State transition via StateMachine |
+| 24 | `GET /app/v1/skills` | Real | `api/skill_registry.py` | SkillRegistryService query |
+| 25 | `POST /app/v1/skills/install` | Real | `api/skill_registry.py` | |
+| 26 | `DELETE /app/v1/skills/{id}` | Real | `api/skill_registry.py` | |
+| 27 | `GET /app/v1/skills/search` | Real | `api/skill_registry.py` | |
+| 28 | `GET /app/v1/skills/sources` | Real | `api/skill_registry.py` | |
+| 29 | `POST /app/v1/skills/sources` | Real | `api/skill_registry.py` | |
+| 30 | `DELETE /app/v1/skills/sources/{uri}` | Real | `api/skill_registry.py` | |
+| 31 | `POST /app/v1/skills/{id}/feedback` | Real | `api/skill_registry.py` | Records quality score |
+| 32 | `GET /app/v1/skills/workers` | Real | `api/skill_registry.py` | Worker pool status |
+| 33 | `GET /app/v1/skills/{id}/executions` | Real | `api/skill_registry.py` | Execution history from storage |
+| 34 | `POST /app/v1/skills/{id}/test` | Real | `api/skill_registry.py` | Submits test job |
+| 35 | `GET /app/v1/mcp-servers` | Real | `api/mcp.py` | MCP registry query |
+| 36 | `POST /app/v1/mcp-servers` | Real | `api/mcp.py` | |
+| 37 | `PATCH /app/v1/mcp-servers/{id}` | Real | `api/mcp.py` | Trust tier update |
+| 38 | `DELETE /app/v1/mcp-servers/{id}` | Real | `api/mcp.py` | |
+| 39 | `GET /app/v1/mcp-servers/search` | Real | `api/mcp.py` | Official registry search |
+| 40 | `GET /app/v1/mcp-servers/{id}/tools` | Real | `api/mcp.py` | |
+| 41 | `GET /app/v1/mcp-approvals` | Real | `api/mcp.py` | Gated approval queue |
+| 42 | `GET /app/v1/compliance/export` | Real | `compliance/` | GDPR data export |
+| 43 | `POST /app/v1/compliance/erasure` | Real | `compliance/` | GDPR erasure request |
+| 44 | `GET /app/v1/compliance/erasure/{id}` | Real | `compliance/` | Erasure status |
+| 45 | `POST /api/v1/a2a/agents` | Real | `a2a/routes.py` | A2A agent registration |
+| 46 | `GET /api/v1/a2a/agents` | Real | `a2a/routes.py` | |
+| 47 | `DELETE /api/v1/a2a/agents` | Real | `a2a/routes.py` | |
+| 48 | `POST /api/v1/task-update` | Real | `a2a/routes.py` | Inbound A2A status push |
+| 49 | `GET /app/v1/admin/members` | Real | `api/admin/members.py` | Org member management |
+| 50 | `POST /app/v1/admin/members/invite` | Real | `api/admin/members.py` | |
+| 51 | `PATCH /app/v1/admin/members/{id}` | Real | `api/admin/members.py` | |
+| 52 | `DELETE /app/v1/admin/members/{id}` | Real | `api/admin/members.py` | |
+| 53 | `GET/PUT /app/v1/admin/features` | Real | `api/admin/features.py` | Feature gating |
+| 54 | `GET/PUT /app/v1/admin/features/channels` | Real | `api/admin/features.py` | |
+| 55 | `GET/PUT /app/v1/admin/llm/providers` | Real | `api/admin/llm.py` | LLM provider config |
+| 56 | `POST/DELETE /app/v1/admin/llm/keys` | Real | `api/admin/llm.py` | |
+| 57 | `GET/PUT /app/v1/admin/llm/budget` | Real | `api/admin/llm.py` | |
+| 58 | `GET/PUT /app/v1/admin/llm-judge/config` | Real | `api/admin/judge.py` | LLM-as-Judge config |
+| 59 | `GET /app/v1/admin/llm-judge/results` | Real | `api/admin/judge.py` | |
+| 60 | `GET/PUT /app/v1/admin/guardrails` | Real | `api/admin/guardrails.py` | XML guardrail rules |
+| 61 | `GET/PUT /app/v1/admin/sso` | Real | `api/admin/sso.py` | OIDC/SAML config |
+| 62 | `GET /app/v1/admin/audit-log` | Real | `api/admin/audit.py` | Audit trail query |
+| 63 | `GET /app/v1/admin/deployment/status` | Real | `api/admin/infra.py` | |
+| 64 | `GET /app/v1/admin/connectors` | Real | `api/admin/connectors.py` | Connector management |
+
+**Intelligence Hub — all implemented (Wave 7, April 2026)**
+
+| # | Path | Status | Location |
+|---|------|--------|----------|
+| 65 | `GET /app/v1/intelligence/agents/{id}/profile` | Real | `api/intelligence.py` |
+| 66 | `PUT /app/v1/intelligence/agents/{id}/profile` | Real | `api/intelligence.py` |
+| 67 | `GET /app/v1/intelligence/agents/{id}/memory/working` | Real | `api/intelligence.py` |
+| 68 | `PUT /app/v1/intelligence/agents/{id}/memory/working` | Real | `api/intelligence.py` |
+| 69 | `POST /app/v1/intelligence/agents/{id}/memory/compact` | Real | `api/intelligence.py` |
+| 70 | `GET /app/v1/intelligence/agents/{id}/memory/episodic` | Real | `api/intelligence.py` |
+| 71 | `GET /app/v1/intelligence/agents/{id}/memory/episodic/{entry}` | Real | `api/intelligence.py` |
+| 72 | `DELETE /app/v1/intelligence/agents/{id}/memory/episodic/{entry}` | Real | `api/intelligence.py` |
+| 73 | `GET /app/v1/intelligence/agents/{id}/memory/semantic` | Real | `api/intelligence.py` |
+| 74 | `GET /app/v1/intelligence/agents/{id}/memory/semantic/{topic}` | Real | `api/intelligence.py` |
+| 75 | `PUT /app/v1/intelligence/agents/{id}/memory/semantic/{topic}` | Real | `api/intelligence.py` |
+| 76 | `DELETE /app/v1/intelligence/agents/{id}/memory/semantic/{topic}` | Real | `api/intelligence.py` |
+| 77 | `GET /app/v1/intelligence/skills/authored` | Real | `api/intelligence.py` |
+| 78 | `POST /app/v1/intelligence/skills/authored` | Real | `api/intelligence.py` |
+| 79 | `GET /app/v1/intelligence/skills/authored/{skill_id}` | Real | `api/intelligence.py` |
+| 80 | `PUT /app/v1/intelligence/skills/authored/{skill_id}` | Real | `api/intelligence.py` |
+| 81 | `DELETE /app/v1/intelligence/skills/authored/{skill_id}` | Real | `api/intelligence.py` |
+| 82 | `POST /app/v1/intelligence/skills/authored/{skill_id}/fork` | Real | `api/intelligence.py` |
+| 83 | `POST /app/v1/intelligence/skills/validate` | Real | `api/intelligence.py` |
+| 84 | `POST /app/v1/intelligence/skills/import` | Real | `api/intelligence.py` |
 
 ---
 
 ## New Endpoints Required
+
+> **Status as of Wave 7 (April 2026):** Priorities 4, 6 (admin), and the Intelligence Hub are fully implemented. Priorities 1–3 and 5 remain outstanding. The table below reflects only the remaining work.
 
 ### Priority 1 — Core Cockpit (Graph + Tasks + Scoring)
 
@@ -127,18 +180,9 @@ Required for the settings panel and agent visibility (PRD §03, §05).
 | 45 | GET | `/app/v1/agent/triggers/{id}` | §03, §11.4 | `api/agent.py` | TriggerEngine |
 | 46 | POST | `/app/v1/agent/triggers/{id}/fire` | §03, §11.4 | `api/agent.py` | TriggerEngine |
 
-### Priority 4 — Skills + MCP Extensions
+### Priority 4 — Skills + MCP Extensions ✅ Complete
 
-Additional skill and MCP endpoints (PRD §06, §07).
-
-| # | Method | Path | PRD Ref | Backend Module | Dependencies |
-|---|--------|------|---------|----------------|-------------|
-| 47 | POST | `/app/v1/skills/{id}/feedback` | §06, §11.7 | `api/skills.py` (extend) | SkillRegistry |
-| 48 | GET | `/app/v1/skills/workers` | §06, §11.7 | `api/skills.py` | WorkerPool |
-| 49 | GET | `/app/v1/skills/{id}/executions` | §06, §11.7 | `api/skills.py` | StorageClient |
-| 50 | POST | `/app/v1/skills/{id}/test` | §06, §11.7 | `api/skills.py` | SkillWorker |
-| 51 | GET | `/app/v1/mcp-servers/{id}/tools` | §07, §11.8 | `api/mcp.py` (extend) | MCPClient |
-| 52 | GET | `/app/v1/mcp-approvals` | §07, §11.8 | `api/mcp.py` | GraphStore |
+All skill and MCP endpoints are implemented. See the Existing Endpoints table (rows 24–41).
 
 ### Priority 5 — Canvas / Agent Design
 
@@ -154,85 +198,29 @@ Agent workflow editor backend (PRD §04).
 | 58 | GET | `/app/v1/agents/{id}/versions` | §04, §11.14 | `api/agents.py` | StorageClient |
 | 59 | POST | `/app/v1/agents/{id}/test` | §04, §11.14 | `api/agents.py` | AgentLoop |
 
-### Priority 6 — Admin Panel (All New)
+### Priority 6 — Admin Panel ✅ Complete
 
-Full admin API surface (PRD §09). All endpoints require `OWNER` or `ADMIN` role.
-
-| # | Method | Path | PRD Ref | Backend Module |
-|---|--------|------|---------|----------------|
-| 60 | GET | `/app/v1/admin/members` | §09.2, §11.16 | `api/admin/members.py` (new) |
-| 61 | POST | `/app/v1/admin/members/invite` | §09.2, §11.16 | `api/admin/members.py` |
-| 62 | PATCH | `/app/v1/admin/members/{id}` | §09.2, §11.16 | `api/admin/members.py` |
-| 63 | DELETE | `/app/v1/admin/members/{id}` | §09.2, §11.16 | `api/admin/members.py` |
-| 64 | GET | `/app/v1/admin/features` | §09.3, §11.16 | `api/admin/features.py` (new) |
-| 65 | PUT | `/app/v1/admin/features` | §09.3, §11.16 | `api/admin/features.py` |
-| 66 | GET | `/app/v1/admin/features/channels` | §09.3, §11.16 | `api/admin/features.py` |
-| 67 | PUT | `/app/v1/admin/features/channels` | §09.3, §11.16 | `api/admin/features.py` |
-| 68 | GET | `/app/v1/admin/features/mcp-allowlist` | §09.3, §11.16 | `api/admin/features.py` |
-| 69 | PUT | `/app/v1/admin/features/mcp-allowlist` | §09.3, §11.16 | `api/admin/features.py` |
-| 70 | GET | `/app/v1/admin/features/marketplace` | §09.3, §11.16 | `api/admin/features.py` |
-| 71 | PUT | `/app/v1/admin/features/marketplace` | §09.3, §11.16 | `api/admin/features.py` |
-| 72 | GET | `/app/v1/admin/llm/providers` | §09.4, §11.16 | `api/admin/llm.py` (new) |
-| 73 | PUT | `/app/v1/admin/llm/providers` | §09.4, §11.16 | `api/admin/llm.py` |
-| 74 | POST | `/app/v1/admin/llm/keys` | §09.4, §11.16 | `api/admin/llm.py` |
-| 75 | DELETE | `/app/v1/admin/llm/keys/{provider}` | §09.4, §11.16 | `api/admin/llm.py` |
-| 76 | GET | `/app/v1/admin/llm/budget` | §09.4, §11.16 | `api/admin/llm.py` |
-| 77 | PUT | `/app/v1/admin/llm/budget` | §09.4, §11.16 | `api/admin/llm.py` |
-| 78 | GET | `/app/v1/admin/llm-judge/config` | §09.5, §11.16 | `api/admin/judge.py` (new) |
-| 79 | PUT | `/app/v1/admin/llm-judge/config` | §09.5, §11.16 | `api/admin/judge.py` |
-| 80 | GET | `/app/v1/admin/llm-judge/results` | §09.5, §11.16 | `api/admin/judge.py` |
-| 81 | GET | `/app/v1/admin/llm-judge/stats` | §09.5, §11.16 | `api/admin/judge.py` |
-| 82 | GET | `/app/v1/admin/guardrails` | §09.6, §11.16 | `api/admin/guardrails.py` (new) |
-| 83 | PUT | `/app/v1/admin/guardrails` | §09.6, §11.16 | `api/admin/guardrails.py` |
-| 84 | POST | `/app/v1/admin/guardrails/validate` | §09.6, §11.16 | `api/admin/guardrails.py` |
-| 85 | POST | `/app/v1/admin/guardrails/test` | §09.6, §11.16 | `api/admin/guardrails.py` |
-| 86 | GET | `/app/v1/admin/guardrails/metrics` | §09.6, §11.16 | `api/admin/guardrails.py` |
-| 87 | GET | `/app/v1/admin/sso` | §09.7, §11.16 | `api/admin/sso.py` (new) |
-| 88 | PUT | `/app/v1/admin/sso` | §09.7, §11.16 | `api/admin/sso.py` |
-| 89 | POST | `/app/v1/admin/sso/test` | §09.7, §11.16 | `api/admin/sso.py` |
-| 90 | PATCH | `/app/v1/admin/sso/enforce` | §09.7, §11.16 | `api/admin/sso.py` |
-| 91 | GET | `/app/v1/admin/audit-log` | §09.9, §11.16 | `api/admin/audit.py` (new) |
-| 92 | GET | `/app/v1/admin/deployment/status` | §09.10, §11.16 | `api/admin/infra.py` (new) |
-| 93 | GET | `/app/v1/admin/deployment/config` | §09.10, §11.16 | `api/admin/infra.py` |
-| 94 | GET | `/app/v1/admin/cluster/health` | §09.11, §11.16 | `api/admin/infra.py` |
-| 95 | GET | `/app/v1/admin/backups` | §09.12, §11.16 | `api/admin/infra.py` |
-| 96 | GET | `/app/v1/admin/security/status` | §09.13, §11.16 | `api/admin/infra.py` |
-| 97 | GET | `/app/v1/admin/alarms` | §09.14, §11.16 | `api/admin/infra.py` |
-| 98 | PATCH | `/app/v1/admin/alarms/{id}` | §09.14, §11.16 | `api/admin/infra.py` |
-| 99 | GET | `/app/v1/admin/migrations` | §09.15, §11.16 | `api/admin/infra.py` |
-| 100 | POST | `/app/v1/admin/migrations/apply` | §09.15, §11.16 | `api/admin/infra.py` |
-| 101 | GET | `/app/v1/admin/connectors` | §09.16, §11.16 | `api/admin/connectors.py` (new) |
-| 102 | POST | `/app/v1/admin/connectors` | §09.16, §11.16 | `api/admin/connectors.py` |
-| 103 | POST | `/app/v1/admin/connectors/{id}/sync` | §09.16, §11.16 | `api/admin/connectors.py` |
-| 104 | GET | `/app/v1/admin/connectors/{id}/health` | §09.16, §11.16 | `api/admin/connectors.py` |
+Full admin API surface is implemented. All endpoints require `OWNER` or `ADMIN` role. See Existing Endpoints table (rows 49–64).
 
 ---
 
-## New Backend Modules Required
+## Remaining Backend Modules (Outstanding)
 
-| Module | Endpoints | Description |
-|--------|-----------|-------------|
-| `api/graph.py` | 11 | Graph CRUD — nodes, edges, tree queries via GraphStore/AGE |
-| `api/scoring.py` | 3 | Score breakdown, history, simulation via ScoringEngine |
-| `api/state.py` | 3 | State history, valid transitions, manual transition via StateMachine |
-| `api/events.py` | 1 | SSE event stream via Redis pub/sub |
-| `api/chat.py` | 4 | Chat messages + WebSocket via AgentLoop |
-| `api/config.py` | 3 | Config JSON CRUD via StorageClient |
-| `api/secrets.py` | 4 | Secrets management via SecretsClient |
-| `api/agent.py` | 6 | Agent status, action queue, briefing, triggers |
-| `api/agents.py` | 7 | Agent definition CRUD (canvas export) |
-| `api/admin/members.py` | 4 | Org member management |
-| `api/admin/features.py` | 8 | Feature gating policies |
-| `api/admin/llm.py` | 6 | LLM provider/model/budget config |
-| `api/admin/judge.py` | 4 | LLM-as-a-Judge config + results |
-| `api/admin/guardrails.py` | 5 | XML guardrail rules + metrics |
-| `api/admin/sso.py` | 4 | SSO/OIDC/SAML configuration |
-| `api/admin/audit.py` | 1 | Audit log query |
-| `api/admin/infra.py` | 9 | Deployment, cluster, backup, security, alarms, migrations |
-| `api/admin/connectors.py` | 4 | Connector CRUD + health + sync |
+These modules do not yet exist. All admin, skills, MCP, intelligence, and auth modules are complete.
 
-**Total new modules:** 18
-**Total new endpoints:** 104
+| Module | Endpoints | Description | Priority |
+|--------|-----------|-------------|----------|
+| `api/graph.py` | 11 | Graph CRUD — nodes, edges, tree queries via GraphStore/AGE | P1 |
+| `api/scoring.py` | 3 | Score breakdown, history, simulation via ScoringEngine | P1 |
+| `api/state.py` | 3 | State history, valid transitions, manual transition via StateMachine | P1 |
+| `api/events.py` | 1 | SSE event stream via Redis pub/sub | P1 |
+| `api/chat.py` | 4 | Chat messages + WebSocket via AgentLoop | P2 |
+| `api/config.py` | 3 | Config JSON CRUD via StorageClient | P2 |
+| `api/secrets.py` | 4 | Secrets management via SecretsClient | P2 |
+| `api/agent.py` | 6 | Agent status, action queue, briefing, triggers | P3 |
+| `api/agents.py` | 7 | Agent definition CRUD (canvas export) | P5 |
+
+**Remaining endpoints:** 42 across 9 modules
 
 ---
 
@@ -254,12 +242,13 @@ Full admin API surface (PRD §09). All endpoints require `OWNER` or `ADMIN` role
 
 ## Summary
 
-| Priority | Category | Endpoint Count | New Modules |
-|----------|----------|---------------|-------------|
-| P1 | Core Cockpit (Graph + Scoring + State + Events) | 18 | 4 |
-| P2 | Chat + Config + Secrets | 11 | 3 |
-| P3 | Settings + Agent Monitoring | 17 | 2 |
-| P4 | Skills + MCP Extensions | 6 | 0 (extend existing) |
-| P5 | Canvas / Agent Design | 7 | 1 |
-| P6 | Admin Panel | 45 | 8 |
-| **Total** | | **104** | **18** |
+| Priority | Category | Endpoint Count | Status |
+|----------|----------|---------------|--------|
+| P1 | Core Cockpit (Graph + Scoring + State + Events) | 18 | **Outstanding** |
+| P2 | Chat + Config + Secrets | 11 | **Outstanding** |
+| P3 | Settings + Agent Monitoring | 17 | **Outstanding** |
+| P4 | Skills + MCP Extensions | 6 | ✅ Complete |
+| P5 | Canvas / Agent Design | 7 | **Outstanding** |
+| P6 | Admin Panel | 45 | ✅ Complete |
+| P7 | Intelligence Hub | 20 | ✅ Complete (Wave 7) |
+| **Total** | | **124** | **42 remaining** |
