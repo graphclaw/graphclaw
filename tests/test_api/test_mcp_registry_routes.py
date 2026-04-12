@@ -37,7 +37,6 @@ from graphclaw.api.deps import get_mcp_registry
 from graphclaw.api.router import app_router
 from graphclaw.auth.middleware import require_auth
 from graphclaw.mcp.registry import MCPRegistry
-
 from tests.test_api.conftest import FakeGraphStore
 
 _TEST_USER = "USER-test-mcp-001"

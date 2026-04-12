@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 from fastapi import FastAPI
-from fastapi.testclient import TestClient
 
 from graphclaw.api.deps import get_graph_store, get_secrets_client, get_storage_client
 from graphclaw.api.router import app_router
 from graphclaw.auth.middleware import require_auth
-
 from tests.test_api.conftest import FakeGraphStore, FakeStorageClient
 
 _ADMIN_USER = "USER-admin-test-001"

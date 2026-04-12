@@ -38,7 +38,6 @@ from graphclaw.auth.middleware import require_auth
 from graphclaw.models.base import generate_task_id, utcnow
 from graphclaw.models.enums import TaskState, TaskType
 from graphclaw.models.nodes import TaskNode
-
 from tests.test_api.conftest import FakeGraphStore
 
 _TEST_USER = "test-user-approvals-001"

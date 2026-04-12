@@ -33,7 +33,7 @@ License: Apache 2.0
 from __future__ import annotations
 
 from abc import abstractmethod
-from datetime import datetime, timezone
+from datetime import datetime
 
 from graphclaw.connectors.base import ConnectorABC
 from graphclaw.connectors.calendar.models import CalendarEvent, FreeBusySlot

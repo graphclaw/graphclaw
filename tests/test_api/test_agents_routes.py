@@ -6,16 +6,12 @@ and POST /agents/{id}/test.
 
 from __future__ import annotations
 
-import json
-
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from graphclaw.api.deps import get_storage_client
 from graphclaw.api.router import app_router
 from graphclaw.auth.middleware import require_auth
-
 from tests.test_api.conftest import FakeStorageClient
 
 _TEST_USER = "USER-test-agents-001"

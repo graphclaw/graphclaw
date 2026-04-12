@@ -30,7 +30,6 @@ Dependencies
 
 from __future__ import annotations
 
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -39,7 +38,6 @@ from graphclaw.api.router import app_router
 from graphclaw.auth.middleware import require_auth
 from graphclaw.models.base import utcnow
 from graphclaw.triggers.models import TriggerConfig, TriggerEvent, TriggerType
-
 from tests.test_api.conftest import FakeGraphStore
 
 # ---------------------------------------------------------------------------

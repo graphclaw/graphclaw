@@ -47,7 +47,7 @@ want it to run concurrently.
 from __future__ import annotations
 
 import asyncio
-from datetime import timedelta, timezone
+from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from graphclaw.models.base import utcnow

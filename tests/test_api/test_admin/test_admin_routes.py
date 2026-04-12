@@ -8,11 +8,9 @@ from __future__ import annotations
 
 import json
 
-import pytest
 from fastapi.testclient import TestClient
 
-from tests.test_api.conftest import FakeStorageClient
-from tests.test_api.test_admin.conftest import FakeSecretsClient, make_admin_app
+from tests.test_api.test_admin.conftest import make_admin_app
 
 _ADMIN_USER = "USER-admin-test-001"
 

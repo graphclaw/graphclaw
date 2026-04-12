@@ -39,7 +39,6 @@ from fastapi.testclient import TestClient
 from graphclaw.api.deps import get_storage_client
 from graphclaw.api.router import app_router
 from graphclaw.auth.middleware import require_auth
-
 from tests.test_api.conftest import FakeStorageClient
 
 _TEST_USER = "usr-intelligence-test-001"

@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -19,7 +18,6 @@ from graphclaw.api.deps import get_skill_registry_service, get_storage_client
 from graphclaw.api.router import app_router
 from graphclaw.auth.middleware import require_auth
 from graphclaw.models.base import utcnow
-
 from tests.test_api.conftest import FakeStorageClient
 
 _TEST_USER = "USER-test-skills-ext-001"

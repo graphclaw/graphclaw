@@ -28,7 +28,7 @@ Dependencies
 - pydantic: BaseModel.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime
 
 from pydantic import BaseModel
 

@@ -19,8 +19,6 @@ Dependencies
 
 from __future__ import annotations
 
-import pytest
-
 from graphclaw.infra.storage import StoragePaths
 
 _USER = "usr-abc123"

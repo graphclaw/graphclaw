@@ -48,7 +48,7 @@ callers can check its truthiness without an isinstance guard.  An empty key mean
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from enum import Enum
 
 from pydantic import BaseModel, Field

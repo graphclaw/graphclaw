@@ -52,7 +52,7 @@ the interval by 20 %.  A recency_bonus > 1.0 is permitted but unusual.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from graphclaw.models.base import utcnow
 from graphclaw.models.enums import ConfidenceLevel

@@ -153,7 +153,7 @@ async def test_process_erasure_returns_failed_on_error() -> None:
 
 
 def test_erasure_request_frozen() -> None:
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     request = ErasureRequest(
         user_id="USER-frozen",

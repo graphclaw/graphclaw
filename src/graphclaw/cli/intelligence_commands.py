@@ -247,7 +247,7 @@ def working_compact(
         await client.write(
             working_path, summary_text.encode(), content_type="text/markdown"
         )
-        console.print(f"[green]✓[/green] Working context replaced with compact summary")
+        console.print("[green]✓[/green] Working context replaced with compact summary")
 
     if summary:
         asyncio.run(_run(summary))
@@ -556,7 +556,7 @@ def skill_validate(
     parser = SkillParser()
     try:
         defn = parser.parse(content)
-        console.print(f"[green]✓ Valid SKILL.md[/green]")
+        console.print("[green]✓ Valid SKILL.md[/green]")
         table = Table(title="Parsed Fields", show_header=True)
         table.add_column("Field", style="cyan")
         table.add_column("Value")

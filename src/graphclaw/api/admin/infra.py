@@ -23,7 +23,6 @@ from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel
 
 from graphclaw.api.deps import AdminUserDep, StorageClientDep
-from graphclaw.models.base import utcnow
 
 logger = logging.getLogger(__name__)
 

@@ -31,7 +31,6 @@ Dependencies
 
 from __future__ import annotations
 
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -40,8 +39,6 @@ from graphclaw.api.router import app_router
 from graphclaw.auth.middleware import require_auth
 from graphclaw.infra.secrets import SecretsClient
 from graphclaw.models.base import utcnow
-from graphclaw.models.nodes import OrganizationNode, UserNode
-
 from tests.test_api.conftest import FakeGraphStore, FakeStorageClient
 
 # ---------------------------------------------------------------------------

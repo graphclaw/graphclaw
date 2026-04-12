@@ -68,7 +68,7 @@ class TestNormalizePlainTextEmail:
     def test_received_at_is_datetime(self):
         raw = _make_email()
         result = normalize_email(raw)
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         assert isinstance(result.received_at, datetime)
         assert result.received_at.tzinfo is not None

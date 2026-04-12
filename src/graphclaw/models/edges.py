@@ -35,7 +35,7 @@ Dependencies
 - pydantic: BaseModel, Field, field_validator.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime
 
 from pydantic import BaseModel, field_validator
 

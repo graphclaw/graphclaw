@@ -69,7 +69,7 @@ class StorageConfig(BaseModel):
     region: str = "us-east-1"
 
     @classmethod
-    def from_env(cls) -> "StorageConfig":
+    def from_env(cls) -> StorageConfig:
         """Build a ``StorageConfig`` from standard environment variables.
 
         Environment variables

@@ -7,7 +7,6 @@ Covers:
 
 from __future__ import annotations
 
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -18,7 +17,6 @@ from graphclaw.mcp.registry import MCPRegistry
 from graphclaw.models.base import utcnow
 from graphclaw.models.enums import MCPTransport, TrustTier
 from graphclaw.models.nodes import MCPServerNode
-
 from tests.test_api.conftest import FakeGraphStore
 
 _TEST_USER = "USER-test-mcp-ext-001"
@@ -121,7 +119,6 @@ def test_list_mcp_approvals_empty_returns_list() -> None:
 
 def test_list_mcp_approvals_returns_pending_tasks() -> None:
     """GET /mcp-approvals returns pending APPROVAL tasks for the user."""
-    import asyncio
 
     app, store = _make_app()
 

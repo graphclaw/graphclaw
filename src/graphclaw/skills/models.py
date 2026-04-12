@@ -41,7 +41,7 @@ importance.  The WorkerPool stores jobs in a ``PriorityQueue`` as
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from enum import Enum
 
 from pydantic import BaseModel

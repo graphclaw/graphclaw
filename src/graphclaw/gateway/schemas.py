@@ -36,7 +36,7 @@ for API/CLI messages it is a caller-supplied UUID string.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 
 from pydantic import BaseModel, Field
 

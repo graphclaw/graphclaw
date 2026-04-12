@@ -37,35 +37,35 @@ from fastapi import APIRouter
 
 # ── Existing routers ──────────────────────────────────────────────────────────
 from graphclaw.api.a2a_keys import router as a2a_keys_router
-from graphclaw.api.approvals import router as approvals_router
-from graphclaw.api.compliance import router as compliance_router
-from graphclaw.api.mcp_registry import router as mcp_registry_router
-from graphclaw.api.settings import router as settings_router
-from graphclaw.api.skill_registry import router as skill_registry_router
 
-# ── Wave 1: Core cockpit canvas ───────────────────────────────────────────────
-from graphclaw.api.events import router as events_router
-from graphclaw.api.graph import router as graph_router
-from graphclaw.api.scoring import router as scoring_router
-from graphclaw.api.state import router as state_router
-
-# ── Wave 3: Chat, config, secrets ─────────────────────────────────────────────
-from graphclaw.api.chat import router as chat_router
-from graphclaw.api.config import router as config_router
-from graphclaw.api.secrets import router as secrets_router
+# ── Wave 6: Admin panel ───────────────────────────────────────────────────────
+from graphclaw.api.admin.router import admin_router
 
 # ── Wave 4: Agent monitor ─────────────────────────────────────────────────────
 from graphclaw.api.agent import router as agent_router
 
 # ── Wave 5: Agents canvas, MCP approvals ─────────────────────────────────────
 from graphclaw.api.agents import router as agents_router
-from graphclaw.api.mcp_registry import mcp_approvals_router
+from graphclaw.api.approvals import router as approvals_router
 
-# ── Wave 6: Admin panel ───────────────────────────────────────────────────────
-from graphclaw.api.admin.router import admin_router
+# ── Wave 3: Chat, config, secrets ─────────────────────────────────────────────
+from graphclaw.api.chat import router as chat_router
+from graphclaw.api.compliance import router as compliance_router
+from graphclaw.api.config import router as config_router
+
+# ── Wave 1: Core cockpit canvas ───────────────────────────────────────────────
+from graphclaw.api.events import router as events_router
+from graphclaw.api.graph import router as graph_router
 
 # ── Wave 7: Intelligence Hub ──────────────────────────────────────────────────
 from graphclaw.api.intelligence import router as intelligence_router
+from graphclaw.api.mcp_registry import mcp_approvals_router
+from graphclaw.api.mcp_registry import router as mcp_registry_router
+from graphclaw.api.scoring import router as scoring_router
+from graphclaw.api.secrets import router as secrets_router
+from graphclaw.api.settings import router as settings_router
+from graphclaw.api.skill_registry import router as skill_registry_router
+from graphclaw.api.state import router as state_router
 
 app_router = APIRouter(prefix="/app/v1", tags=["app-api"])
 
