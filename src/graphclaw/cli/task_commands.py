@@ -10,7 +10,7 @@ pool on exit.  Rich is used for all output formatting.
 Design Patterns
 ---------------
 - Async Bridge: Each Typer command is synchronous (required by Typer) but delegates
-  to an ``async`` helper via ``asyncio.run()``, keeping all DB I/O async.
+  to an ``async`` helper via ``run_async()``, keeping all DB I/O async.
 
 Public API
 ----------
@@ -43,7 +43,7 @@ from datetime import datetime, timezone
 import typer
 from rich.console import Console
 
-from graphclaw.cli._shared import cli_pool
+from graphclaw.cli._shared import cli_pool, run_async
 from graphclaw.cli.formatters import format_task_panel, format_task_table
 
 app = typer.Typer(help="Task management commands")
@@ -200,7 +200,7 @@ def task_list(
 ) -> None:
     """List tasks, optionally filtered by state."""
     try:
-        asyncio.run(_list_tasks_async(state))
+        run_async(_list_tasks_async(state))
     except SystemExit:
         raise
     except Exception as exc:
@@ -214,7 +214,7 @@ def task_show(
 ) -> None:
     """Show details of a single task."""
     try:
-        asyncio.run(_show_task_async(task_id))
+        run_async(_show_task_async(task_id))
     except SystemExit:
         raise
     except Exception as exc:
@@ -234,7 +234,7 @@ def task_create(
 ) -> None:
     """Create a new task."""
     try:
-        asyncio.run(_create_task_async(task_type, title, description, deadline, effort))
+        run_async(_create_task_async(task_type, title, description, deadline, effort))
     except SystemExit:
         raise
     except Exception as exc:
@@ -249,7 +249,7 @@ def task_transition(
 ) -> None:
     """Transition a task to a new state."""
     try:
-        asyncio.run(_transition_task_async(task_id, new_state))
+        run_async(_transition_task_async(task_id, new_state))
     except SystemExit:
         raise
     except Exception as exc:

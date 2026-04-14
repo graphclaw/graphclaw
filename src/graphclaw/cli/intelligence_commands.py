@@ -33,7 +33,7 @@ intelligence skill paths             — Print all StoragePaths for a user (debu
 Design Patterns
 ---------------
 - asyncio.run: Each Typer command is synchronous; async work is done via
-  ``asyncio.run()`` so the CLI stays compatible with Typer's sync model.
+  ``run_async()`` so the CLI stays compatible with Typer's sync model.
 - Fail-fast on missing env: Storage is configured from environment variables;
   commands print a helpful error if they are missing.
 
@@ -56,6 +56,8 @@ import typer
 from rich.console import Console
 from rich.panel import Panel
 from rich.syntax import Syntax
+
+from graphclaw.cli._shared import run_async
 from rich.table import Table
 
 from graphclaw.infra.storage import S3StorageClient, StoragePaths
@@ -136,7 +138,7 @@ def profile_show(
 
         console.print(Panel(Syntax(content, "markdown", theme="github-dark"), title=path))
 
-    asyncio.run(_run())
+    run_async(_run())
 
 
 @profile_app.command("set")
@@ -156,7 +158,7 @@ def profile_set(
         await client.write(path, file.read_bytes(), content_type="text/markdown")
         console.print(f"[green]✓[/green] Profile written to [bold]{path}[/bold]")
 
-    asyncio.run(_run())
+    run_async(_run())
 
 
 # ---------------------------------------------------------------------------
@@ -182,7 +184,7 @@ def working_show(
 
         console.print(Panel(Syntax(content, "markdown", theme="github-dark"), title=path))
 
-    asyncio.run(_run())
+    run_async(_run())
 
 
 @working_app.command("set")
@@ -202,7 +204,7 @@ def working_set(
         await client.write(path, file.read_bytes(), content_type="text/markdown")
         console.print(f"[green]✓[/green] Working context written to [bold]{path}[/bold]")
 
-    asyncio.run(_run())
+    run_async(_run())
 
 
 @working_app.command("compact")
@@ -245,7 +247,7 @@ def working_compact(
         console.print("[green]✓[/green] Working context replaced with compact summary")
 
     if summary:
-        asyncio.run(_run(summary))
+        run_async(_run(summary))
     else:
         console.print(
             "[bold]Enter compact summary[/bold] (Ctrl+D or empty line + Enter to finish):"
@@ -257,7 +259,7 @@ def working_compact(
                 lines.append(line)
         except EOFError:
             pass
-        asyncio.run(_run("\n".join(lines)))
+        run_async(_run("\n".join(lines)))
 
 
 # ---------------------------------------------------------------------------
@@ -287,7 +289,7 @@ def episodic_list(
                 table.add_row(k.split("/")[-1], k)
         console.print(table)
 
-    asyncio.run(_run())
+    run_async(_run())
 
 
 @episodic_app.command("show")
@@ -308,7 +310,7 @@ def episodic_show(
             raise SystemExit(1)
         console.print(Panel(Syntax(raw.decode(), "markdown", theme="github-dark"), title=path))
 
-    asyncio.run(_run())
+    run_async(_run())
 
 
 @episodic_app.command("del")
@@ -328,7 +330,7 @@ def episodic_del(
         await client.delete(path)
         console.print(f"[green]✓[/green] Deleted [bold]{entry_name}[/bold]")
 
-    asyncio.run(_run())
+    run_async(_run())
 
 
 # ---------------------------------------------------------------------------
@@ -359,7 +361,7 @@ def semantic_list(
                 table.add_row(topic, k)
         console.print(table)
 
-    asyncio.run(_run())
+    run_async(_run())
 
 
 @semantic_app.command("show")
@@ -380,7 +382,7 @@ def semantic_show(
             raise SystemExit(1)
         console.print(Panel(Syntax(raw.decode(), "markdown", theme="github-dark"), title=path))
 
-    asyncio.run(_run())
+    run_async(_run())
 
 
 @semantic_app.command("del")
@@ -400,7 +402,7 @@ def semantic_del(
         await client.delete(path)
         console.print(f"[green]✓[/green] Deleted semantic topic [bold]{topic}[/bold]")
 
-    asyncio.run(_run())
+    run_async(_run())
 
 
 # ---------------------------------------------------------------------------
@@ -430,7 +432,7 @@ def skill_list() -> None:
                 table.add_row(skill_id, k)
         console.print(table)
 
-    asyncio.run(_run())
+    run_async(_run())
 
 
 @skill_app.command("show")
@@ -450,7 +452,7 @@ def skill_show(
             raise SystemExit(1)
         console.print(Panel(Syntax(raw.decode(), "markdown", theme="github-dark"), title=path))
 
-    asyncio.run(_run())
+    run_async(_run())
 
 
 @skill_app.command("create")
@@ -492,7 +494,7 @@ def skill_create(
             f"[green]✓[/green] Authored skill [bold]{sid}[/bold] created at [dim]{path}[/dim]"
         )
 
-    asyncio.run(_run())
+    run_async(_run())
 
 
 @skill_app.command("update")
@@ -512,7 +514,7 @@ def skill_update(
         await client.write(path, file.read_bytes(), content_type="text/markdown")
         console.print(f"[green]✓[/green] Authored skill [bold]{skill_id}[/bold] updated")
 
-    asyncio.run(_run())
+    run_async(_run())
 
 
 @skill_app.command("delete")
@@ -531,7 +533,7 @@ def skill_delete(
         await client.delete(path)
         console.print(f"[green]✓[/green] Deleted authored skill [bold]{skill_id}[/bold]")
 
-    asyncio.run(_run())
+    run_async(_run())
 
 
 @skill_app.command("validate")

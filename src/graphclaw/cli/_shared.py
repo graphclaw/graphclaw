@@ -25,11 +25,28 @@ Dependencies
 from __future__ import annotations
 
 import os
+import selectors
 import sys
 from contextlib import asynccontextmanager
 
 from graphclaw.db.age import AgeGraphStore
 from graphclaw.db.connection import create_pool
+
+
+def run_async(coro: object) -> object:  # type: ignore[return]
+    """Run a coroutine using SelectorEventLoop on Windows (required by psycopg3 async).
+
+    On all other platforms falls back to the standard ``asyncio.run()``.
+    """
+    import asyncio  # noqa: PLC0415
+
+    if sys.platform == "win32":
+        loop = asyncio.SelectorEventLoop(selectors.SelectSelector())
+        try:
+            return loop.run_until_complete(coro)  # type: ignore[arg-type]
+        finally:
+            loop.close()
+    return asyncio.run(coro)  # type: ignore[arg-type]
 
 
 @asynccontextmanager

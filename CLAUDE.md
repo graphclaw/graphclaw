@@ -51,6 +51,10 @@ To add a new backend: implement the ABC, drop it in the subfolder, register in t
 - Logging: Structured JSON, async buffered writes, session_id distributed tracing
 - IAM: One role per container, least-privilege, user-scoped S3 prefix conditions
 - Tests: pytest, run with `pytest tests/`
+- **Linting:** `ruff check src/ tests/` — must pass before any commit
+- **Formatting:** `ruff format src/ tests/` — must be applied before any commit
+- Run both together before committing: `ruff check --fix src/ tests/ && ruff format src/ tests/`
+- CI enforces both; failing either blocks the build
 - Local dev: `docker compose up` (SECRETS_BACKEND=env_file)
 
 ## PRD Coverage (v1.1)

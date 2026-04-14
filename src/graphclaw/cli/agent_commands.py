@@ -38,13 +38,13 @@ Dependencies
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 
 import typer
 from rich.console import Console
 
+from graphclaw.cli._shared import run_async
 from graphclaw.cli.formatters import format_action_queue, format_briefing
 
 app = typer.Typer(help="Agent reasoning loop commands")
@@ -168,7 +168,7 @@ def agent_run(
 ) -> None:
     """Run one complete agent reasoning cycle and display the action queue."""
     try:
-        asyncio.run(_run_cycle_async(top_n))
+        run_async(_run_cycle_async(top_n))
     except SystemExit:
         raise
     except Exception as exc:
@@ -187,7 +187,7 @@ def agent_score(
 ) -> None:
     """Score all tasks and display the ranked action queue."""
     try:
-        asyncio.run(_score_async(top_n))
+        run_async(_score_async(top_n))
     except SystemExit:
         raise
     except Exception as exc:
@@ -206,7 +206,7 @@ def agent_briefing(
 ) -> None:
     """Generate a human-readable briefing of the top priority tasks."""
     try:
-        asyncio.run(_briefing_async(top_n))
+        run_async(_briefing_async(top_n))
     except SystemExit:
         raise
     except Exception as exc:
@@ -463,7 +463,7 @@ def agent_create(
         err_console.print("User ID required. Pass --user-id or set GRAPHCLAW_USER_ID env var.")
         raise typer.Exit(code=1)
     try:
-        asyncio.run(_create_agent_async(resolved_user_id, agent_id, name))
+        run_async(_create_agent_async(resolved_user_id, agent_id, name))
     except SystemExit:
         raise
     except Exception as exc:
@@ -494,7 +494,7 @@ def agent_configure_briefing(
         raise typer.Exit(code=1)
     time_list = [t.strip() for t in times.split(",") if t.strip()]
     try:
-        asyncio.run(_configure_briefing_async(resolved_user_id, agent_id, time_list))
+        run_async(_configure_briefing_async(resolved_user_id, agent_id, time_list))
     except SystemExit:
         raise
     except Exception as exc:
@@ -527,7 +527,7 @@ def agent_send_welcome(
         err_console.print("User ID required. Pass --user-id or set GRAPHCLAW_USER_ID env var.")
         raise typer.Exit(code=1)
     try:
-        asyncio.run(_send_welcome_async(resolved_user_id, agent_id, name, email, telegram_chat_id))
+        run_async(_send_welcome_async(resolved_user_id, agent_id, name, email, telegram_chat_id))
     except SystemExit:
         raise
     except Exception as exc:
@@ -572,6 +572,32 @@ async def _chat_async(user_id: str, agent_id: str, message: str | None) -> None:
         endpoint_url=os.environ.get("STORAGE_ENDPOINT_URL"),
         region=os.environ.get("STORAGE_REGION", "us-east-1"),
     )
+
+    # Optional: initialise skill registry and MCP registry for planning/execution
+    skill_registry = None
+    worker_pool = None
+    mcp_registry = None
+    try:
+        from graphclaw.skills.registry import SkillRegistryService
+
+        skill_registry = SkillRegistryService(storage_client=storage)
+    except Exception:
+        pass
+    try:
+        from graphclaw.mcp.registry import MCPRegistry
+
+        mcp_registry = MCPRegistry(graph_store=repo)
+    except Exception:
+        pass
+    try:
+        from graphclaw.skills.llm_router import LLMRouter
+        from graphclaw.skills.worker import WorkerPool
+
+        llm_router = LLMRouter(llm_client=llm)
+        worker_pool = WorkerPool(pool_size=2, llm_router=llm_router)
+    except Exception:
+        pass
+
     agent_loop = AgentLoop(
         graph_repo=repo,
         scoring_engine=engine,
@@ -579,6 +605,9 @@ async def _chat_async(user_id: str, agent_id: str, message: str | None) -> None:
         llm_client=llm,
         storage_client=storage,
         agent_id=agent_id,
+        skill_registry=skill_registry,
+        worker_pool=worker_pool,
+        mcp_registry=mcp_registry,
     )
 
     history: list[dict] = []
@@ -650,7 +679,7 @@ def agent_chat(
         err_console.print("User ID required. Pass --user-id or set GRAPHCLAW_USER_ID env var.")
         raise typer.Exit(code=1)
     try:
-        asyncio.run(_chat_async(resolved_user_id, agent_id, message))
+        run_async(_chat_async(resolved_user_id, agent_id, message))
     except SystemExit:
         raise
     except Exception as exc:

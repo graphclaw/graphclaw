@@ -8,7 +8,7 @@ executes a raw Cypher string against the AGE graph and pretty-prints results.
 
 Design Patterns
 ---------------
-- Async Bridge: Each Typer command delegates to an async helper via ``asyncio.run()``.
+- Async Bridge: Each Typer command delegates to an async helper via ``run_async()``.
 
 Public API
 ----------
@@ -37,7 +37,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from graphclaw.cli._shared import cli_pool
+from graphclaw.cli._shared import cli_pool, run_async
 
 app = typer.Typer(help="Graph inspection commands")
 console = Console()
@@ -122,7 +122,7 @@ async def _query_async(cypher: str) -> None:
 def graph_stats() -> None:
     """Show graph node and edge count statistics."""
     try:
-        asyncio.run(_stats_async())
+        run_async(_stats_async())
     except SystemExit:
         raise
     except Exception as exc:
@@ -161,7 +161,7 @@ def graph_query(
         "[bold yellow]WARNING: executing raw Cypher with no injection protection.[/bold yellow]"
     )
     try:
-        asyncio.run(_query_async(cypher))
+        run_async(_query_async(cypher))
     except SystemExit:
         raise
     except Exception as exc:

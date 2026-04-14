@@ -130,6 +130,35 @@ class StateHistoryEntry(BaseModel):
     changed_by: ChangedBy
     reason: str | None = None
 
+    @field_validator("from_state", "to_state", mode="before")
+    @classmethod
+    def _normalise_task_state(cls, v: object) -> object:
+        _legacy = {
+            "open": "PENDING",
+            "in_progress": "IN_PROGRESS",
+            "blocked": "BLOCKED",
+            "complete": "COMPLETE",
+            "cancelled": "CANCELLED",
+            "snoozed": "SNOOZED",
+            "active": "ACTIVE",
+            "delayed": "DELAYED",
+            "needs_review": "NEEDS_REVIEW",
+            "inactive_pending": "INACTIVE_PENDING",
+        }
+        if isinstance(v, str):
+            return _legacy.get(v, v)
+        return v
+
+    @field_validator("changed_by", mode="before")
+    @classmethod
+    def _normalise_changed_by(cls, v: object) -> object:
+        """Map a raw user/agent ID string to the closest ChangedBy enum value."""
+        if isinstance(v, str) and v not in ("AGENT", "HUMAN", "SYSTEM", "CASCADE"):
+            if v.startswith("USER-"):
+                return "HUMAN"
+            return "AGENT"
+        return v
+
 
 class ProgressBlock(BaseModel):
     """Task progress tracking sub-model."""
@@ -238,6 +267,26 @@ class TaskNode(BaseNode):
 
     # Tags
     tags: list[str] = []
+
+    @field_validator("state", mode="before")
+    @classmethod
+    def _normalise_state(cls, v: object) -> object:
+        """Map legacy lowercase state values (written by old tool definitions) to canonical enum values."""
+        _legacy = {
+            "open": "PENDING",
+            "in_progress": "IN_PROGRESS",
+            "blocked": "BLOCKED",
+            "complete": "COMPLETE",
+            "cancelled": "CANCELLED",
+            "snoozed": "SNOOZED",
+            "active": "ACTIVE",
+            "delayed": "DELAYED",
+            "needs_review": "NEEDS_REVIEW",
+            "inactive_pending": "INACTIVE_PENDING",
+        }
+        if isinstance(v, str):
+            return _legacy.get(v, v)
+        return v
 
     @field_validator("id")
     @classmethod

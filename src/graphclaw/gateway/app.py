@@ -156,6 +156,34 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
 
                     llm_client = create_llm_client("anthropic")
                     agent_id = os.environ.get("AGENT_ID", "main")
+
+                    # Optional: skill registry, worker pool, MCP registry
+                    _skill_registry = None
+                    _worker_pool = None
+                    _mcp_registry = None
+                    try:
+                        from graphclaw.skills.registry import SkillRegistryService  # noqa: PLC0415
+
+                        _skill_registry = SkillRegistryService(
+                            storage_client=app.state.storage_client,
+                        )
+                    except Exception:
+                        pass
+                    try:
+                        from graphclaw.mcp.registry import MCPRegistry  # noqa: PLC0415
+
+                        _mcp_registry = MCPRegistry(graph_store=app.state.graph_store)
+                    except Exception:
+                        pass
+                    try:
+                        from graphclaw.skills.llm_router import LLMRouter  # noqa: PLC0415
+                        from graphclaw.skills.worker import WorkerPool  # noqa: PLC0415
+
+                        _llm_router = LLMRouter(llm_client=llm_client)
+                        _worker_pool = WorkerPool(pool_size=4, llm_router=_llm_router)
+                    except Exception:
+                        pass
+
                     agent_loop = AgentLoop(
                         graph_repo=app.state.graph_store,
                         scoring_engine=app.state.scoring_engine,
@@ -163,6 +191,9 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
                         llm_client=llm_client,
                         storage_client=app.state.storage_client,
                         agent_id=agent_id,
+                        skill_registry=_skill_registry,
+                        worker_pool=_worker_pool,
+                        mcp_registry=_mcp_registry,
                     )
                     app.state.agent_loop = agent_loop
                     logger.info("GraphClaw: agent loop initialised (agent_id=%s)", agent_id)

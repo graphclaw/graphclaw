@@ -9,7 +9,7 @@ displays it as a Rich panel with full details.
 
 Design Patterns
 ---------------
-- Async Bridge: Each Typer command delegates to an async helper via ``asyncio.run()``.
+- Async Bridge: Each Typer command delegates to an async helper via ``run_async()``.
 
 Public API
 ----------
@@ -32,7 +32,7 @@ import asyncio
 import typer
 from rich.console import Console
 
-from graphclaw.cli._shared import cli_pool
+from graphclaw.cli._shared import cli_pool, run_async
 from graphclaw.cli.formatters import format_goal_panel, format_goal_table
 
 app = typer.Typer(help="Goal management commands")
@@ -98,7 +98,7 @@ def goal_list(
 ) -> None:
     """List goals, optionally filtered by state."""
     try:
-        asyncio.run(_list_goals_async(state))
+        run_async(_list_goals_async(state))
     except SystemExit:
         raise
     except Exception as exc:
@@ -112,7 +112,7 @@ def goal_show(
 ) -> None:
     """Show details of a single goal."""
     try:
-        asyncio.run(_show_goal_async(goal_id))
+        run_async(_show_goal_async(goal_id))
     except SystemExit:
         raise
     except Exception as exc:

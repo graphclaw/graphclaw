@@ -45,6 +45,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+import uuid
 from typing import TYPE_CHECKING, Any
 
 from graphclaw.models.nodes import TaskNode
@@ -56,6 +57,9 @@ if TYPE_CHECKING:
     from graphclaw.infra.logger import AsyncLogger
     from graphclaw.infra.storage import StorageClient
     from graphclaw.llm.base import LLMClient
+    from graphclaw.mcp.registry import MCPRegistry
+    from graphclaw.skills.registry import SkillRegistryService
+    from graphclaw.skills.worker import WorkerPool
     from graphclaw.state.machine import StateMachine
 
 logger = logging.getLogger(__name__)
@@ -66,10 +70,31 @@ _DEFAULT_AGENT_ID = "main"
 # System prompt template — persona loaded from profile.md is appended
 _SYSTEM_PROMPT_HEADER = """\
 You are an AI task orchestration agent for GraphClaw. Your role is to help the user manage \
-their tasks, goals, and projects through natural conversation.
+their tasks, goals, and projects through natural conversation — AND to plan and execute work \
+using available skills, MCP tools, and agents.
 
 You have access to the user's live task graph. You can read tasks, create new tasks or goals, \
 update task states, and provide intelligent briefings — all via the tools available to you.
+
+## Planning & Execution Philosophy
+When the user asks you to DO something (not just track it), follow this workflow:
+1. **Propose a plan** — call `propose_plan` to decompose the work into subtasks with \
+dependencies, assigned skills/agents, and effort estimates. Present it to the user for review.
+2. **Wait for approval** — NEVER commit a plan without the user saying yes.
+3. **Execute the plan** — call `execute_plan` to create all tasks in the graph.
+4. **Delegate actionable tasks** — for each task that can be done by AI:
+   - Check `list_available_skills` to find matching skills.
+   - Check `list_mcp_tools` to find matching external tools.
+   - Use `invoke_skill` for short AI tasks (< 30s).
+   - Use `delegate_to_agent` for long-running or complex tasks.
+   - Use `call_mcp_tool` for external integrations (GitHub, Calendar, Slack, etc.).
+5. **Report results** — after execution, update the task state and inform the user.
+
+If no existing skill or agent can handle a task, use `create_agent` to create a new \
+specialised agent, then delegate to it.
+
+When the user asks "how will you do it?" or "share the plan", call `propose_plan` and \
+present the structured breakdown with which skills/tools you'll use for each step.
 
 When the user asks you to do something that requires a graph action, USE the appropriate tool. \
 Do not say "I will do X" — actually call the tool and report what you did.
@@ -100,6 +125,12 @@ class AgentLoop:
     agent_id:
         Logical agent identifier used as the MinIO sub-path for profile
         and memory objects (default ``"main"``).
+    skill_registry:
+        Optional SkillRegistryService for discovering and loading skills.
+    worker_pool:
+        Optional WorkerPool for executing skill jobs.
+    mcp_registry:
+        Optional MCPRegistry for discovering user's MCP servers and tools.
     """
 
     def __init__(
@@ -111,6 +142,9 @@ class AgentLoop:
         storage_client: StorageClient | None = None,
         agent_id: str = _DEFAULT_AGENT_ID,
         _logger: AsyncLogger | None = None,
+        skill_registry: SkillRegistryService | None = None,
+        worker_pool: WorkerPool | None = None,
+        mcp_registry: MCPRegistry | None = None,
     ) -> None:
         self._repo = graph_repo
         self._engine = scoring_engine
@@ -119,6 +153,9 @@ class AgentLoop:
         self._storage = storage_client
         self._agent_id = agent_id
         self._logger = _logger
+        self._skill_registry = skill_registry
+        self._worker_pool = worker_pool
+        self._mcp_registry = mcp_registry
         # Cache last action queue so system prompt can include current priorities
         self._last_queue: list[ActionQueueEntry] = []
         # Track current session_id for structured logging
@@ -492,12 +529,21 @@ class AgentLoop:
 
     async def _build_system_prompt(self, user_id: str) -> str:
         """Build a system prompt combining header, agent profile, and graph summary."""
-        parts: list[str] = [_SYSTEM_PROMPT_HEADER]
+        import datetime as _dt
+
+        today = _dt.date.today().isoformat()
+        date_line = f"\nToday's date is {today}. Use this as the reference for all scheduling and deadline reasoning."
+        parts: list[str] = [_SYSTEM_PROMPT_HEADER + date_line]
 
         # Load agent profile.md from storage if available
         persona = await self._load_agent_profile(user_id)
         if persona:
             parts.append(f"\n## Your Persona\n{persona}")
+
+        # Add available skills and MCP context
+        exec_ctx = await self._build_execution_context(user_id)
+        if exec_ctx:
+            parts.append(f"\n{exec_ctx}")
 
         # Add a brief Task Graph summary (top priorities from last scoring cycle)
         graph_summary = await self._build_graph_summary()
@@ -589,6 +635,7 @@ class AgentLoop:
         from graphclaw.llm.base import ToolDefinition
 
         return [
+            # --- Graph read/write tools (original 6) ---
             ToolDefinition(
                 name="list_tasks",
                 description="List all active tasks in the user's task graph.",
@@ -687,12 +734,16 @@ class AgentLoop:
                         "new_state": {
                             "type": "string",
                             "enum": [
-                                "open",
-                                "in_progress",
-                                "blocked",
-                                "complete",
-                                "cancelled",
-                                "snoozed",
+                                "PENDING",
+                                "ACTIVE",
+                                "IN_PROGRESS",
+                                "BLOCKED",
+                                "DELAYED",
+                                "NEEDS_REVIEW",
+                                "COMPLETE",
+                                "CANCELLED",
+                                "SNOOZED",
+                                "INACTIVE_PENDING",
                             ],
                             "description": "New state for the task.",
                         },
@@ -739,6 +790,199 @@ class AgentLoop:
                     "required": [],
                 },
             ),
+            # --- Planning tools (Phase 1) ---
+            ToolDefinition(
+                name="propose_plan",
+                description=(
+                    "Decompose a goal or complex task into a structured execution plan with subtasks, "
+                    "dependencies, skill/agent assignments, and effort estimates. Returns a proposed plan "
+                    "for user review — does NOT commit anything to the graph until execute_plan is called. "
+                    "Use this whenever the user asks you to plan, execute, or automate something."
+                ),
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "description": {
+                            "type": "string",
+                            "description": "Full description of what needs to be accomplished.",
+                        },
+                        "constraints": {
+                            "type": "string",
+                            "description": "Optional constraints (budget, timeline, compliance, technology, etc.).",
+                        },
+                        "deadline": {
+                            "type": "string",
+                            "description": "Optional ISO 8601 deadline for the overall goal.",
+                        },
+                    },
+                    "required": ["description"],
+                },
+            ),
+            ToolDefinition(
+                name="execute_plan",
+                description=(
+                    "Execute an approved plan by creating all proposed tasks, goals, and edges "
+                    "in the task graph. Call this ONLY after the user has reviewed and approved "
+                    "the plan returned by propose_plan."
+                ),
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "plan_id": {
+                            "type": "string",
+                            "description": "The plan_id returned by propose_plan.",
+                        },
+                    },
+                    "required": ["plan_id"],
+                },
+            ),
+            # --- Skill dispatch tools (Phase 2) ---
+            ToolDefinition(
+                name="list_available_skills",
+                description=(
+                    "List skills available to the user (built-in + installed). "
+                    "Use to discover what AI capabilities exist before invoking or delegating."
+                ),
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Optional search query to filter skills by name, description, or tags.",
+                        },
+                    },
+                    "required": [],
+                },
+            ),
+            ToolDefinition(
+                name="invoke_skill",
+                description=(
+                    "Execute a skill agent to perform a specific task. The skill runs an LLM call "
+                    "with a specialised system prompt and returns the output. Use for short AI tasks "
+                    "like drafting emails, research summaries, report generation, etc."
+                ),
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "skill_name": {
+                            "type": "string",
+                            "description": "Name of the skill to invoke (from list_available_skills).",
+                        },
+                        "task_id": {
+                            "type": "string",
+                            "description": "Task node ID this skill execution is associated with.",
+                        },
+                        "input_data": {
+                            "type": "object",
+                            "description": "Key-value input data for the skill (context, instructions, etc.).",
+                        },
+                    },
+                    "required": ["skill_name", "task_id", "input_data"],
+                },
+            ),
+            # --- MCP tools (Phase 2) ---
+            ToolDefinition(
+                name="list_mcp_tools",
+                description=(
+                    "List MCP servers and their available tools for the user. "
+                    "MCP tools provide external integrations (GitHub, Calendar, Slack, etc.)."
+                ),
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "server_id": {
+                            "type": "string",
+                            "description": "Optional server ID to list tools for a specific server only.",
+                        },
+                    },
+                    "required": [],
+                },
+            ),
+            ToolDefinition(
+                name="call_mcp_tool",
+                description=(
+                    "Execute a tool on an MCP server. Respects trust tiers: AUTO tools run immediately, "
+                    "GATED tools require user approval, BLOCKED tools are rejected. "
+                    "Use for external integrations like creating GitHub issues, scheduling calendar events, etc."
+                ),
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "server_id": {
+                            "type": "string",
+                            "description": "MCP server ID hosting the tool.",
+                        },
+                        "tool_name": {
+                            "type": "string",
+                            "description": "Name of the MCP tool to call.",
+                        },
+                        "arguments": {
+                            "type": "object",
+                            "description": "Arguments to pass to the MCP tool (matching its input schema).",
+                        },
+                    },
+                    "required": ["server_id", "tool_name", "arguments"],
+                },
+            ),
+            # --- Agent delegation tools (Phase 3) ---
+            ToolDefinition(
+                name="delegate_to_agent",
+                description=(
+                    "Delegate a task to an existing skill agent or A2A agent. "
+                    "The agent executes the task asynchronously and reports back. "
+                    "Updates the task state to IN_PROGRESS."
+                ),
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "task_id": {
+                            "type": "string",
+                            "description": "Task node ID to delegate.",
+                        },
+                        "agent_id": {
+                            "type": "string",
+                            "description": "Target agent ID (from the user's agents folder).",
+                        },
+                        "instructions": {
+                            "type": "string",
+                            "description": "Additional instructions or context for the agent.",
+                        },
+                    },
+                    "required": ["task_id", "agent_id"],
+                },
+            ),
+            ToolDefinition(
+                name="create_agent",
+                description=(
+                    "Create a new specialised agent in the user's agent folder. "
+                    "Use when no existing agent or skill can handle the task. "
+                    "The agent is created with a profile, config, and assigned skills/MCP servers."
+                ),
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "description": "Human-readable name for the agent.",
+                        },
+                        "purpose": {
+                            "type": "string",
+                            "description": "What this agent specialises in.",
+                        },
+                        "skills": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "List of skill names this agent should use.",
+                        },
+                        "mcp_servers": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Optional list of MCP server IDs this agent can access.",
+                        },
+                    },
+                    "required": ["name", "purpose"],
+                },
+            ),
         ]
 
     async def _execute_tool(
@@ -760,6 +1004,26 @@ class AgentLoop:
                 result = await self._tool_get_task_details(arguments)
             elif name == "check_inbox":
                 result = await self._tool_check_inbox(user_id, arguments)
+            # --- Planning tools ---
+            elif name == "propose_plan":
+                result = await self._tool_propose_plan(user_id, arguments)
+            elif name == "execute_plan":
+                result = await self._tool_execute_plan(user_id, arguments)
+            # --- Skill tools ---
+            elif name == "list_available_skills":
+                result = await self._tool_list_available_skills(user_id, arguments)
+            elif name == "invoke_skill":
+                result = await self._tool_invoke_skill(user_id, arguments)
+            # --- MCP tools ---
+            elif name == "list_mcp_tools":
+                result = await self._tool_list_mcp_tools(user_id, arguments)
+            elif name == "call_mcp_tool":
+                result = await self._tool_call_mcp_tool(user_id, arguments)
+            # --- Agent delegation tools ---
+            elif name == "delegate_to_agent":
+                result = await self._tool_delegate_to_agent(user_id, arguments)
+            elif name == "create_agent":
+                result = await self._tool_create_agent(user_id, arguments)
             else:
                 result = {"error": f"Unknown tool: {name}"}
 
@@ -937,7 +1201,7 @@ class AgentLoop:
                 "from_state": current_state,
                 "to_state": new_state,
                 "changed_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
-                "changed_by": user_id,
+                "changed_by": "HUMAN",
                 "reason": args.get("reason", ""),
             }
         )
@@ -1009,6 +1273,597 @@ class AgentLoop:
         return json.dumps({"messages": results, "count": len(results)})
 
     # ------------------------------------------------------------------
+    # Planning tools
+    # ------------------------------------------------------------------
+
+    async def _tool_propose_plan(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
+        """Use an inner LLM call to decompose a goal into a structured plan."""
+        if self._llm is None:
+            return {"error": "LLM not configured — cannot generate plans."}
+
+        from graphclaw.llm.base import LLMMessage
+
+        description = args["description"]
+        constraints = args.get("constraints", "")
+        deadline = args.get("deadline", "")
+
+        # Gather context: available skills and MCP tools
+        skills_ctx = await self._gather_skills_summary(user_id)
+        mcp_ctx = await self._gather_mcp_summary(user_id)
+
+        planning_prompt = (
+            "You are a task decomposition engine. Given a goal, produce a JSON plan.\n\n"
+            "Output ONLY valid JSON with this structure:\n"
+            '{"goal_title": "...", "goal_description": "...", '
+            '"tasks": [{"title": "...", "task_type": "atomic|composite|research|recurring|delegated", '
+            '"description": "...", "depends_on_indices": [0, 1], '
+            '"assigned_skill": "skill_name or null", '
+            '"assigned_mcp_server": "server_id or null", '
+            '"assigned_mcp_tool": "tool_name or null", '
+            '"effort_estimate": "5m|30m|1h|4h|1d|1w", '
+            '"can_be_automated": true}], '
+            '"execution_summary": "Brief description of the approach"}\n\n'
+            "Rules:\n"
+            "- depends_on_indices references other tasks by their 0-based index in the array\n"
+            "- Only assign skills/MCP tools that exist in the available list below\n"
+            "- Mark can_be_automated=true if a skill or MCP tool can handle it\n"
+            "- For recurring tasks, include the schedule in the description\n\n"
+        )
+        if skills_ctx:
+            planning_prompt += f"Available skills:\n{skills_ctx}\n\n"
+        if mcp_ctx:
+            planning_prompt += f"Available MCP tools:\n{mcp_ctx}\n\n"
+        if constraints:
+            planning_prompt += f"Constraints: {constraints}\n\n"
+        if deadline:
+            planning_prompt += f"Deadline: {deadline}\n\n"
+
+        messages = [
+            LLMMessage(role="system", content=planning_prompt),
+            LLMMessage(role="user", content=description),
+        ]
+
+        response = await self._llm.complete(messages, model=None, max_tokens=2048, temperature=0.3)
+        raw_output = response.content or ""
+
+        # Parse the LLM JSON output
+        try:
+            # Strip markdown code fences if present
+            cleaned = raw_output.strip()
+            if cleaned.startswith("```"):
+                cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned[3:]
+                if cleaned.endswith("```"):
+                    cleaned = cleaned[:-3]
+                cleaned = cleaned.strip()
+            plan_data = json.loads(cleaned)
+        except (json.JSONDecodeError, ValueError):
+            # Return raw output if not valid JSON so the agent can still present it
+            plan_data = {
+                "goal_title": description[:80],
+                "goal_description": description,
+                "tasks": [],
+                "execution_summary": raw_output,
+                "parse_warning": "Could not parse structured plan — showing raw decomposition.",
+            }
+
+        # Generate plan_id and store for later execution
+        plan_id = f"PLAN-{uuid.uuid4().hex[:12]}"
+        plan_data["plan_id"] = plan_id
+        plan_data["user_id"] = user_id
+        plan_data["status"] = "proposed"
+        if deadline:
+            plan_data["deadline"] = deadline
+
+        # Persist to storage if available
+        if self._storage:
+            from graphclaw.infra.storage import StoragePaths
+
+            plan_path = f"{StoragePaths.agent_root(user_id, self._agent_id)}state/pending_plans/{plan_id}.json"
+            try:
+                await self._storage.write(plan_path, json.dumps(plan_data).encode())
+            except Exception as exc:
+                logger.debug("AgentLoop: could not persist plan to storage: %s", exc)
+
+        # Also cache in memory for execute_plan to find
+        if not hasattr(self, "_pending_plans"):
+            self._pending_plans: dict[str, dict] = {}
+        self._pending_plans[plan_id] = plan_data
+
+        return {
+            "plan_id": plan_id,
+            "goal_title": plan_data.get("goal_title", ""),
+            "tasks": plan_data.get("tasks", []),
+            "execution_summary": plan_data.get("execution_summary", ""),
+            "task_count": len(plan_data.get("tasks", [])),
+            "status": "proposed — awaiting user approval",
+        }
+
+    async def _tool_execute_plan(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
+        """Create all tasks from an approved plan in the graph."""
+        plan_id = args["plan_id"]
+
+        # Load plan from memory cache or storage
+        plan_data = getattr(self, "_pending_plans", {}).get(plan_id)
+        if not plan_data and self._storage:
+            from graphclaw.infra.storage import StoragePaths
+
+            plan_path = f"{StoragePaths.agent_root(user_id, self._agent_id)}state/pending_plans/{plan_id}.json"
+            try:
+                raw = await self._storage.read(plan_path)
+                plan_data = json.loads(raw.decode())
+            except Exception:
+                pass
+
+        if not plan_data:
+            return {"error": f"Plan {plan_id} not found. Call propose_plan first."}
+        if plan_data.get("status") == "executed":
+            return {"error": f"Plan {plan_id} has already been executed."}
+
+        # Create the goal first
+        goal_result = await self._tool_create_goal(
+            user_id,
+            {
+                "title": plan_data.get("goal_title", "Untitled Goal"),
+                "description": plan_data.get("goal_description", ""),
+                "deadline": plan_data.get("deadline", ""),
+            },
+        )
+        goal_id = goal_result.get("goal_id")
+
+        # Create tasks and track created IDs for dependency wiring
+        tasks = plan_data.get("tasks", [])
+        created_tasks: list[dict[str, Any]] = []
+        index_to_task_id: dict[int, str] = {}
+
+        for idx, task_spec in enumerate(tasks):
+            # Resolve depends_on from indices to task IDs
+            depends_on_ids = []
+            for dep_idx in task_spec.get("depends_on_indices", []):
+                dep_task_id = index_to_task_id.get(dep_idx)
+                if dep_task_id:
+                    depends_on_ids.append(dep_task_id)
+
+            task_result = await self._tool_create_task(
+                user_id,
+                {
+                    "title": task_spec.get("title", f"Task {idx + 1}"),
+                    "description": task_spec.get("description", ""),
+                    "task_type": task_spec.get("task_type", "atomic"),
+                    "goal_id": goal_id,
+                    "depends_on": depends_on_ids,
+                },
+            )
+            task_id = task_result.get("task_id", "")
+            index_to_task_id[idx] = task_id
+            created_tasks.append(
+                {
+                    "task_id": task_id,
+                    "title": task_spec.get("title", ""),
+                    "task_type": task_spec.get("task_type", "atomic"),
+                    "can_be_automated": task_spec.get("can_be_automated", False),
+                    "assigned_skill": task_spec.get("assigned_skill"),
+                    "assigned_mcp_server": task_spec.get("assigned_mcp_server"),
+                    "assigned_mcp_tool": task_spec.get("assigned_mcp_tool"),
+                }
+            )
+
+        # Mark plan as executed
+        plan_data["status"] = "executed"
+        if hasattr(self, "_pending_plans"):
+            self._pending_plans[plan_id] = plan_data
+        if self._storage:
+            from graphclaw.infra.storage import StoragePaths
+
+            plan_path = f"{StoragePaths.agent_root(user_id, self._agent_id)}state/pending_plans/{plan_id}.json"
+            try:
+                await self._storage.write(plan_path, json.dumps(plan_data).encode())
+            except Exception:
+                pass
+
+        return {
+            "plan_id": plan_id,
+            "goal_id": goal_id,
+            "created_tasks": created_tasks,
+            "total_created": len(created_tasks),
+            "status": "executed",
+        }
+
+    # ------------------------------------------------------------------
+    # Skill dispatch tools
+    # ------------------------------------------------------------------
+
+    async def _tool_list_available_skills(
+        self, user_id: str, args: dict[str, Any]
+    ) -> dict[str, Any]:
+        """List skills available to the user."""
+        if self._skill_registry is None:
+            return {"error": "Skill registry not configured.", "skills": []}
+
+        query = args.get("query", "")
+        try:
+            if query:
+                results = await self._skill_registry.search(user_id, query=query)
+            else:
+                results = await self._skill_registry.list_installed(user_id)
+            skills = [
+                {
+                    "skill_id": getattr(s, "skill_id", getattr(s, "name", "")),
+                    "name": getattr(s, "name", ""),
+                    "description": getattr(s, "description", ""),
+                    "tags": getattr(s, "tags", []),
+                    "version": getattr(s, "version", "1.0.0"),
+                }
+                for s in results
+            ]
+            return {"skills": skills, "count": len(skills)}
+        except Exception as exc:
+            logger.warning("AgentLoop: list_available_skills failed: %s", exc)
+            return {"error": str(exc), "skills": []}
+
+    async def _tool_invoke_skill(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
+        """Execute a skill via the worker pool."""
+        if self._worker_pool is None or self._skill_registry is None:
+            return {"error": "Skill execution not configured (worker pool or registry missing)."}
+
+        skill_name = args["skill_name"]
+        task_id = args["task_id"]
+        input_data = args.get("input_data", {})
+
+        # Load the skill definition
+        try:
+            skill_def = await self._skill_registry.get_skill_definition(user_id, skill_name)
+        except Exception as exc:
+            return {"error": f"Could not load skill '{skill_name}': {exc}"}
+
+        if skill_def is None:
+            return {"error": f"Skill '{skill_name}' not found."}
+
+        # Create and submit a SkillJob
+        from graphclaw.models.base import utcnow
+        from graphclaw.skills.models import SkillJob
+
+        job = SkillJob(
+            job_id=f"job-{uuid.uuid4().hex[:12]}",
+            skill_name=skill_name,
+            task_id=task_id,
+            session_id=self._current_session_id or "",
+            input_data=input_data,
+            priority=5,
+            created_at=utcnow(),
+            timeout_seconds=skill_def.timeout_seconds,
+        )
+
+        # Get an idle worker and execute directly (synchronous for short skills)
+        worker = self._worker_pool.get_idle_worker()
+        if worker is None:
+            # Submit to queue if no idle worker
+            await self._worker_pool.submit(job)
+            return {
+                "status": "queued",
+                "job_id": job.job_id,
+                "message": f"All workers busy — job queued for skill '{skill_name}'.",
+            }
+
+        result = await worker.execute(job, skill_def)
+
+        # Update task intelligence with skill output
+        if result.status.value == "COMPLETED" and result.output:
+            try:
+                await self._repo.update_node(
+                    task_id,
+                    {
+                        "intelligence": result.output[:2000],
+                        "state": "IN_PROGRESS",
+                    },
+                )
+            except Exception as exc:
+                logger.debug("AgentLoop: could not update task with skill result: %s", exc)
+
+        return {
+            "status": result.status.value,
+            "job_id": result.job_id,
+            "output": result.output[:3000] if result.output else "",
+            "error": result.error or "",
+            "tokens_used": result.tokens_used,
+            "cost_usd": result.cost_usd,
+        }
+
+    # ------------------------------------------------------------------
+    # MCP tools
+    # ------------------------------------------------------------------
+
+    async def _tool_list_mcp_tools(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
+        """List MCP servers and their tools for the user."""
+        if self._mcp_registry is None:
+            return {"error": "MCP registry not configured.", "servers": []}
+
+        try:
+            servers = await self._mcp_registry.list_for_user(user_id, enabled_only=True)
+        except Exception as exc:
+            return {"error": f"Could not list MCP servers: {exc}", "servers": []}
+
+        server_filter = args.get("server_id")
+        if server_filter:
+            servers = [s for s in servers if s.id == server_filter]
+
+        results = []
+        for server in servers:
+            results.append(
+                {
+                    "server_id": server.id,
+                    "name": server.name,
+                    "trust_tier": server.trust_tier.value
+                    if hasattr(server.trust_tier, "value")
+                    else str(server.trust_tier),
+                    "transport": server.transport.value
+                    if hasattr(server.transport, "value")
+                    else str(server.transport),
+                    "description": getattr(server, "description", ""),
+                }
+            )
+
+        return {"servers": results, "count": len(results)}
+
+    async def _tool_call_mcp_tool(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
+        """Execute a tool on an MCP server."""
+        if self._mcp_registry is None:
+            return {"error": "MCP registry not configured."}
+
+        server_id = args["server_id"]
+        tool_name = args["tool_name"]
+        arguments = args.get("arguments", {})
+
+        # Look up the server
+        try:
+            server = await self._mcp_registry.get(server_id)
+        except Exception as exc:
+            return {"error": f"Could not look up MCP server '{server_id}': {exc}"}
+
+        if server is None:
+            return {"error": f"MCP server '{server_id}' not found."}
+
+        # Instantiate client, connect, call, disconnect
+        from graphclaw.mcp.client import MCPClient
+
+        client = MCPClient()
+        try:
+            await client.connect(server)
+            result = await client.call_tool(
+                tool_name=tool_name,
+                arguments=arguments,
+                trust_tier=server.trust_tier,
+                user_id=user_id,
+                server_id=server_id,
+            )
+            return {
+                "success": result.success,
+                "content": result.content[:3000] if result.content else "",
+                "error": result.error_message or "",
+                "latency_ms": result.latency_ms,
+            }
+        except ImportError:
+            return {"error": "MCP SDK not installed. Install with: pip install mcp>=1.0.0"}
+        except Exception as exc:
+            return {"error": f"MCP tool call failed: {exc}"}
+        finally:
+            await client.disconnect()
+
+    # ------------------------------------------------------------------
+    # Agent delegation tools
+    # ------------------------------------------------------------------
+
+    async def _tool_delegate_to_agent(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
+        """Delegate a task to an existing agent."""
+        task_id = args["task_id"]
+        agent_id = args["agent_id"]
+        instructions = args.get("instructions", "")
+
+        # Verify the task exists
+        task_props = await self._repo.get_node(task_id)
+        if not task_props:
+            return {"error": f"Task {task_id} not found."}
+
+        # Verify the agent exists in storage
+        if self._storage:
+            from graphclaw.infra.storage import StoragePaths
+
+            agent_profile_path = StoragePaths.agent_profile(user_id, agent_id)
+            try:
+                exists = await self._storage.exists(agent_profile_path)
+                if not exists:
+                    return {"error": f"Agent '{agent_id}' not found in user's agent folder."}
+            except Exception:
+                pass  # Proceed even if check fails
+
+        # Update task state to IN_PROGRESS and assign to agent
+        import datetime as _dt
+
+        now = _dt.datetime.now(_dt.timezone.utc)
+        history = list(task_props.get("state_history", []))
+        history.append(
+            {
+                "from_state": task_props.get("state", "PENDING"),
+                "to_state": "IN_PROGRESS",
+                "changed_at": now.isoformat(),
+                "changed_by": "AGENT",
+                "reason": f"Delegated to agent '{agent_id}'"
+                + (f": {instructions}" if instructions else ""),
+            }
+        )
+        await self._repo.update_node(
+            task_id,
+            {
+                "state": "IN_PROGRESS",
+                "assigned_to": agent_id,
+                "state_history": history,
+            },
+        )
+
+        # Write delegation context to agent's working memory
+        if self._storage:
+            from graphclaw.infra.storage import StoragePaths
+
+            context_path = StoragePaths.agent_memory_working(user_id, agent_id)
+            delegation_ctx = (
+                f"# Delegation: {task_id}\n\n"
+                f"- **Task:** {task_props.get('title', 'Unknown')}\n"
+                f"- **Description:** {task_props.get('description', '')}\n"
+                f"- **Instructions:** {instructions}\n"
+                f"- **Delegated at:** {now.isoformat()}\n"
+                f"- **Delegated by:** orchestrator ({self._agent_id})\n"
+            )
+            try:
+                await self._storage.write(context_path, delegation_ctx.encode())
+            except Exception as exc:
+                logger.debug("AgentLoop: could not write delegation context: %s", exc)
+
+        return {
+            "status": "delegated",
+            "task_id": task_id,
+            "agent_id": agent_id,
+            "task_state": "IN_PROGRESS",
+            "message": f"Task delegated to agent '{agent_id}'.",
+        }
+
+    async def _tool_create_agent(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
+        """Create a new agent in the user's agent folder."""
+        if self._storage is None:
+            return {"error": "Storage not configured — cannot create agents."}
+
+        from graphclaw.infra.storage import StoragePaths
+
+        name = args["name"]
+        purpose = args["purpose"]
+        skills = args.get("skills", [])
+        mcp_servers = args.get("mcp_servers", [])
+
+        # Generate agent_id from name (lowercase, hyphenated)
+        agent_id = name.lower().replace(" ", "-").replace("_", "-")[:40]
+        # Ensure uniqueness with short uuid suffix
+        agent_id = f"{agent_id}-{uuid.uuid4().hex[:6]}"
+
+        # Create profile.md
+        profile_content = (
+            f"# Agent Profile: {name}\n\n"
+            f"## Identity\n"
+            f"- **Name:** {name}\n"
+            f"- **Agent ID:** {agent_id}\n"
+            f"- **Owner:** {user_id}\n"
+            f"- **Purpose:** {purpose}\n\n"
+            f"## Persona & Style\n"
+            f"- Focused, task-oriented, and efficient\n"
+            f"- Reports progress proactively\n"
+            f"- Escalates blockers immediately\n\n"
+            f"## Assigned Skills\n"
+        )
+        for skill in skills:
+            profile_content += f"- {skill}\n"
+        if not skills:
+            profile_content += "- (none assigned yet)\n"
+
+        profile_content += "\n## MCP Servers\n"
+        for srv in mcp_servers:
+            profile_content += f"- {srv}\n"
+        if not mcp_servers:
+            profile_content += "- (none assigned yet)\n"
+
+        # Create config.json
+        config = {
+            "agent_id": agent_id,
+            "name": name,
+            "purpose": purpose,
+            "skills": skills,
+            "mcp_servers": mcp_servers,
+            "llm_provider": "litellm",
+            "llm_model": "claude-sonnet-4-20250514",
+            "heartbeat_interval_seconds": 60,
+            "created_by": self._agent_id,
+        }
+
+        # Write files
+        profile_path = StoragePaths.agent_profile(user_id, agent_id)
+        config_path = StoragePaths.agent_config(user_id, agent_id)
+        context_path = StoragePaths.agent_memory_working(user_id, agent_id)
+
+        try:
+            await self._storage.write(profile_path, profile_content.encode())
+            await self._storage.write(config_path, json.dumps(config, indent=2).encode())
+            await self._storage.write(
+                context_path, b"# Working Context\n\nAgent initialised. Awaiting first task.\n"
+            )
+        except Exception as exc:
+            return {"error": f"Failed to create agent files: {exc}"}
+
+        return {
+            "agent_id": agent_id,
+            "name": name,
+            "purpose": purpose,
+            "skills": skills,
+            "mcp_servers": mcp_servers,
+            "status": "created",
+            "profile_path": profile_path,
+        }
+
+    # ------------------------------------------------------------------
+    # Context gathering helpers (for planning)
+    # ------------------------------------------------------------------
+
+    async def _gather_skills_summary(self, user_id: str) -> str:
+        """Build a text summary of available skills for the planning prompt."""
+        if self._skill_registry is None:
+            return ""
+        try:
+            installed = await self._skill_registry.list_installed(user_id)
+            if not installed:
+                return ""
+            lines = []
+            for s in installed[:20]:
+                name = getattr(s, "name", "")
+                desc = getattr(s, "description", "")
+                lines.append(f"- {name}: {desc}")
+            return "\n".join(lines)
+        except Exception:
+            return ""
+
+    async def _gather_mcp_summary(self, user_id: str) -> str:
+        """Build a text summary of available MCP servers/tools for the planning prompt."""
+        if self._mcp_registry is None:
+            return ""
+        try:
+            servers = await self._mcp_registry.list_for_user(user_id, enabled_only=True)
+            if not servers:
+                return ""
+            lines = []
+            for srv in servers[:10]:
+                tier = (
+                    srv.trust_tier.value
+                    if hasattr(srv.trust_tier, "value")
+                    else str(srv.trust_tier)
+                )
+                lines.append(f"- {srv.name} (ID: {srv.id}, trust: {tier})")
+            return "\n".join(lines)
+        except Exception:
+            return ""
+
+    # ------------------------------------------------------------------
+    # System prompt enrichment with execution context
+    # ------------------------------------------------------------------
+
+    async def _build_execution_context(self, user_id: str) -> str:
+        """Build a brief summary of available skills and MCP for the system prompt."""
+        parts: list[str] = []
+
+        skills_summary = await self._gather_skills_summary(user_id)
+        if skills_summary:
+            parts.append(f"## Available Skills\n{skills_summary}")
+
+        mcp_summary = await self._gather_mcp_summary(user_id)
+        if mcp_summary:
+            parts.append(f"## Available MCP Servers\n{mcp_summary}")
+
+        return "\n\n".join(parts)
+
+    # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 
@@ -1056,10 +1911,33 @@ def _deserialise_graph_props(props: dict) -> dict:
     for key, val in props.items():
         if isinstance(val, str) and val and val[0] in ("{", "["):
             try:
-                out[key] = json.loads(val)
+                parsed = json.loads(val)
+                # If the JSON was a list, also decode any JSON-string items within it
+                if isinstance(parsed, list):
+                    parsed = [
+                        json.loads(item)
+                        if isinstance(item, str) and item and item[0] in ("{", "[")
+                        else item
+                        for item in parsed
+                    ]
+                out[key] = parsed
                 continue
             except (ValueError, TypeError):
                 pass
+        elif isinstance(val, list):
+            # AGE returns Cypher lists natively; individual dict items are
+            # stored as JSON strings (e.g. state_history entries).  Decode them.
+            decoded = []
+            for item in val:
+                if isinstance(item, str) and item and item[0] in ("{", "["):
+                    try:
+                        decoded.append(json.loads(item))
+                        continue
+                    except (ValueError, TypeError):
+                        pass
+                decoded.append(item)
+            out[key] = decoded
+            continue
         out[key] = val
     return out
 
