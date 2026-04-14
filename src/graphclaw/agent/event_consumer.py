@@ -46,12 +46,15 @@ import logging
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
-from graphclaw.infra.broker import TRIGGER_EVENTS, MessageBroker
+from graphclaw.agent.sub_agent_runner import AgentUpdateEvent, AgentUpdateEventType
+from graphclaw.infra.broker import AGENT_UPDATES, TRIGGER_EVENTS, MessageBroker
 from graphclaw.triggers.models import TriggerEvent, TriggerType
 
 if TYPE_CHECKING:
+    from graphclaw.agent.health_monitor import AgentHealthMonitor
     from graphclaw.agent.loop import AgentLoop
     from graphclaw.agent.outbound import OutboundDispatcher
+    from graphclaw.agent.result_collector import ResultCollector
     from graphclaw.infra.storage import StorageClient
 
 logger = logging.getLogger(__name__)
@@ -82,6 +85,8 @@ class AgentEventConsumer:
         user_channels: dict[str, list[dict[str, Any]]] | None = None,
         default_user_id: str = "",
         storage: StorageClient | None = None,
+        health_monitor: AgentHealthMonitor | None = None,
+        result_collector: ResultCollector | None = None,
     ) -> None:
         self._broker = broker
         self._loop = agent_loop
@@ -91,9 +96,12 @@ class AgentEventConsumer:
         self._default_user_id: str = default_user_id
         self._task: asyncio.Task | None = None
         self._inbound_task: asyncio.Task | None = None
+        self._agent_updates_task: asyncio.Task | None = None  # Phase 5
         self._running = False
         self._memory_lock: asyncio.Lock = asyncio.Lock()
         self._intelligence_agent: Any = None  # InboundIntelligenceAgent wired in start()
+        self._health_monitor: AgentHealthMonitor | None = health_monitor
+        self._result_collector: ResultCollector | None = result_collector
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -104,6 +112,7 @@ class AgentEventConsumer:
         self._running = True
         self._task = asyncio.create_task(self._consume_loop())
         self._inbound_task = asyncio.create_task(self._consume_inbound_loop())
+        self._agent_updates_task = asyncio.create_task(self._consume_agent_updates_loop())
 
         # Wire InboundIntelligenceAgent if LLM is available
         if (
@@ -139,6 +148,12 @@ class AgentEventConsumer:
             self._inbound_task.cancel()
             try:
                 await self._inbound_task
+            except asyncio.CancelledError:
+                pass
+        if self._agent_updates_task is not None:
+            self._agent_updates_task.cancel()
+            try:
+                await self._agent_updates_task
             except asyncio.CancelledError:
                 pass
         logger.info("AgentEventConsumer: stopped")
@@ -277,6 +292,111 @@ class AgentEventConsumer:
             except Exception as exc:  # noqa: BLE001
                 logger.error("AgentEventConsumer: failed to process inbound message: %s", exc)
         logger.info("AgentEventConsumer: inbound consume loop stopped")
+
+    # ------------------------------------------------------------------
+    # Phase 5 — AGENT_UPDATES consumer (sub-agent orchestration)
+    # ------------------------------------------------------------------
+
+    async def _consume_agent_updates_loop(self) -> None:
+        """Consume structured AgentUpdateEvents from AGENT_UPDATES queue.
+
+        Routes events to the correct handler:
+        - STARTED / HEARTBEAT → AgentHealthMonitor.record_heartbeat()
+        - COMPLETED → ResultCollector.process_agent_result() + StateMachine
+        - BLOCKED → EscalationService
+        - DELEGATION_COMPLETE trigger → AgentLoop.process_chat_message()
+        """
+        logger.info("AgentEventConsumer: agent_updates consume loop started")
+        async for raw_message in self._broker.consume(AGENT_UPDATES):
+            if not self._running:
+                break
+            try:
+                event = AgentUpdateEvent.model_validate_json(raw_message)
+                await self._handle_agent_update(event)
+            except Exception as exc:  # noqa: BLE001
+                logger.error("AgentEventConsumer: failed to handle agent_updates message: %s", exc)
+        logger.info("AgentEventConsumer: agent_updates consume loop stopped")
+
+    async def _handle_agent_update(self, event: AgentUpdateEvent) -> None:
+        """Route a single AgentUpdateEvent to the appropriate handler."""
+        # Always update health monitor for STARTED, PROGRESS, HEARTBEAT events
+        if self._health_monitor is not None and event.event_type in (
+            AgentUpdateEventType.STARTED,
+            AgentUpdateEventType.PROGRESS,
+            AgentUpdateEventType.HEARTBEAT,
+        ):
+            self._health_monitor.record_heartbeat(
+                agent_id=event.agent_id,
+                task_id=event.task_id,
+                session_id=event.session_id,
+            )
+
+        if event.event_type == AgentUpdateEventType.COMPLETED:
+            await self._handle_agent_completed(event)
+
+        elif event.event_type == AgentUpdateEventType.BLOCKED:
+            await self._handle_agent_blocked(event)
+
+    async def _handle_agent_completed(self, event: AgentUpdateEvent) -> None:
+        """Handle sub-agent task completion: update task node and result collector."""
+        # Remove from health monitor tracking
+        if self._health_monitor is not None:
+            self._health_monitor.remove_agent(event.agent_id)
+
+        # Update task state via ResultCollector if available
+        if self._result_collector is not None:
+            try:
+                await self._result_collector.process_agent_result(
+                    agent_id=event.agent_id,
+                    task_id=event.task_id,
+                    session_id=event.session_id,
+                    status=event.status or "COMPLETED",
+                    message=event.message or "",
+                    duration_ms=event.duration_ms or 0,
+                )
+            except Exception as exc:
+                logger.warning("AgentEventConsumer: result_collector.process_agent_result failed: %s", exc)
+        else:
+            # Fallback: update task state directly
+            try:
+                repo = getattr(self._loop, "_repo", None)
+                if repo and event.task_id:
+                    import datetime as _dt
+
+                    state = "NEEDS_REVIEW" if event.status == "COMPLETED" else "BLOCKED"
+                    await repo.update_node(
+                        event.task_id,
+                        {
+                            "state": state,
+                            "intelligence": f"[{_dt.datetime.now(_dt.timezone.utc).date()}] "
+                            f"Sub-agent '{event.agent_id}' completed | status={event.status} | "
+                            f"{(event.message or '')[:150]}",
+                        },
+                    )
+            except Exception as exc:
+                logger.warning("AgentEventConsumer: direct task update failed: %s", exc)
+
+        logger.info(
+            "AgentEventConsumer: sub-agent %s completed task %s (status=%s)",
+            event.agent_id, event.task_id, event.status,
+        )
+
+    async def _handle_agent_blocked(self, event: AgentUpdateEvent) -> None:
+        """Handle sub-agent BLOCKED event: escalate via EscalationService."""
+        if self._health_monitor is not None:
+            self._health_monitor.remove_agent(event.agent_id)
+
+        try:
+            repo = getattr(self._loop, "_repo", None)
+            if repo and event.task_id:
+                await repo.update_node(event.task_id, {"state": "BLOCKED"})
+        except Exception as exc:
+            logger.warning("AgentEventConsumer: task BLOCKED update failed: %s", exc)
+
+        logger.warning(
+            "AgentEventConsumer: sub-agent %s BLOCKED on task %s — reason: %s",
+            event.agent_id, event.task_id, event.message,
+        )
 
     async def _process_raw_inbound(self, inbound: Any) -> None:
         """Process an inbound message: resolve task, update intelligence, write inbox, optionally reply."""

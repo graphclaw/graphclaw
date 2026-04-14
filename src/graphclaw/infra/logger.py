@@ -140,6 +140,77 @@ class OutboundSentEvent(BaseModel):
     subject_length: int
 
 
+class MCPActionEvent(BaseModel):
+    """Audit log event for an MCP tool call.
+
+    No tool arguments or response content are logged — only the metadata
+    needed to reconstruct who called what, when, and whether it succeeded.
+    """
+
+    user_id: str
+    server_id: str
+    server_name: str
+    tool_name: str
+    success: bool
+    latency_ms: int
+    task_id: str | None = None  # associated task context if known
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 — Sub-agent orchestration audit events
+# All events carry agent_id + task_id for bi-directional audit queries.
+# ---------------------------------------------------------------------------
+
+
+class AgentTaskStartedEvent(BaseModel):
+    """Audit event: sub-agent picked up a delegated task and started execution."""
+
+    agent_id: str
+    task_id: str
+    session_id: str
+    parent_task_id: str | None = None
+    batch_id: str = ""
+
+
+class AgentTaskProgressEvent(BaseModel):
+    """Audit event: sub-agent reported an intermediate progress update."""
+
+    agent_id: str
+    task_id: str
+    session_id: str
+    message: str
+    iteration: int = 0
+
+
+class AgentTaskCompletedEvent(BaseModel):
+    """Audit event: sub-agent finished executing a delegated task."""
+
+    agent_id: str
+    task_id: str
+    session_id: str
+    status: str  # COMPLETED | FAILED | TIMED_OUT
+    duration_ms: int
+    parent_task_id: str | None = None
+    batch_id: str = ""
+
+
+class AgentTaskBlockedEvent(BaseModel):
+    """Audit event: sub-agent encountered a blocker or heartbeat timeout."""
+
+    agent_id: str
+    task_id: str
+    session_id: str
+    reason: str
+
+
+class AgentHeartbeatEvent(BaseModel):
+    """Audit event: sub-agent liveness pulse (emitted every heartbeat interval)."""
+
+    agent_id: str
+    task_id: str
+    session_id: str
+
+
 class AsyncLogger:
     """Non-blocking structured JSON logger with an async flush loop.
 

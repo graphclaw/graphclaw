@@ -82,6 +82,7 @@ flowchart TB
         MCP_C["MCPClient\nMCPRegistry\nGatedApprovalService"]
         LLM["LLMClient\n(Anthropic/OpenAI/LiteLLM)"]
         DELEG["DelegationService\nEscalationService"]
+        SUBAGENT["SubAgentPool\nSubAgentRunner\nAgentDispatchPlanner\nAgentHealthMonitor"]
     end
 
     subgraph DATA["Data Layer"]

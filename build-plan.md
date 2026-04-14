@@ -247,6 +247,67 @@ Wave 3 (parallel): WS-P45-E (event consumer wiring), WS-P45-G (outbound logging)
 
 ---
 
+### Phase 5 — Sub-Agent Parallel Orchestration (Weeks 41-46) 🔄 IN PROGRESS
+
+**Goal:** The main `AgentLoop` can decompose work into parallel tasks, delegate each to a specialized sub-agent running in the background, receive structured typed updates, and re-engage once all delegated work completes.
+
+**Design doc:** `C:\Users\abhis\.claude\plans\serene-booping-falcon.md`
+
+**Design constraints:**
+- Delegation is flat (max depth = 2): sub-agents cannot call `delegate_to_agent`
+- Sub-agents use a dedicated `WorkerPool` (not shared with the orchestrator) to prevent starvation
+- Crash recovery: mark task BLOCKED + escalate — no retry (prevents duplicate MCP writes/emails)
+- Max concurrent sub-agents capped by `GRAPHCLAW_MAX_CONCURRENT_AGENTS` (default 4)
+- Dispatch order driven by task graph `DEPENDS_ON` edges (topological sort)
+
+**Workstream status:**
+
+| ID | Workstream | Status | Files |
+|----|-----------|--------|-------|
+| WS-P5-A | Broker queues + config env vars | 🔄 Active | `infra/broker.py`, `infra/config.py` |
+| WS-P5-B | SubAgentRunner + SubAgentPool | 🔄 Active | `agent/sub_agent_runner.py` (new), `agent/sub_agent_pool.py` (new) |
+| WS-P5-C | Audit log events + AGENT_UPDATES consumer | 🔄 Active | `infra/logger.py`, `agent/event_consumer.py`, `agent/result_collector.py` |
+| WS-P5-D | AgentDispatchPlanner + BatchCoordinator | 🔄 Active | `agent/dispatch_planner.py` (new) |
+| WS-P5-E | AgentHealthMonitor + heartbeat escalation | 🔄 Active | `agent/health_monitor.py` (new), `skills/heartbeat.py` |
+| WS-P5-F | AgentLoop: delegate_to_agent publishes + planner integration | 🔄 Active | `agent/loop.py` lines 1849–1920, lines 474–524 |
+| WS-P5-G | Gateway wiring (lifespan startup/shutdown) | 🔄 Active | `gateway/app.py` |
+| WS-P5-H | Test suite (unit + integration) | 🔄 Active | `tests/test_agent/test_sub_agent_*.py`, `tests/test_agent/test_dispatch_planner.py` |
+
+**Build order:**
+```
+Wave 1 (parallel): WS-P5-A (queues+config), WS-P5-C (audit events)
+Wave 2 (parallel): WS-P5-B (SubAgentRunner+Pool), WS-P5-D (DispatchPlanner+BatchCoordinator)
+Wave 3 (parallel): WS-P5-E (HealthMonitor), WS-P5-F (AgentLoop modifications)
+Wave 4 (sequential): WS-P5-G (gateway wiring), WS-P5-H (tests)
+```
+
+**New broker queues:**
+
+| Queue | Constant | Publisher | Consumer |
+|-------|----------|-----------|----------|
+| `agent_jobs` | `AGENT_JOBS` | `AgentLoop._tool_delegate_to_agent()` | `SubAgentPool` |
+| `agent_updates` | `AGENT_UPDATES` | `SubAgentRunner` | `AgentEventConsumer._consume_agent_updates_loop()` |
+
+**New config env vars:**
+- `GRAPHCLAW_MAX_CONCURRENT_AGENTS` (default 4)
+- `GRAPHCLAW_SUBAGENT_WORKER_POOL_SIZE` (default 4)
+- `GRAPHCLAW_AGENT_HEARTBEAT_INTERVAL_SECONDS` (default 60)
+- `GRAPHCLAW_AGENT_HEARTBEAT_TIMEOUT_SECONDS` (default 300)
+
+**Key deliverables:**
+1. `SubAgentRunner` — async lifecycle (IDLE→RUNNING→COMPLETED/FAILED), LLM tool loop, heartbeat emit, typed event publish
+2. `SubAgentPool` — bounded runner pool, `AGENT_JOBS` consumer, overflow queued in broker
+3. `BatchCoordinator` — tier completion tracking, next-tier dispatch, `DELEGATION_COMPLETE` trigger
+4. `AgentDispatchPlanner` — topological sort over task `DEPENDS_ON` subgraph → ordered parallel tiers
+5. `AgentHealthMonitor` — heartbeat tracking per agent_id, BLOCKED + escalation on timeout
+6. `AgentLoop._tool_delegate_to_agent()` — publishes `AgentJobEvent` to `AGENT_JOBS` after MinIO write
+7. `AgentEventConsumer._consume_agent_updates_loop()` — third background task; routes typed events
+8. 5 new audit log event classes in `AsyncLogger` with `agent_id + task_id` attribution
+9. Gateway lifespan wires `SubAgentPool`, dedicated `WorkerPool` for sub-agents, `AgentHealthMonitor`
+10. Full test suite: unit (planner, coordinator, runner state machine) + integration (delegation cycle)
+
+---
+
 ### Phase 5 — Scale, Observability, Enterprise (Weeks 41-52)
 
 **Goal:** Production hardening at 1,000+ users, full observability stack, enterprise features, compliance.

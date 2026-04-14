@@ -6,6 +6,10 @@ Description
 objects, updates corresponding ``TaskNode`` state and intelligence in the
 graph, writes result summaries to agent memory, and logs decisions.
 
+Also handles ``AgentTaskCompletedEvent`` objects from the ``AGENT_UPDATES``
+queue via ``process_agent_result()``, applying the same graph + memory +
+decisions-log updates as for skill results.
+
 Design Patterns
 ---------------
 - Polling loop: Runs as an ``asyncio.Task`` periodically checking worker statuses.
@@ -16,12 +20,14 @@ Public API
 - ResultCollector: Background result collection service.
 - ResultCollector.start: Begin the polling loop.
 - ResultCollector.stop: Cancel the polling loop.
+- ResultCollector.process_agent_result: Process a completed sub-agent result event.
 
 Dependencies
 ------------
 - graphclaw.db.base: GraphStore.
 - graphclaw.skills.worker: WorkerPool.
 - graphclaw.infra.storage: StorageClient, StoragePaths.
+- graphclaw.agent.sub_agent_runner: AgentUpdateEvent (TYPE_CHECKING).
 """
 
 from __future__ import annotations
@@ -31,6 +37,7 @@ import logging
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from graphclaw.agent.sub_agent_runner import AgentUpdateEvent
     from graphclaw.db.base import GraphStore
     from graphclaw.infra.storage import StorageClient
     from graphclaw.skills.worker import WorkerPool
@@ -205,6 +212,111 @@ class ResultCollector:
                     pass
                 await self._storage.write(
                     log_path, (existing_log.decode(errors="replace") + log_entry).encode()
+                )
+            except Exception:
+                pass
+
+    async def process_agent_result(self, event: AgentUpdateEvent) -> None:
+        """Update a task node with a completed sub-agent result.
+
+        Called by ``AgentEventConsumer._handle_agent_completed()`` on each
+        ``AgentTaskCompletedEvent`` received from the ``AGENT_UPDATES`` queue.
+
+        Applies the same graph + agent-memory + decisions-log updates as
+        ``process_result()`` but sourced from a sub-agent event rather than a
+        skill invocation.
+
+        Parameters
+        ----------
+        event:
+            ``AgentUpdateEvent`` with ``event_type == COMPLETED``.
+        """
+        import datetime as _dt
+
+        now = _dt.datetime.now(_dt.timezone.utc)
+        task_id = event.task_id
+        agent_id = event.agent_id
+        result_summary = event.message or ""
+        status = event.status or "COMPLETED"
+
+        # Determine new task state
+        new_state = "NEEDS_REVIEW" if status == "COMPLETED" else "BLOCKED"
+
+        # Update task node
+        updates: dict = {
+            "updated_at": now.isoformat(),
+            "state": new_state,
+        }
+        if result_summary:
+            updates["intelligence"] = result_summary[:2000]
+
+        try:
+            await self._repo.update_node(task_id, updates)
+            logger.info(
+                "ResultCollector: task %s updated → %s after agent %s completed",
+                task_id,
+                new_state,
+                agent_id,
+            )
+        except Exception as exc:
+            logger.warning("ResultCollector: could not update task %s: %s", task_id, exc)
+
+        # Resolve storage user_id: prefer event session_id prefix for correlation
+        storage_user_id = self._user_id
+        storage_agent_id = self._agent_id
+
+        # Write to agent memory
+        if self._storage and storage_user_id:
+            from graphclaw.infra.storage import StoragePaths
+
+            context_path = StoragePaths.agent_memory_working(storage_user_id, storage_agent_id)
+            memory_entry = (
+                f"\n## Sub-Agent Result: {agent_id}\n"
+                f"- **Task:** {task_id}\n"
+                f"- **Status:** {status}\n"
+                f"- **Completed at:** {now.isoformat()}\n"
+            )
+            if event.batch_id:
+                memory_entry += f"- **Batch:** {event.batch_id}\n"
+            if result_summary:
+                memory_entry += f"- **Summary:** {result_summary[:500]}\n"
+
+            try:
+                existing = b""
+                try:
+                    existing = await self._storage.read(context_path)
+                except Exception:
+                    pass
+                await self._storage.write(
+                    context_path, (existing.decode(errors="replace") + memory_entry).encode()
+                )
+            except Exception as exc:
+                logger.debug("ResultCollector: could not write agent memory: %s", exc)
+
+        # Write to decisions log
+        if self._storage and storage_user_id:
+            from graphclaw.infra.storage import StoragePaths
+
+            log_path = (
+                f"{StoragePaths.agent_root(storage_user_id, storage_agent_id)}log/decisions.md"
+            )
+            log_entry = (
+                f"\n### {now.isoformat()} — Sub-agent completed: {agent_id}\n"
+                f"- Task: {task_id}\n"
+                f"- Status: {status}\n"
+                f"- Action: Updated task to {new_state}\n"
+            )
+            if event.batch_id:
+                log_entry += f"- Batch: {event.batch_id}\n"
+            try:
+                existing_log = b""
+                try:
+                    existing_log = await self._storage.read(log_path)
+                except Exception:
+                    pass
+                await self._storage.write(
+                    log_path,
+                    (existing_log.decode(errors="replace") + log_entry).encode(),
                 )
             except Exception:
                 pass

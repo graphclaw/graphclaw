@@ -105,6 +105,8 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
 
         # ── Initialise API-layer services on app.state ────────────────────
         _db_pool = None
+        _sub_agent_pool = None
+        _agent_health_monitor = None
         try:
             from graphclaw.db.age.connection import create_pgbouncer_pool
             from graphclaw.db.factory import create_graph_store, create_query_engine
@@ -184,6 +186,84 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
                     except Exception:
                         pass
 
+                    # Phase 5: Sub-agent pool + health monitor
+                    _sub_agent_pool = None
+                    _agent_health_monitor = None
+                    _dispatch_planner = None
+                    _result_collector = None
+                    if broker is not None:
+                        try:
+                            from graphclaw.agent.dispatch_planner import (
+                                AgentDispatchPlanner,  # noqa: PLC0415
+                            )
+                            from graphclaw.agent.health_monitor import (
+                                AgentHealthMonitor,  # noqa: PLC0415
+                            )
+                            from graphclaw.agent.result_collector import (
+                                ResultCollector,  # noqa: PLC0415
+                            )
+                            from graphclaw.agent.sub_agent_pool import SubAgentPool  # noqa: PLC0415
+                            from graphclaw.infra.config import AgentPoolConfig  # noqa: PLC0415
+                            from graphclaw.skills.llm_router import LLMRouter  # noqa: PLC0415
+                            from graphclaw.skills.worker import WorkerPool  # noqa: PLC0415
+                            from graphclaw.state.machine import StateMachine as _SM  # noqa: PLC0415
+
+                            pool_cfg = AgentPoolConfig.from_env()
+
+                            # Dedicated LLM router + worker pool for sub-agents (isolated from orchestrator)
+                            _subagent_llm_router = LLMRouter(llm_client=llm_client)
+                            _subagent_worker_pool = WorkerPool(
+                                pool_size=pool_cfg.subagent_worker_pool_size,
+                                llm_router=_subagent_llm_router,
+                            )
+
+                            _sub_agent_pool = SubAgentPool(
+                                max_size=pool_cfg.max_concurrent_agents,
+                                broker=broker,
+                                llm_client=llm_client,
+                                storage=app.state.storage_client,
+                                worker_pool=_subagent_worker_pool,
+                                skill_registry=_skill_registry,
+                                mcp_registry=_mcp_registry,
+                                heartbeat_interval=pool_cfg.heartbeat_interval_seconds,
+                            )
+
+                            _agent_health_monitor = AgentHealthMonitor(
+                                broker=broker,
+                                state_machine=_SM(),
+                                check_interval=30,
+                                heartbeat_timeout=pool_cfg.heartbeat_timeout_seconds,
+                            )
+
+                            if hasattr(app.state, "graph_store"):
+                                _dispatch_planner = AgentDispatchPlanner(
+                                    query_engine=app.state.query_engine,
+                                )
+                                _result_collector = ResultCollector(
+                                    graph_repo=app.state.graph_store,
+                                    worker_pool=_worker_pool or _subagent_worker_pool,
+                                    storage_client=app.state.storage_client,
+                                    user_id=os.environ.get("GRAPHCLAW_USER_ID", ""),
+                                    agent_id=agent_id,
+                                )
+
+                            await _subagent_worker_pool.start()
+                            await _sub_agent_pool.start()
+                            await _agent_health_monitor.start()
+                            app.state.sub_agent_pool = _sub_agent_pool
+                            app.state.agent_health_monitor = _agent_health_monitor
+                            logger.info(
+                                "GraphClaw: sub-agent pool started (max=%d, subagent_workers=%d)",
+                                pool_cfg.max_concurrent_agents,
+                                pool_cfg.subagent_worker_pool_size,
+                            )
+                        except Exception as exc:  # noqa: BLE001
+                            logger.error(
+                                "GraphClaw: sub-agent pool initialisation failed — %s",
+                                exc,
+                                exc_info=exc,
+                            )
+
                     agent_loop = AgentLoop(
                         graph_repo=app.state.graph_store,
                         scoring_engine=app.state.scoring_engine,
@@ -194,6 +274,9 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
                         skill_registry=_skill_registry,
                         worker_pool=_worker_pool,
                         mcp_registry=_mcp_registry,
+                        broker=broker,
+                        dispatch_planner=_dispatch_planner,
+                        sub_agent_pool=_sub_agent_pool,
                     )
                     app.state.agent_loop = agent_loop
                     logger.info("GraphClaw: agent loop initialised (agent_id=%s)", agent_id)
@@ -207,6 +290,8 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
                             dispatcher=dispatcher,
                             default_user_id=default_user_id,
                             storage=app.state.storage_client,
+                            health_monitor=_agent_health_monitor,
+                            result_collector=_result_collector,
                         )
                         await _agent_event_consumer.start()
                         app.state.agent_event_consumer = _agent_event_consumer
@@ -228,6 +313,12 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
         if _agent_event_consumer is not None:
             await _agent_event_consumer.stop()
             logger.info("GraphClaw: agent event consumer stopped")
+        if _agent_health_monitor is not None:
+            await _agent_health_monitor.stop()
+            logger.info("GraphClaw: agent health monitor stopped")
+        if _sub_agent_pool is not None:
+            await _sub_agent_pool.stop()
+            logger.info("GraphClaw: sub-agent pool stopped")
         await registry.stop_all()
 
         if broker is not None:

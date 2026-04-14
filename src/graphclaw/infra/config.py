@@ -21,6 +21,7 @@ Public API
 - StorageConfig: Object storage backend settings (S3/MinIO) + client factory.
 - BrokerConfig: Message broker settings (Redis/SQS).
 - LoggingConfig: Async logger settings (service name, buffer, level).
+- AgentPoolConfig: Sub-agent orchestration pool settings (Phase 5).
 
 Dependencies
 ------------
@@ -131,3 +132,51 @@ class LoggingConfig(BaseModel):
     service_name: str = "graphclaw"
     buffer_size: int = 10_000
     level: str = "INFO"
+
+
+class AgentPoolConfig(BaseModel):
+    """Configuration for the Phase 5 sub-agent orchestration pool.
+
+    Attributes:
+        max_concurrent_agents: Maximum number of SubAgentRunner instances that
+            may be active simultaneously.  Jobs beyond this cap remain queued
+            in the ``AGENT_JOBS`` broker queue until a slot becomes free.
+        subagent_worker_pool_size: Size of the dedicated SkillWorker pool used
+            exclusively by sub-agents.  Kept separate from the orchestrator
+            pool to prevent resource starvation.
+        heartbeat_interval_seconds: How often each SubAgentRunner publishes a
+            heartbeat event to ``AGENT_UPDATES``.
+        heartbeat_timeout_seconds: Inactivity threshold after which
+            AgentHealthMonitor marks the task BLOCKED and triggers escalation.
+    """
+
+    max_concurrent_agents: int = 4
+    subagent_worker_pool_size: int = 4
+    heartbeat_interval_seconds: int = 60
+    heartbeat_timeout_seconds: int = 300
+
+    @classmethod
+    def from_env(cls) -> "AgentPoolConfig":
+        """Build an ``AgentPoolConfig`` from environment variables.
+
+        Environment variables
+        ---------------------
+        GRAPHCLAW_MAX_CONCURRENT_AGENTS      — default 4
+        GRAPHCLAW_SUBAGENT_WORKER_POOL_SIZE  — default 4
+        GRAPHCLAW_AGENT_HEARTBEAT_INTERVAL_SECONDS — default 60
+        GRAPHCLAW_AGENT_HEARTBEAT_TIMEOUT_SECONDS  — default 300
+        """
+        return cls(
+            max_concurrent_agents=int(
+                os.environ.get("GRAPHCLAW_MAX_CONCURRENT_AGENTS", "4")
+            ),
+            subagent_worker_pool_size=int(
+                os.environ.get("GRAPHCLAW_SUBAGENT_WORKER_POOL_SIZE", "4")
+            ),
+            heartbeat_interval_seconds=int(
+                os.environ.get("GRAPHCLAW_AGENT_HEARTBEAT_INTERVAL_SECONDS", "60")
+            ),
+            heartbeat_timeout_seconds=int(
+                os.environ.get("GRAPHCLAW_AGENT_HEARTBEAT_TIMEOUT_SECONDS", "300")
+            ),
+        )

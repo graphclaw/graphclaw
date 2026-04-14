@@ -1,15 +1,16 @@
 # Task Graph Management System — Product Requirements Document
 
-**Version:** 1.2 — Implementation in Progress  
-**Status:** Active build — Phases 0–3 complete, Phase 4 in progress  
+**Version:** 1.3 — Implementation in Progress  
+**Status:** Active build — Phases 0–4 complete, Phase 5 delivered  
 **Purpose:** Comprehensive reference document for UX, architecture, and implementation discussions
 
-**Implementation status (2026-04-10):**
+**Implementation status (2026-04-13):**
 - Phases 0–3 delivered: graph schema, scoring engine, state machine, CLI, gateway, channels, auth, BYOK, compliance, MCP, connectors, skill registry, A2A
-- Phase 4 in progress: logic layer complete, cockpit backend API Wave 1 building (graph, scoring, state, events)
+- Phase 4 complete: cockpit backend API all 6 waves delivered (graph, scoring, state, events, sessions, skills, MCP, intelligence)
+- **Phase 5 delivered (2026-04-13):** Sub-agent parallel orchestration — `SubAgentRunner`, `SubAgentPool`, `AgentDispatchPlanner`, `AgentHealthMonitor`, broker integration
 - Cockpit frontend: separate project at `graphclaw-cockpit/` (HTML wireframes + React target)
 - API backlog: `docs/cockpit-backend-api-prd.md` (104 new endpoints, 6-wave build plan)
-- Test baseline: 1333 passing unit tests, 15 DB integration tests (require live Postgres+AGE)
+- Test baseline: 1575 passing unit tests, 15 DB integration tests (require live Postgres+AGE)
 
 ---
 
@@ -52,6 +53,7 @@
 35. [Architecture: Application API Layer (Cockpit Backend)](#35-architecture-application-api-layer-cockpit-backend)
 36. [Architecture: Node Intelligence Layer](#36-architecture-node-intelligence-layer)
 37. [Architecture: Embedding Pipeline](#37-architecture-embedding-pipeline)
+38. [Architecture: Sub-Agent Parallel Orchestration](#38-architecture-sub-agent-parallel-orchestration)
 
 ---
 
@@ -9181,3 +9183,135 @@ Ambiguous results (two matches within 0.05 of each other) are always treated as 
 | `src/graphclaw/infra/embeddings.py` | NEW: `EmbeddingClient` |
 | `src/graphclaw/db/age/repository.py` | Add embedding upsert after `create_node()` / `update_node()` for `TaskNode` |
 | `src/graphclaw/inbound/resolver.py` | Fix table name bug; wire `EmbeddingClient` for vector search |
+
+---
+
+## 38. Architecture: Sub-Agent Parallel Orchestration
+
+**Status:** ✅ Delivered — 2026-04-13  
+**Design doc:** `docs/architecture/05-data-flow.md` §7
+
+### 38.1 Overview
+
+The orchestrating agent (`AgentLoop`) now delegates tasks to sub-agents that run in parallel as background processes. This closes 8 architectural gaps identified in the original design:
+
+| Gap | Fix |
+|-----|-----|
+| `delegate_to_agent` was fire-and-forget | Publishes `AgentJobEvent` to `AGENT_JOBS` broker queue |
+| No sub-agent run loop | `SubAgentRunner` — mini LLM tool-use loop for delegated tasks |
+| No parallel dispatch | `AgentDispatchPlanner` — topological sort over task `DEPENDS_ON` graph |
+| No structured update protocol | `AGENT_UPDATES` queue with typed events; `_consume_agent_updates_loop()` |
+| No session/context propagation | `AgentJobEvent` carries `session_id`, `parent_task_id`; sub-agent propagates to all events |
+| No heartbeat / liveness | `SubAgentRunner` emits `AgentHeartbeatEvent` every 60s; `AgentHealthMonitor` tracks all |
+| No fan-in mechanism | `BatchCoordinator` inside `SubAgentPool` counts completions per tier |
+| No orchestrator re-engagement | `BatchCoordinator` publishes `DELEGATION_COMPLETE` to `TRIGGER_EVENTS` after final tier |
+
+### 38.2 Data Flow
+
+```
+AgentLoop._tool_delegate_to_agent()
+  ↓  publishes AgentJobEvent (agent_id, task_id, session_id, batch_id, instructions)
+AGENT_JOBS queue
+  ↓  consumed by
+SubAgentPool (semaphore throttle — max_concurrent_agents)
+  ↓  dispatches to
+SubAgentRunner.execute()
+  ↓  LLM tool-use loop (invoke_skill + call_mcp_tool only — flat delegation)
+  ↓  emits to AGENT_UPDATES queue:
+       AgentTaskStartedEvent → record_heartbeat()
+       AgentTaskProgressEvent → record_heartbeat()
+       AgentHeartbeatEvent → record_heartbeat()
+       AgentTaskCompletedEvent → ResultCollector.process_agent_result() + StateMachine.transition()
+       AgentTaskBlockedEvent → EscalationService.check_and_escalate()
+  ↓
+BatchCoordinator.record_completion(batch_id)
+  ├── tier not complete: no-op
+  └── tier complete → dispatch next tier jobs to AGENT_JOBS
+       └── final tier complete → publish DELEGATION_COMPLETE to TRIGGER_EVENTS
+              ↓
+       AgentEventConsumer._consume_loop() handles DELEGATION_COMPLETE
+              ↓
+       AgentLoop.process_chat_message() — orchestrator re-engagement with batch summary
+```
+
+### 38.3 Components
+
+#### SubAgentRunner (`src/graphclaw/agent/sub_agent_runner.py`)
+- Lifecycle: IDLE → RUNNING → COMPLETED / FAILED / TIMED_OUT
+- Reads delegation context from MinIO (`StoragePaths.agent_memory_working(user_id, agent_id)`)
+- LLM tool-use loop up to 15 iterations; available tools: `invoke_skill`, `call_mcp_tool` only
+- Uses dedicated `WorkerPool` (sub-agents never share the orchestrator's worker pool)
+- Emits heartbeat every `GRAPHCLAW_AGENT_HEARTBEAT_INTERVAL_SECONDS` seconds (default 60)
+- All events carry `agent_id + task_id + session_id + batch_id` for audit correlation
+
+#### SubAgentPool (`src/graphclaw/agent/sub_agent_pool.py`)
+- Semaphore throttle: at most `GRAPHCLAW_MAX_CONCURRENT_AGENTS` runners active (default 4)
+- Consumes `AGENT_JOBS` broker queue; overflow stays queued (never dropped)
+- Contains `BatchCoordinator` for fan-in tier tracking
+- `register_dispatch_plan(tiers, session_id)` called by `AgentLoop` after `AgentDispatchPlanner.plan()`
+
+#### AgentDispatchPlanner (`src/graphclaw/agent/dispatch_planner.py`)
+- Queries `GraphQueryEngine` for `DEPENDS_ON` edges among proposed delegation task IDs
+- Kahn's BFS topological sort → ordered tier list `[[task_C], [task_A, task_B], [task_D]]`
+- Each tier contains tasks safe to run in parallel; tiers execute sequentially
+- Assigns `batch_id` per tier; jobs in same tier share a `batch_id`
+
+#### AgentHealthMonitor (`src/graphclaw/agent/health_monitor.py`)
+- Tracks `last_heartbeat` timestamp per `agent_id` (updated by `_consume_agent_updates_loop`)
+- Background polling loop every 30s (configurable)
+- On timeout: `StateMachine.transition(BLOCKED)` + publish `AgentUpdateEventType.BLOCKED` to `AGENT_UPDATES` + audit log
+- Recovery policy: BLOCKED only (no retry — avoids duplicate MCP writes or emails)
+
+#### BatchCoordinator (`src/graphclaw/agent/sub_agent_pool.py`)
+- Tracks completion count per `batch_id`
+- When all jobs in a tier complete: dispatches next tier jobs to `AGENT_JOBS`
+- When final tier completes: publishes `DELEGATION_COMPLETE` to `TRIGGER_EVENTS` with `session_id`
+
+### 38.4 Configuration (Environment Variables)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `GRAPHCLAW_MAX_CONCURRENT_AGENTS` | `4` | Maximum parallel sub-agent runners |
+| `GRAPHCLAW_SUBAGENT_WORKER_POOL_SIZE` | `4` | Dedicated WorkerPool size for sub-agents |
+| `GRAPHCLAW_AGENT_HEARTBEAT_INTERVAL_SECONDS` | `60` | Sub-agent heartbeat emission interval |
+| `GRAPHCLAW_AGENT_HEARTBEAT_TIMEOUT_SECONDS` | `300` | Seconds of silence before BLOCKED escalation |
+
+### 38.5 Broker Queues
+
+| Queue | Publisher | Consumer | Purpose |
+|-------|-----------|----------|---------|
+| `agent_jobs` | `AgentLoop._tool_delegate_to_agent()` | `SubAgentPool` | Delegation job dispatch |
+| `agent_updates` | `SubAgentRunner` + `AgentHealthMonitor` | `AgentEventConsumer._consume_agent_updates_loop()` | Typed sub-agent progress events |
+
+### 38.6 New Audit Event Classes (`src/graphclaw/infra/logger.py`)
+
+| Class | Fields | Purpose |
+|-------|--------|---------|
+| `AgentTaskStartedEvent` | `agent_id, task_id, session_id, parent_task_id, batch_id` | Sub-agent task pickup |
+| `AgentTaskProgressEvent` | `agent_id, task_id, session_id, message, iteration` | LLM iteration progress |
+| `AgentTaskCompletedEvent` | `agent_id, task_id, session_id, status, duration_ms, parent_task_id, batch_id` | Task completion |
+| `AgentTaskBlockedEvent` | `agent_id, task_id, session_id, reason` | Heartbeat timeout or failure |
+| `AgentHeartbeatEvent` | `agent_id, task_id, session_id` | Liveness heartbeat |
+
+### 38.7 Design Constraints
+
+- **Flat delegation (max depth = 2):** Sub-agents' toolset excludes `delegate_to_agent`. Orchestrator → sub-agents only. Prevents infinite delegation chains and simplifies audit.
+- **Dedicated worker pools:** Sub-agents use their own `WorkerPool`. Orchestrator pool is never starved by background delegations.
+- **No retry on timeout:** Task marked BLOCKED immediately; escalation service surfaces it. Prevents duplicate MCP writes, emails, or other side effects the sub-agent may have already performed.
+
+### 38.8 Files
+
+| File | Type | Purpose |
+|------|------|---------|
+| `src/graphclaw/agent/sub_agent_runner.py` | New | SubAgentRunner + AgentJobEvent + AgentUpdateEvent models |
+| `src/graphclaw/agent/sub_agent_pool.py` | New | SubAgentPool + BatchCoordinator |
+| `src/graphclaw/agent/dispatch_planner.py` | New | AgentDispatchPlanner (topological sort) |
+| `src/graphclaw/agent/health_monitor.py` | New | AgentHealthMonitor (heartbeat tracking) |
+| `src/graphclaw/agent/loop.py` | Modified | Added broker + dispatch_planner + sub_agent_pool params; `_pre_plan_delegation_turn()`; `_tool_delegate_to_agent()` publishes to AGENT_JOBS |
+| `src/graphclaw/agent/event_consumer.py` | Modified | Added `_consume_agent_updates_loop()` third background task |
+| `src/graphclaw/agent/result_collector.py` | Modified | Added `process_agent_result()` for AgentUpdateEvent completion handling |
+| `src/graphclaw/infra/broker.py` | Modified | Added `AGENT_JOBS`, `AGENT_UPDATES` constants |
+| `src/graphclaw/infra/config.py` | Modified | Added `AgentPoolConfig` with 4 env vars |
+| `src/graphclaw/infra/logger.py` | Modified | Added 5 new audit event classes |
+| `src/graphclaw/gateway/app.py` | Modified | Wired SubAgentPool + AgentHealthMonitor + AgentDispatchPlanner into lifespan |
+| `tests/test_agent/test_sub_agent_orchestration.py` | New | 27 unit tests covering all Phase 5 components |

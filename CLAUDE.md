@@ -27,6 +27,34 @@ This project is built entirely using Claude Code multi-agent system.
 - MinIO (local S3-compatible storage)
 - Redis (caching, message broker for local dev)
 
+## Sub-Agent Orchestration Layer (Phase 5)
+The main `AgentLoop` orchestrates work by delegating tasks to sub-agents running in parallel background. Key components:
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| `SubAgentRunner` | `agent/sub_agent_runner.py` | Mini-AgentLoop: reads context from MinIO, calls LLM with `invoke_skill`/`call_mcp_tool`, emits typed events to `AGENT_UPDATES` |
+| `SubAgentPool` | `agent/sub_agent_pool.py` | Bounded pool of `SubAgentRunner` instances (max `GRAPHCLAW_MAX_CONCURRENT_AGENTS`); fan-in via `BatchCoordinator` |
+| `AgentDispatchPlanner` | `agent/dispatch_planner.py` | Topological sort over task `DEPENDS_ON` edges → ordered parallel dispatch tiers |
+| `AgentHealthMonitor` | `agent/health_monitor.py` | Tracks sub-agent heartbeats; marks task BLOCKED + escalates on timeout |
+
+**New broker queues:**
+
+| Queue | Publisher | Consumer |
+|-------|-----------|----------|
+| `agent_jobs` | `AgentLoop._tool_delegate_to_agent()` | `SubAgentPool` |
+| `agent_updates` | `SubAgentRunner` | `AgentEventConsumer._consume_agent_updates_loop()` |
+
+**New config env vars:**
+- `GRAPHCLAW_MAX_CONCURRENT_AGENTS` — max parallel sub-agents (default 4)
+- `GRAPHCLAW_SUBAGENT_WORKER_POOL_SIZE` — dedicated skill worker pool for sub-agents (default 4)
+- `GRAPHCLAW_AGENT_HEARTBEAT_INTERVAL_SECONDS` — heartbeat emit interval (default 60)
+- `GRAPHCLAW_AGENT_HEARTBEAT_TIMEOUT_SECONDS` — timeout before BLOCKED (default 300)
+
+**Design constraints:**
+- Delegation is flat (depth = 2): sub-agents cannot call `delegate_to_agent`
+- Sub-agents use a dedicated `WorkerPool` separate from the orchestrator's pool
+- On heartbeat timeout: mark task BLOCKED + escalate (no retry — prevents duplicate MCP writes)
+
 ## Plugin Architecture (4 layers)
 All four infrastructure layers use ABC + Factory + Strategy pattern so backends are swappable:
 
@@ -64,8 +92,6 @@ To add a new backend: implement the ABC, drop it in the subfolder, register in t
 - Section 33: 58 Design Principles (14 new in v1.1: security, observability, deployment)
 
 ## Current Phase
-Phases 0–3 complete. Phase 4 (Agent Interop, MCP, Connectors & Skill Registry) is in progress. Wave 1 of the cockpit backend API build is active.
+Phases 0–4 complete. Phase 4.5 (Intelligence Layer) complete (1451 tests passing). Phase 5 (Sub-Agent Parallel Orchestration) is active.
 
-**Wave 1 (active):** `api/deps.py` (DI), `api/graph.py` (11 endpoints), `api/scoring.py` (3), `api/state.py` (3), `api/events.py` (1 SSE) — unlocks the core cockpit canvas and task views.
-
-**Remaining waves 2–6:** stub fixes → chat/config/secrets → settings/agent → skills/MCP/agents → admin panel. 118 endpoints total across 22 files. See `build-plan.md` wave table and `docs/cockpit-backend-api-prd.md`.
+**Phase 5 (active):** Sub-agent parallel orchestration. New files: `agent/sub_agent_runner.py`, `agent/sub_agent_pool.py`, `agent/dispatch_planner.py`, `agent/health_monitor.py`. Modified: `agent/loop.py` (`_tool_delegate_to_agent`), `agent/event_consumer.py` (third background task), `infra/broker.py` (new queues), `infra/config.py` (new env vars), `gateway/app.py` (lifespan wiring). See `build-plan.md` Phase 5 section.

@@ -53,7 +53,10 @@ from graphclaw.models.scoring import ActionQueueEntry
 from graphclaw.scoring.engine import ScoringContext, ScoringEngine
 
 if TYPE_CHECKING:
+    from graphclaw.agent.dispatch_planner import AgentDispatchPlanner
+    from graphclaw.agent.sub_agent_pool import SubAgentPool
     from graphclaw.db.base import GraphStore
+    from graphclaw.infra.broker import MessageBroker
     from graphclaw.infra.logger import AsyncLogger
     from graphclaw.infra.storage import StorageClient
     from graphclaw.llm.base import LLMClient
@@ -145,6 +148,9 @@ class AgentLoop:
         skill_registry: SkillRegistryService | None = None,
         worker_pool: WorkerPool | None = None,
         mcp_registry: MCPRegistry | None = None,
+        broker: MessageBroker | None = None,
+        dispatch_planner: AgentDispatchPlanner | None = None,
+        sub_agent_pool: SubAgentPool | None = None,
     ) -> None:
         self._repo = graph_repo
         self._engine = scoring_engine
@@ -156,10 +162,15 @@ class AgentLoop:
         self._skill_registry = skill_registry
         self._worker_pool = worker_pool
         self._mcp_registry = mcp_registry
+        self._broker = broker
+        self._dispatch_planner = dispatch_planner
+        self._sub_agent_pool = sub_agent_pool
         # Cache last action queue so system prompt can include current priorities
         self._last_queue: list[ActionQueueEntry] = []
         # Track current session_id for structured logging
         self._current_session_id: str | None = None
+        # Buffer for delegation calls within a single LLM turn (batch dispatch)
+        self._turn_delegation_calls: list[dict[str, Any]] = []
 
     # ------------------------------------------------------------------
     # Public API
@@ -497,6 +508,13 @@ class AgentLoop:
 
             # If the model wants to call tools, execute them and feed results back
             if response.tool_calls:
+                # Pre-process: if multiple delegate_to_agent calls exist in this turn,
+                # run AgentDispatchPlanner to assign dependency-ordered batch_ids.
+                self._turn_delegation_calls = []
+                await self._pre_plan_delegation_turn(
+                    user_id, session_id or str(uuid.uuid4()), response.tool_calls
+                )
+
                 # Append assistant turn with tool calls
                 messages.append(
                     LLMMessage(
@@ -514,6 +532,8 @@ class AgentLoop:
                             tool_call_id=tc.id,
                         )
                     )
+                # Clear buffered delegation calls after the turn completes
+                self._turn_delegation_calls = []
                 # Continue loop to get final response after tool results
                 continue
 
@@ -750,6 +770,56 @@ class AgentLoop:
                         "reason": {"type": "string", "description": "Reason for the state change."},
                     },
                     "required": ["task_id", "new_state"],
+                },
+            ),
+            ToolDefinition(
+                name="update_task",
+                description=(
+                    "Edit the properties of an existing task — title, description, deadline, "
+                    "or assignee. Use this to reschedule deadlines, rename tasks, or reassign "
+                    "ownership. To change task *state* use update_task_state instead."
+                ),
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "task_id": {"type": "string", "description": "Task node ID."},
+                        "title": {"type": "string", "description": "New task title."},
+                        "description": {"type": "string", "description": "New task description."},
+                        "deadline": {
+                            "type": "string",
+                            "description": "New deadline as an ISO 8601 date string (e.g. '2026-04-23' or '2026-04-23T00:00:00Z').",
+                        },
+                        "assigned_to": {
+                            "type": "string",
+                            "description": "User ID or contact reference to assign the task to.",
+                        },
+                    },
+                    "required": ["task_id"],
+                },
+            ),
+            ToolDefinition(
+                name="update_goal",
+                description=(
+                    "Edit the properties of an existing goal — title, description, deadline, "
+                    "or priority. Use this to reschedule goal target dates or change priority."
+                ),
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "goal_id": {"type": "string", "description": "Goal node ID."},
+                        "title": {"type": "string", "description": "New goal title."},
+                        "description": {"type": "string", "description": "New goal description."},
+                        "deadline": {
+                            "type": "string",
+                            "description": "New target date as an ISO 8601 date string (e.g. '2026-04-23').",
+                        },
+                        "priority": {
+                            "type": "string",
+                            "enum": ["P1", "P2", "P3", "P4"],
+                            "description": "New priority (P1=highest).",
+                        },
+                    },
+                    "required": ["goal_id"],
                 },
             ),
             ToolDefinition(
@@ -1000,6 +1070,10 @@ class AgentLoop:
                 result = await self._tool_create_task(user_id, arguments)
             elif name == "update_task_state":
                 result = await self._tool_update_task_state(user_id, arguments)
+            elif name == "update_task":
+                result = await self._tool_update_task(user_id, arguments)
+            elif name == "update_goal":
+                result = await self._tool_update_goal(user_id, arguments)
             elif name == "get_task_details":
                 result = await self._tool_get_task_details(arguments)
             elif name == "check_inbox":
@@ -1213,6 +1287,119 @@ class AgentLoop:
             "status": "updated",
         }
 
+    async def _tool_update_task(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
+        import datetime as _dt
+        import json as _json
+
+        task_id = args.get("task_id")
+        if not task_id:
+            return {"error": "task_id is required"}
+
+        props = await self._repo.get_node(task_id)
+        if not props:
+            return {"error": f"Task {task_id} not found"}
+
+        updates: dict[str, Any] = {"updated_at": _dt.datetime.now(_dt.timezone.utc).isoformat()}
+
+        if "title" in args:
+            updates["title"] = args["title"]
+        if "description" in args:
+            updates["description"] = args["description"]
+        if "assigned_to" in args:
+            updates["assigned_to"] = args["assigned_to"]
+
+        if "deadline" in args:
+            # Read current timeline dict, merge deadline, write back
+            raw_timeline = props.get("timeline", {})
+            if isinstance(raw_timeline, str):
+                try:
+                    timeline = _json.loads(raw_timeline)
+                except Exception:
+                    timeline = {}
+            elif isinstance(raw_timeline, dict):
+                timeline = dict(raw_timeline)
+            else:
+                timeline = {}
+
+            try:
+                deadline_dt = _dt.datetime.fromisoformat(args["deadline"])
+                if deadline_dt.tzinfo is None:
+                    deadline_dt = deadline_dt.replace(tzinfo=_dt.timezone.utc)
+            except ValueError:
+                return {
+                    "error": f"Invalid deadline format: {args['deadline']!r}. Use ISO 8601 (e.g. '2026-04-23')."
+                }
+
+            timeline["deadline"] = deadline_dt.isoformat()
+            updates["timeline"] = timeline
+
+        if len(updates) == 1:  # only updated_at — nothing to do
+            return {
+                "task_id": task_id,
+                "status": "no_changes",
+                "message": "No fields to update were provided.",
+            }
+
+        await self._repo.update_node(task_id, updates)
+        changed = [k for k in updates if k != "updated_at"]
+        return {"task_id": task_id, "status": "updated", "fields_updated": changed}
+
+    async def _tool_update_goal(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
+        import datetime as _dt
+        import json as _json
+
+        goal_id = args.get("goal_id")
+        if not goal_id:
+            return {"error": "goal_id is required"}
+
+        props = await self._repo.get_node(goal_id)
+        if not props:
+            return {"error": f"Goal {goal_id} not found"}
+
+        updates: dict[str, Any] = {"updated_at": _dt.datetime.now(_dt.timezone.utc).isoformat()}
+
+        if "title" in args:
+            updates["title"] = args["title"]
+        if "description" in args:
+            updates["description"] = args["description"]
+        if "priority" in args:
+            updates["priority"] = args["priority"]
+
+        if "deadline" in args:
+            raw_timeline = props.get("timeline", {})
+            if isinstance(raw_timeline, str):
+                try:
+                    timeline = _json.loads(raw_timeline)
+                except Exception:
+                    timeline = {}
+            elif isinstance(raw_timeline, dict):
+                timeline = dict(raw_timeline)
+            else:
+                timeline = {}
+
+            try:
+                deadline_dt = _dt.datetime.fromisoformat(args["deadline"])
+                if deadline_dt.tzinfo is None:
+                    deadline_dt = deadline_dt.replace(tzinfo=_dt.timezone.utc)
+            except ValueError:
+                return {
+                    "error": f"Invalid deadline format: {args['deadline']!r}. Use ISO 8601 (e.g. '2026-04-23')."
+                }
+
+            timeline["target_date"] = deadline_dt.isoformat()
+            updates["timeline"] = timeline
+
+        if len(updates) == 1:
+            return {
+                "goal_id": goal_id,
+                "status": "no_changes",
+                "message": "No fields to update were provided.",
+            }
+
+        await self._repo.update_node(goal_id, updates)
+        changed = [k for k in updates if k != "updated_at"]
+        return {"goal_id": goal_id, "status": "updated", "fields_updated": changed}
+
     async def _tool_get_task_details(self, args: dict[str, Any]) -> dict[str, Any]:
         task_id = args["task_id"]
         props = await self._repo.get_node(task_id)
@@ -1223,7 +1410,7 @@ class AgentLoop:
     async def _tool_check_inbox(self, user_id: str, args: dict) -> str:
         """Read recent compact inbox entries from MinIO inbox/recent/ prefix."""
         if self._storage is None:
-            return json.dumps({"error": "storage not configured"})
+            return json.dumps({"messages": [], "note": "Inbox storage not configured."})
 
         limit = min(int(args.get("limit", 5)), 20)
         from_sender = args.get("from_sender", "").lower().strip()
@@ -1235,8 +1422,9 @@ class AgentLoop:
 
         try:
             keys = await self._storage.list_objects(prefix)  # returns list of object keys
-        except Exception:
-            return json.dumps({"error": "could not list inbox"})
+        except Exception as exc:
+            logger.warning("AgentLoop: check_inbox list failed: %s", exc)
+            return json.dumps({"messages": [], "note": "Inbox unavailable."})
 
         # Sort keys (ISO-prefixed, so alphabetical = chronological)
         keys = sorted(keys, reverse=True)  # newest first
@@ -1477,7 +1665,7 @@ class AgentLoop:
     ) -> dict[str, Any]:
         """List skills available to the user."""
         if self._skill_registry is None:
-            return {"error": "Skill registry not configured.", "skills": []}
+            return {"skills": [], "count": 0, "note": "Skill registry not configured."}
 
         query = args.get("query", "")
         try:
@@ -1498,7 +1686,10 @@ class AgentLoop:
             return {"skills": skills, "count": len(skills)}
         except Exception as exc:
             logger.warning("AgentLoop: list_available_skills failed: %s", exc)
-            return {"error": str(exc), "skills": []}
+            # Return an empty list rather than an error string so Betty does not
+            # surface infrastructure details (missing credentials, unreachable
+            # storage) to the user.
+            return {"skills": [], "count": 0, "note": "Skill registry unavailable."}
 
     async def _tool_invoke_skill(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
         """Execute a skill via the worker pool."""
@@ -1575,12 +1766,13 @@ class AgentLoop:
     async def _tool_list_mcp_tools(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
         """List MCP servers and their tools for the user."""
         if self._mcp_registry is None:
-            return {"error": "MCP registry not configured.", "servers": []}
+            return {"servers": [], "count": 0, "note": "MCP registry not configured."}
 
         try:
             servers = await self._mcp_registry.list_for_user(user_id, enabled_only=True)
         except Exception as exc:
-            return {"error": f"Could not list MCP servers: {exc}", "servers": []}
+            logger.warning("AgentLoop: list_mcp_tools failed: %s", exc)
+            return {"servers": [], "count": 0, "note": "MCP registry unavailable."}
 
         server_filter = args.get("server_id")
         if server_filter:
@@ -1613,9 +1805,9 @@ class AgentLoop:
         tool_name = args["tool_name"]
         arguments = args.get("arguments", {})
 
-        # Look up the server
+        # Look up the server config from storage
         try:
-            server = await self._mcp_registry.get(server_id)
+            server = await self._mcp_registry.get(user_id, server_id)
         except Exception as exc:
             return {"error": f"Could not look up MCP server '{server_id}': {exc}"}
 
@@ -1626,6 +1818,8 @@ class AgentLoop:
         from graphclaw.mcp.client import MCPClient
 
         client = MCPClient()
+        success = False
+        latency_ms = 0
         try:
             await client.connect(server)
             result = await client.call_tool(
@@ -1635,6 +1829,8 @@ class AgentLoop:
                 user_id=user_id,
                 server_id=server_id,
             )
+            success = result.success
+            latency_ms = result.latency_ms
             return {
                 "success": result.success,
                 "content": result.content[:3000] if result.content else "",
@@ -1647,10 +1843,102 @@ class AgentLoop:
             return {"error": f"MCP tool call failed: {exc}"}
         finally:
             await client.disconnect()
+            # Audit log every MCP tool call — success or failure
+            if self._logger:
+                self._logger.log(
+                    "INFO",
+                    "mcp.tool_call",
+                    session_id=self._current_session_id or "",
+                    user_id=user_id,
+                    server_id=server_id,
+                    server_name=server.name,
+                    tool_name=tool_name,
+                    success=success,
+                    latency_ms=latency_ms,
+                )
+            # Stamp last_used_at on the server config (best-effort)
+            try:
+                await self._mcp_registry.update_last_used(user_id, server_id)
+            except Exception:
+                pass
 
     # ------------------------------------------------------------------
     # Agent delegation tools
     # ------------------------------------------------------------------
+
+    async def _pre_plan_delegation_turn(
+        self,
+        user_id: str,
+        session_id: str,
+        tool_calls: list[Any],
+    ) -> None:
+        """Pre-compute dispatch tiers for multiple delegate_to_agent calls in one LLM turn.
+
+        If two or more ``delegate_to_agent`` tool calls appear in the same turn and
+        ``dispatch_planner`` + ``sub_agent_pool`` are configured, this method:
+        1. Builds ``AgentJobEvent`` stubs for each delegation call.
+        2. Runs ``AgentDispatchPlanner.plan()`` to obtain dependency-ordered tiers.
+        3. Calls ``sub_agent_pool.register_dispatch_plan()`` so ``BatchCoordinator``
+           knows which tier to dispatch next.
+        4. Stores the computed ``batch_id`` per ``task_id`` in
+           ``self._turn_delegation_calls`` so ``_tool_delegate_to_agent()`` picks
+           them up when it publishes jobs to ``AGENT_JOBS``.
+
+        If fewer than 2 delegation calls exist, or planner/pool are not configured,
+        this method is a no-op — jobs default to a single tier (all parallel).
+        """
+        delegation_calls = [tc for tc in tool_calls if tc.name == "delegate_to_agent"]
+        if not delegation_calls:
+            return
+
+        if self._dispatch_planner is None or self._sub_agent_pool is None:
+            # No planner — all jobs get the same flat batch_id (parallel)
+            flat_batch_id = f"batch-{session_id[:8]}-t0"
+            self._turn_delegation_calls = [
+                {"task_id": tc.arguments.get("task_id", ""), "batch_id": flat_batch_id}
+                for tc in delegation_calls
+            ]
+            return
+
+        # Build job stubs for the planner
+        from graphclaw.agent.sub_agent_runner import AgentJobEvent
+
+        job_stubs = [
+            AgentJobEvent(
+                agent_id=tc.arguments.get("agent_id", ""),
+                task_id=tc.arguments.get("task_id", ""),
+                session_id=session_id,
+                parent_task_id=None,
+                batch_id="",
+                instructions=tc.arguments.get("instructions", ""),
+            )
+            for tc in delegation_calls
+        ]
+
+        tiers = await self._dispatch_planner.plan(job_stubs, session_id)
+        self._sub_agent_pool.register_dispatch_plan(tiers, session_id)
+
+        # Build task_id → batch_id lookup from the planned tiers
+        batch_lookup: dict[str, str] = {}
+        for tier in tiers:
+            for job in tier:
+                batch_lookup[job.task_id] = job.batch_id
+
+        self._turn_delegation_calls = [
+            {
+                "task_id": tc.arguments.get("task_id", ""),
+                "batch_id": batch_lookup.get(
+                    tc.arguments.get("task_id", ""), f"batch-{session_id[:8]}-t0"
+                ),
+            }
+            for tc in delegation_calls
+        ]
+        logger.info(
+            "AgentLoop: dispatch plan computed — %d tiers for %d jobs (session=%s)",
+            len(tiers),
+            len(job_stubs),
+            session_id,
+        )
 
     async def _tool_delegate_to_agent(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
         """Delegate a task to an existing agent."""
@@ -1699,7 +1987,18 @@ class AgentLoop:
             },
         )
 
-        # Write delegation context to agent's working memory
+        # Resolve batch_id from pre-planned dispatch tiers (if available)
+        batch_id = next(
+            (
+                entry["batch_id"]
+                for entry in self._turn_delegation_calls
+                if entry["task_id"] == task_id
+            ),
+            f"batch-{(self._current_session_id or uuid.uuid4().hex)[:8]}-t0",
+        )
+
+        # Write delegation context to agent's working memory (includes session propagation)
+        session_id = self._current_session_id or ""
         if self._storage:
             from graphclaw.infra.storage import StoragePaths
 
@@ -1711,18 +2010,50 @@ class AgentLoop:
                 f"- **Instructions:** {instructions}\n"
                 f"- **Delegated at:** {now.isoformat()}\n"
                 f"- **Delegated by:** orchestrator ({self._agent_id})\n"
+                f"- **Session:** {session_id}\n"
+                f"- **Batch:** {batch_id}\n"
             )
             try:
                 await self._storage.write(context_path, delegation_ctx.encode())
             except Exception as exc:
                 logger.debug("AgentLoop: could not write delegation context: %s", exc)
 
+        # Publish AgentJobEvent to AGENT_JOBS so SubAgentPool picks it up
+        if self._broker is not None:
+            from graphclaw.agent.sub_agent_runner import AgentJobEvent
+            from graphclaw.infra.broker import AGENT_JOBS
+
+            job = AgentJobEvent(
+                agent_id=agent_id,
+                task_id=task_id,
+                session_id=session_id,
+                parent_task_id=task_props.get("parent_task_id"),
+                batch_id=batch_id,
+                instructions=instructions,
+            )
+            try:
+                await self._broker.publish(AGENT_JOBS, job.model_dump_json())
+                logger.info(
+                    "AgentLoop: published AgentJobEvent agent=%s task=%s batch=%s",
+                    agent_id,
+                    task_id,
+                    batch_id,
+                )
+            except Exception as exc:
+                logger.warning("AgentLoop: failed to publish AgentJobEvent: %s", exc)
+        else:
+            logger.warning(
+                "AgentLoop: broker not configured — delegation to agent '%s' is fire-and-forget",
+                agent_id,
+            )
+
         return {
             "status": "delegated",
             "task_id": task_id,
             "agent_id": agent_id,
             "task_state": "IN_PROGRESS",
-            "message": f"Task delegated to agent '{agent_id}'.",
+            "batch_id": batch_id,
+            "message": f"Task delegated to agent '{agent_id}' (batch: {batch_id}).",
         }
 
     async def _tool_create_agent(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:

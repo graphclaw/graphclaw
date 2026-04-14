@@ -45,6 +45,48 @@ class MessageBroker(ABC):
 | `skill_jobs` | Agent Runtime | Skill Worker Pool | SkillJob JSON |
 | `status_updates` | Skill Workers | Agent Runtime | StatusUpdate JSON |
 | `outbound_messages` | Agent Runtime | Channel Gateway | OutboundMessage JSON |
+| `agent_jobs` | `AgentLoop._tool_delegate_to_agent()` | `SubAgentPool` | AgentJobEvent JSON |
+| `agent_updates` | `SubAgentRunner` | `AgentEventConsumer._consume_agent_updates_loop()` | AgentUpdateEvent JSON |
+
+> **`agent_jobs` vs `skill_jobs`:** `skill_jobs` carries short-lived skill calls (< 30s) to `SkillWorker`. `agent_jobs` carries long-running autonomous delegations to `SubAgentRunner` — full multi-step LLM loops.
+>
+> **`agent_updates` vs `status_updates`:** `status_updates` carries task state changes inferred from inbound user messages via NLP. `agent_updates` carries privileged typed machine-to-machine events from sub-agents — no NLP parsing needed.
+
+## AgentJobEvent Payload
+
+```python
+class AgentJobEvent(BaseModel):
+    agent_id: str
+    task_id: str
+    session_id: str
+    parent_task_id: str | None
+    batch_id: str           # groups tasks in one dispatch tier
+    instructions: str       # delegation context summary
+    dispatched_at: datetime
+```
+
+## AgentUpdateEvent Payload
+
+```python
+class AgentUpdateEventType(str, Enum):
+    STARTED = "started"
+    PROGRESS = "progress"
+    HEARTBEAT = "heartbeat"
+    COMPLETED = "completed"
+    BLOCKED = "blocked"
+
+class AgentUpdateEvent(BaseModel):
+    event_type: AgentUpdateEventType
+    agent_id: str
+    task_id: str
+    session_id: str
+    parent_task_id: str | None
+    batch_id: str
+    message: str | None       # progress notes or block reason
+    status: str | None        # COMPLETED/FAILED/TIMED_OUT (completed events)
+    duration_ms: int | None   # completed events only
+    emitted_at: datetime
+```
 
 ## Redis Implementation (Local Dev)
 

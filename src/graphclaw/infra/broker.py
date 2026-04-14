@@ -27,6 +27,8 @@ Public API
 - SKILL_JOBS: Queue name for skill execution jobs.
 - STATUS_UPDATES: Queue name for task status change events.
 - OUTBOUND_MESSAGES: Queue name for outbound channel messages.
+- AGENT_JOBS: Queue name for sub-agent delegation jobs.
+- AGENT_UPDATES: Queue name for typed sub-agent progress/completion events.
 
 Dependencies
 ------------
@@ -57,6 +59,9 @@ TRIGGER_EVENTS: str = "trigger_events"
 SKILL_JOBS: str = "skill_jobs"
 STATUS_UPDATES: str = "status_updates"
 OUTBOUND_MESSAGES: str = "outbound_messages"
+# Phase 5 — Sub-agent orchestration queues
+AGENT_JOBS: str = "agent_jobs"
+AGENT_UPDATES: str = "agent_updates"
 
 
 class MessageBroker(ABC):
