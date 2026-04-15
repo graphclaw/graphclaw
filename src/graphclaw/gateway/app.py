@@ -752,3 +752,7 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
         return {"status": "ok"}
 
     return app
+
+
+# Module-level ASGI app instance for uvicorn (Dockerfile CMD: uvicorn graphclaw.gateway.app:app)
+app = create_app()
