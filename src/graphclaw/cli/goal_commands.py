@@ -27,8 +27,6 @@ Dependencies
 
 from __future__ import annotations
 
-import asyncio
-
 import typer
 from rich.console import Console
 

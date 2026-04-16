@@ -17,7 +17,7 @@ from graphclaw.mcp.registry import MCPRegistry
 from graphclaw.models.base import utcnow
 from graphclaw.models.enums import MCPTransport, TrustTier
 from graphclaw.models.nodes import MCPServerNode
-from tests.test_api.conftest import FakeGraphStore
+from tests.test_api.conftest import FakeGraphStore, FakeStorageClient
 
 _TEST_USER = "USER-test-mcp-ext-001"
 
@@ -27,8 +27,10 @@ _TEST_USER = "USER-test-mcp-ext-001"
 # ---------------------------------------------------------------------------
 
 
-def _make_app() -> tuple[FastAPI, FakeGraphStore]:
+def _make_app() -> tuple[FastAPI, FakeGraphStore, MCPRegistry]:
     fake_store = FakeGraphStore()
+    fake_storage = FakeStorageClient()
+    registry = MCPRegistry(storage_client=fake_storage)
 
     app = FastAPI()
     app.include_router(app_router)
@@ -37,7 +39,7 @@ def _make_app() -> tuple[FastAPI, FakeGraphStore]:
         return _TEST_USER
 
     async def _fake_mcp_registry() -> MCPRegistry:
-        return MCPRegistry(graph_store=fake_store)
+        return registry
 
     async def _fake_store() -> FakeGraphStore:
         return fake_store
@@ -45,11 +47,11 @@ def _make_app() -> tuple[FastAPI, FakeGraphStore]:
     app.dependency_overrides[require_auth] = _fake_auth
     app.dependency_overrides[get_mcp_registry] = _fake_mcp_registry
     app.dependency_overrides[get_graph_store] = _fake_store
-    return app, fake_store
+    return app, fake_store, registry
 
 
-async def _seed_server(store: FakeGraphStore, server_id: str) -> MCPServerNode:
-    """Create and register an MCPServerNode in the fake store."""
+async def _seed_server(registry: MCPRegistry, server_id: str) -> MCPServerNode:
+    """Register an MCPServerNode into the fake registry (storage-backed)."""
     now = utcnow()
     node = MCPServerNode(
         id=server_id,
@@ -63,13 +65,7 @@ async def _seed_server(store: FakeGraphStore, server_id: str) -> MCPServerNode:
         updated_at=now,
         version=0,
     )
-    await store.create_node(node)
-    # Add a GRANTS_ACCESS_TO_MCP edge so list_for_user() works
-    await store.create_edge(
-        source_id=_TEST_USER,
-        target_id=server_id,
-        edge_type="GRANTS_ACCESS_TO_MCP",
-    )
+    await registry.register(_TEST_USER, node)
     return node
 
 
@@ -80,7 +76,7 @@ async def _seed_server(store: FakeGraphStore, server_id: str) -> MCPServerNode:
 
 def test_list_tools_not_found_returns_404() -> None:
     """GET /mcp-servers/{id}/tools returns 404 for unknown server."""
-    app, _ = _make_app()
+    app, _, _reg = _make_app()
     client = TestClient(app)
     response = client.get("/app/v1/mcp-servers/MCP-nonexistent/tools")
     assert response.status_code == 404
@@ -90,10 +86,10 @@ def test_list_tools_unreachable_server_returns_empty() -> None:
     """GET /mcp-servers/{id}/tools returns [] when server is unreachable."""
     import asyncio
 
-    app, store = _make_app()
+    app, _, registry = _make_app()
 
-    # Seed the server
-    asyncio.get_event_loop().run_until_complete(_seed_server(store, "MCP-testtools001"))
+    # Seed the server into the registry (storage-backed)
+    asyncio.get_event_loop().run_until_complete(_seed_server(registry, "MCP-testtools001"))
     client = TestClient(app)
     # The server at localhost:9999 won't be reachable — should degrade to []
     response = client.get("/app/v1/mcp-servers/MCP-testtools001/tools")
@@ -108,7 +104,7 @@ def test_list_tools_unreachable_server_returns_empty() -> None:
 
 def test_list_mcp_approvals_empty_returns_list() -> None:
     """GET /mcp-approvals returns [] when no approvals are pending."""
-    app, _ = _make_app()
+    app, _, _reg = _make_app()
     client = TestClient(app)
     response = client.get("/app/v1/mcp-approvals")
     assert response.status_code == 200
@@ -118,7 +114,7 @@ def test_list_mcp_approvals_empty_returns_list() -> None:
 def test_list_mcp_approvals_returns_pending_tasks() -> None:
     """GET /mcp-approvals returns pending APPROVAL tasks for the user."""
 
-    app, store = _make_app()
+    app, store, _reg = _make_app()
 
     # Seed an APPROVAL task
     now = utcnow()

@@ -51,16 +51,30 @@ Dependencies
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
+from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel
 
 from graphclaw.api.deps import CurrentUserDep, GraphStoreDep, QueryEngineDep
+from graphclaw.models.base import generate_task_id, utcnow
 from graphclaw.models.enums import TaskState, TaskType
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_edge(e: dict) -> dict:
+    """Ensure edge dicts have canonical source_id/target_id/edge_type/id fields."""
+    result = {k: v for k, v in e.items() if not k.startswith("_")}
+    result.setdefault("source_id", e.get("_start_id", ""))
+    result.setdefault("target_id", e.get("_end_id", ""))
+    result.setdefault("edge_type", e.get("_label", e.get("type", "")))
+    result.setdefault("id", e.get("edge_id", ""))
+    result.setdefault("edge_id", result["id"])
+    return result
 
 router = APIRouter(prefix="/graph", tags=["graph"])
 
@@ -164,7 +178,11 @@ async def list_goals(
     if state:
         filters["state"] = state
 
-    nodes = await graph_store.list_nodes("Goal", filters)
+    # Goals are COMPOSITE TaskNodes — query TaskNode label with task_type filter.
+    filters["task_type"] = "COMPOSITE"
+    nodes = await graph_store.list_nodes("TaskNode", filters)
+    # Sort newest first so freshly created goals appear at the top of the list.
+    nodes.sort(key=lambda n: n.get("created_at") or "", reverse=True)
     # Simple cursor: treat cursor as an offset index encoded as a string int.
     start = int(cursor) if cursor and cursor.isdigit() else 0
     page = nodes[start : start + limit]
@@ -199,7 +217,7 @@ async def get_goal_tree(
 
     # Gather tasks belonging to this goal
     task_filters: dict[str, Any] = {"parent_goal_id": goal_id}
-    tasks = await graph_store.list_nodes("Task", task_filters)
+    tasks = await graph_store.list_nodes("TaskNode", task_filters)
 
     # Collect all edges incident to goal + each task
     all_node_ids = [goal_id] + [t["id"] for t in tasks if "id" in t]
@@ -257,7 +275,9 @@ async def list_tasks(
     if task_type:
         filters["task_type"] = task_type
 
-    nodes = await graph_store.list_nodes("Task", filters)
+    nodes = await graph_store.list_nodes("TaskNode", filters)
+    # Sort newest first so freshly created tasks appear at the top of the list.
+    nodes.sort(key=lambda n: n.get("created_at") or "", reverse=True)
     start = int(cursor) if cursor and cursor.isdigit() else 0
     page = nodes[start : start + limit]
     next_cursor = str(start + limit) if start + limit < len(nodes) else None
@@ -290,7 +310,14 @@ async def get_task(
     edges = out_edges + in_edges
 
     # Extract the scoring block that is already embedded in the task node.
-    score = task.get("scoring") or task.get("score_block")
+    score_raw = task.get("scoring") or task.get("score_block")
+    if isinstance(score_raw, str):
+        try:
+            score: dict | None = json.loads(score_raw)
+        except (json.JSONDecodeError, ValueError):
+            score = None
+    else:
+        score = score_raw
 
     return TaskDetailResponse(task=task, score=score, edges=edges)
 
@@ -309,8 +336,6 @@ async def create_task(
 ) -> dict[str, Any]:
     """Create a new TaskNode."""
 
-    import uuid
-
     from graphclaw.models.nodes import TaskNode
 
     # Map string task_type to enum; raise 422 if unknown.
@@ -323,15 +348,13 @@ async def create_task(
             detail=f"Invalid task_type '{body.task_type}'. Valid values: {valid}",
         )
 
-    # Build a stable ID in the format expected by TASK_ID_PATTERN.
-    # Pattern: TSK-<INITIALS>-<SEQ>-<TYPE_CODE>
-    # For API-created tasks we use "API" initials and a UUID fragment.
-    seq = uuid.uuid4().hex[:6].upper()
-    type_code = ttype.value[:3].upper()
-    task_id = f"TSK-API-{seq}-{type_code}"
+    # Generate a valid task ID using the canonical generator (TSK-API-NNNN-XXX).
+    task_id = generate_task_id("API", ttype)
 
     node = TaskNode(
         id=task_id,
+        created_at=utcnow(),
+        updated_at=utcnow(),
         task_type=ttype,
         title=body.title,
         description=body.description,
@@ -461,24 +484,26 @@ async def list_edges(
     direction = "out" if source_id else ("in" if target_id else "out")
 
     if anchor_id:
-        edges = await graph_store.get_edges(anchor_id, direction=direction, edge_type=edge_type)
+        raw_edges = await graph_store.get_edges(anchor_id, direction=direction, edge_type=edge_type)
     else:
         # No anchor — return edges incident to any task owned by this user.
-        tasks = await graph_store.list_nodes("Task", {"owned_by": user_id})
+        tasks = await graph_store.list_nodes("TaskNode", {"owned_by": user_id})
         seen: set[str] = set()
-        edges = []
+        raw_edges = []
         for task in tasks[:20]:  # Cap at 20 tasks to avoid N+1 explosion
             tid = task.get("id", "")
             if not tid:
                 continue
             for e in await graph_store.get_edges(tid, direction="out"):
-                eid = e.get("id") or str(e)
+                eid = e.get("id") or e.get("edge_id") or str(e)
                 if eid not in seen:
                     seen.add(eid)
-                    edges.append(e)
+                    raw_edges.append(e)
+
+    edges = [_normalize_edge(e) for e in raw_edges]
 
     if edge_type:
-        edges = [e for e in edges if e.get("edge_type") == edge_type or e.get("type") == edge_type]
+        edges = [e for e in edges if e.get("edge_type") == edge_type]
 
     start = int(cursor) if cursor and cursor.isdigit() else 0
     page = edges[start : start + limit]
@@ -514,12 +539,30 @@ async def create_edge(
             detail=f"Target node '{body.target_id}' not found",
         )
 
+    edge_id = f"EDGE-{uuid4().hex[:12]}"
+    metadata = dict(body.metadata or {})
+    metadata.update({
+        "id": edge_id,
+        "edge_id": edge_id,
+        "source_id": body.source_id,
+        "target_id": body.target_id,
+        "edge_type": body.edge_type,
+    })
+
     edge = await graph_store.create_edge(
         body.source_id,
         body.target_id,
         body.edge_type,
-        body.metadata or None,
+        metadata,
     )
+    # Ensure the response always contains useful identity fields
+    response = _normalize_edge(edge)
+    if not response.get("id"):
+        response["id"] = edge_id
+        response["edge_id"] = edge_id
+        response["source_id"] = body.source_id
+        response["target_id"] = body.target_id
+        response["edge_type"] = body.edge_type
     logger.info(
         "graph: created edge %s->%s type=%s user_id=%s",
         body.source_id,
@@ -527,7 +570,7 @@ async def create_edge(
         body.edge_type,
         user_id,
     )
-    return edge
+    return response
 
 
 @router.delete(
@@ -542,5 +585,14 @@ async def delete_edge(
     graph_store: GraphStoreDep,
 ) -> None:
     """Delete the edge with the given *edge_id*."""
-    await graph_store.delete_edge(edge_id)
+    # edge_id is a string property (e.g. EDGE-abc123), not the AGE internal int id
+    if hasattr(graph_store, "delete_edge_by_property"):
+        await graph_store.delete_edge_by_property("id", edge_id)
+    else:
+        # Fallback: use the repository's delete_edge expecting a numeric id
+        # (works if edge_id is numeric, otherwise silently no-ops)
+        try:
+            await graph_store.delete_edge(edge_id)
+        except (ValueError, Exception):
+            pass
     logger.info("graph: deleted edge %s by user_id=%s", edge_id, user_id)

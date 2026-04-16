@@ -56,6 +56,7 @@ os.environ.setdefault("AWS_SECRET_ACCESS_KEY", os.environ.get("MINIO_PASSWORD", 
 # Database setup
 # ---------------------------------------------------------------------------
 
+
 async def provision_user(pool) -> str:
     """Create or fetch the test UserNode. Returns user_id."""
     from graphclaw.db.factory import create_graph_store
@@ -123,6 +124,7 @@ async def provision_user(pool) -> str:
 # ---------------------------------------------------------------------------
 # MinIO / Storage setup
 # ---------------------------------------------------------------------------
+
 
 async def write_agent_to_storage(user_id: str) -> None:
     """Write betty's profile.md, config.json, and seed memory to MinIO."""
@@ -234,21 +236,24 @@ Agent {AGENT_NAME.title()} initialised for {TEST_USER_NAME} ({TEST_USER_EMAIL}).
         hour, minute = map(int, time_str.split(":"))
         trigger_id = f"briefing-{user_id}-{hour:02d}{minute:02d}"
         from datetime import timedelta
+
         now = datetime.now(timezone.utc)
         next_fire = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
         if next_fire <= now:
             next_fire = next_fire + timedelta(days=1)
 
-        triggers.append({
-            "trigger_id": trigger_id,
-            "trigger_type": "TIME_BASED",
-            "user_id": user_id,
-            "enabled": True,
-            "cron_expression": f"{minute} {hour} * * *",
-            "next_fire_at": next_fire.isoformat(),
-            "last_fired_at": None,
-            "payload_template": {"agent_id": AGENT_ID, "briefing": True},
-        })
+        triggers.append(
+            {
+                "trigger_id": trigger_id,
+                "trigger_type": "TIME_BASED",
+                "user_id": user_id,
+                "enabled": True,
+                "cron_expression": f"{minute} {hour} * * *",
+                "next_fire_at": next_fire.isoformat(),
+                "last_fired_at": None,
+                "payload_template": {"agent_id": AGENT_ID, "briefing": True},
+            }
+        )
 
     triggers_path = f"{user_id}/agents/{AGENT_ID}/triggers.json"
     await storage.write(
@@ -260,8 +265,89 @@ Agent {AGENT_NAME.title()} initialised for {TEST_USER_NAME} ({TEST_USER_EMAIL}).
 
 
 # ---------------------------------------------------------------------------
+# Skill seeding
+# ---------------------------------------------------------------------------
+
+
+async def seed_skills(user_id: str, storage) -> None:
+    """Install the work-breakdown-agent skill from the built-in local source."""
+    from graphclaw.skills.registry import SkillRegistryService
+    from graphclaw.skills.registry_models import SkillSource, SkillSourceType
+
+    registry = SkillRegistryService(storage_client=storage)
+
+    # Add the local built-in source (idempotent — replace if already present)
+    local_source = SkillSource(
+        source_type=SkillSourceType.LOCAL,
+        uri="local://definitions",
+        name="GraphClaw Built-in Skills",
+    )
+    try:
+        listings = await registry.add_source(user_id, local_source)
+        logger.info("Local skill source registered (%d listings)", len(listings))
+    except Exception as exc:
+        logger.warning("Could not add local source: %s", exc)
+        return
+
+    # Install the work-breakdown-agent if not already installed
+    installed = await registry.list_installed(user_id)
+    installed_names = {sk.name for sk in installed}
+    skill_name = "work-breakdown-agent"
+    if skill_name in installed_names:
+        logger.info("Skill already installed: %s", skill_name)
+        return
+
+    try:
+        sk = await registry.install(user_id, skill_name, "local://definitions")
+        logger.info("Installed skill: %s (id=%s)", sk.name, sk.skill_id)
+    except Exception as exc:
+        logger.warning("Could not install skill %s: %s", skill_name, exc)
+
+
+# ---------------------------------------------------------------------------
+# MCP server seeding
+# ---------------------------------------------------------------------------
+
+
+async def seed_mcp_servers(user_id: str, storage) -> None:
+    """Register a dev GitHub MCP server config for the test user (idempotent).
+
+    Config is written as JSON to MinIO at:
+      {user_id}/mcp/servers/MCP-github-dev-001.json
+    """
+    from graphclaw.mcp.registry import MCPRegistry
+    from graphclaw.models.enums import MCPTransport, TrustTier
+    from graphclaw.models.nodes import MCPServerNode
+
+    registry = MCPRegistry(storage_client=storage)
+    server_id = "MCP-github-dev-001"
+
+    # Idempotent — skip if already written
+    existing = await registry.get(user_id, server_id)
+    if existing is not None:
+        logger.info("MCP server already registered: %s", server_id)
+        return
+
+    node = MCPServerNode(
+        id=server_id,
+        name="GitHub (dev)",
+        transport=MCPTransport.HTTP,
+        endpoint_url="http://localhost:3100",  # local dev stub — not required to be live
+        trust_tier=TrustTier.GATED,
+        scope=["repos:read", "issues:read", "issues:write", "pulls:read"],
+        enabled=True,
+    )
+    try:
+        await registry.register(user_id, node)
+        logger.info("Registered MCP server: %s (trust=%s)", server_id, node.trust_tier.value)
+    except Exception as exc:
+        logger.warning("Could not register MCP server: %s", exc)
+
+
+# ---------------------------------------------------------------------------
 # Send welcome message
 # ---------------------------------------------------------------------------
+
 
 async def send_welcome(user_id: str) -> None:
     """Send welcome email to the test user. Telegram welcome requires chat_id."""
@@ -300,8 +386,11 @@ What would you like to work on first?
 # Main
 # ---------------------------------------------------------------------------
 
+
 async def main() -> None:
-    database_url = os.environ.get("DATABASE_URL", "postgresql://graphclaw:graphclaw@localhost:5432/graphclaw")
+    database_url = os.environ.get(
+        "DATABASE_URL", "postgresql://graphclaw:graphclaw@localhost:5432/graphclaw"
+    )
 
     logger.info("=== GraphClaw Test User Setup ===")
     logger.info("User: %s (%s)", TEST_USER_NAME, TEST_USER_EMAIL)
@@ -319,10 +408,21 @@ async def main() -> None:
     # 2. Write agent files to MinIO
     await write_agent_to_storage(user_id)
 
-    # 3. Send welcome email
+    # 3. Seed built-in skill + dev MCP server
+    from graphclaw.infra.storage import S3StorageClient
+
+    storage = S3StorageClient(
+        bucket=os.environ["STORAGE_BUCKET"],
+        endpoint_url=os.environ.get("STORAGE_ENDPOINT_URL"),
+        region=os.environ.get("STORAGE_REGION", "us-east-1"),
+    )
+    await seed_skills(user_id, storage)
+    await seed_mcp_servers(user_id, storage)
+
+    # 4. Send welcome email
     await send_welcome(user_id)
 
-    # 4. Print summary
+    # 5. Print summary
     print("\n" + "=" * 60)
     print("TEST SETUP COMPLETE")
     print("=" * 60)
@@ -333,8 +433,8 @@ async def main() -> None:
     print()
     print("Next steps:")
     print(f"  export GRAPHCLAW_USER_ID={user_id}")
-    print(f"  graphclaw agent briefing")
-    print(f"  graphclaw agent run")
+    print("  graphclaw agent briefing")
+    print("  graphclaw agent run")
     print()
     print("MinIO console: http://localhost:9001 (user: graphclaw)")
     print("Gateway docs:  http://localhost:8000/docs")
@@ -343,4 +443,5 @@ async def main() -> None:
 
 if __name__ == "__main__":
     import selectors
+
     asyncio.run(main(), loop_factory=lambda: asyncio.SelectorEventLoop(selectors.SelectSelector()))

@@ -2,33 +2,34 @@
 
 Description
 -----------
-Tests ``MCPRegistry`` CRUD operations using a mock ``GraphStore``.
-All async calls are mocked with ``AsyncMock`` so the tests run without a
-database.
+Tests ``MCPRegistry`` CRUD operations against a ``FakeStorageClient``.
+All async calls use the in-memory storage fake so no real MinIO is needed.
 
 Dependencies
 ------------
 - pytest, pytest-asyncio: Test runner with async support.
-- unittest.mock: AsyncMock, MagicMock.
 - graphclaw.mcp.registry: MCPRegistry.
-- graphclaw.models.enums: EdgeType, MCPTransport, TrustTier.
+- graphclaw.models.enums: MCPTransport, TrustTier.
 - graphclaw.models.nodes: MCPServerNode.
+- tests.test_api.conftest: FakeStorageClient.
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock
 
 import pytest
 
 from graphclaw.mcp.registry import MCPRegistry
-from graphclaw.models.enums import EdgeType, MCPTransport, TrustTier
+from graphclaw.models.enums import MCPTransport, TrustTier
 from graphclaw.models.nodes import MCPServerNode
+from tests.test_api.conftest import FakeStorageClient
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+_USER = "USER-alice"
 
 
 def make_server_node(
@@ -54,16 +55,9 @@ def make_server_node(
     )
 
 
-def make_store() -> AsyncMock:
-    store = AsyncMock()
-    store.create_node = AsyncMock(return_value={})
-    store.create_edge = AsyncMock(return_value={})
-    store.get_node = AsyncMock(return_value=None)
-    store.update_node = AsyncMock(return_value={})
-    store.delete_node = AsyncMock(return_value=None)
-    store.list_nodes = AsyncMock(return_value=[])
-    store.get_edges = AsyncMock(return_value=[])
-    return store
+def make_registry() -> tuple[MCPRegistry, FakeStorageClient]:
+    storage = FakeStorageClient()
+    return MCPRegistry(storage_client=storage), storage
 
 
 # ---------------------------------------------------------------------------
@@ -73,31 +67,50 @@ def make_store() -> AsyncMock:
 
 class TestMCPRegistryRegister:
     @pytest.mark.asyncio
-    async def test_register_creates_node_and_edge(self):
-        store = make_store()
-        registry = MCPRegistry(store)
+    async def test_register_writes_json_to_storage(self):
+        registry, storage = make_registry()
         node = make_server_node()
 
-        result = await registry.register("USER-alice", node)
+        result = await registry.register(_USER, node)
 
-        store.create_node.assert_awaited_once_with(node)
-        store.create_edge.assert_awaited_once()
-        edge_call = store.create_edge.call_args
-        assert (
-            edge_call.kwargs.get("source_id") == "USER-alice" or edge_call.args[0] == "USER-alice"
-        )
         assert result is node
+        assert await storage.exists(f"{_USER}/mcp/servers/{node.id}.json")
 
     @pytest.mark.asyncio
-    async def test_register_uses_grants_access_to_mcp_edge(self):
-        store = make_store()
-        registry = MCPRegistry(store)
+    async def test_register_returns_readable_node(self):
+        registry, _ = make_registry()
         node = make_server_node()
 
-        await registry.register("USER-bob", node)
+        await registry.register(_USER, node)
+        retrieved = await registry.get(_USER, node.id)
 
-        edge_call_kwargs = store.create_edge.call_args.kwargs
-        assert edge_call_kwargs["edge_type"] == EdgeType.GRANTS_ACCESS_TO_MCP
+        assert retrieved is not None
+        assert retrieved.id == node.id
+        assert retrieved.name == node.name
+
+
+# ---------------------------------------------------------------------------
+# get
+# ---------------------------------------------------------------------------
+
+
+class TestMCPRegistryGet:
+    @pytest.mark.asyncio
+    async def test_get_returns_none_when_not_found(self):
+        registry, _ = make_registry()
+        result = await registry.get(_USER, "MCP-MISSING1")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_get_returns_node_after_register(self):
+        registry, _ = make_registry()
+        node = make_server_node()
+        await registry.register(_USER, node)
+
+        result = await registry.get(_USER, node.id)
+
+        assert result is not None
+        assert result.trust_tier == node.trust_tier
 
 
 # ---------------------------------------------------------------------------
@@ -108,66 +121,34 @@ class TestMCPRegistryRegister:
 class TestMCPRegistryListForUser:
     @pytest.mark.asyncio
     async def test_list_returns_enabled_nodes_only_by_default(self):
-        enabled_node = make_server_node("MCP-AAAABBBB", enabled=True)
-        disabled_node = make_server_node("MCP-CCCCDDDD", enabled=False)
+        registry, _ = make_registry()
+        enabled = make_server_node("MCP-AAAABBBB", enabled=True)
+        disabled = make_server_node("MCP-CCCCDDDD", enabled=False)
 
-        store = make_store()
-        # Two edges from the user
-        store.get_edges = AsyncMock(
-            return_value=[
-                {"target_id": "MCP-AAAABBBB"},
-                {"target_id": "MCP-CCCCDDDD"},
-            ]
-        )
+        await registry.register(_USER, enabled)
+        await registry.register(_USER, disabled)
 
-        def get_node_side_effect(node_id):
-            if node_id == "MCP-AAAABBBB":
-                return enabled_node.model_dump()
-            if node_id == "MCP-CCCCDDDD":
-                return disabled_node.model_dump()
-            return None
-
-        store.get_node = AsyncMock(side_effect=get_node_side_effect)
-
-        registry = MCPRegistry(store)
-        results = await registry.list_for_user("USER-alice", enabled_only=True)
+        results = await registry.list_for_user(_USER, enabled_only=True)
 
         assert len(results) == 1
         assert results[0].id == "MCP-AAAABBBB"
 
     @pytest.mark.asyncio
     async def test_list_returns_all_when_enabled_only_false(self):
-        enabled_node = make_server_node("MCP-AAAABBBB", enabled=True)
-        disabled_node = make_server_node("MCP-CCCCDDDD", enabled=False)
+        registry, _ = make_registry()
+        enabled = make_server_node("MCP-AAAABBBB", enabled=True)
+        disabled = make_server_node("MCP-CCCCDDDD", enabled=False)
 
-        store = make_store()
-        store.get_edges = AsyncMock(
-            return_value=[
-                {"target_id": "MCP-AAAABBBB"},
-                {"target_id": "MCP-CCCCDDDD"},
-            ]
-        )
+        await registry.register(_USER, enabled)
+        await registry.register(_USER, disabled)
 
-        def get_node_side_effect(node_id):
-            if node_id == "MCP-AAAABBBB":
-                return enabled_node.model_dump()
-            if node_id == "MCP-CCCCDDDD":
-                return disabled_node.model_dump()
-            return None
-
-        store.get_node = AsyncMock(side_effect=get_node_side_effect)
-
-        registry = MCPRegistry(store)
-        results = await registry.list_for_user("USER-alice", enabled_only=False)
+        results = await registry.list_for_user(_USER, enabled_only=False)
 
         assert len(results) == 2
 
     @pytest.mark.asyncio
-    async def test_list_returns_empty_when_no_edges(self):
-        store = make_store()
-        store.get_edges = AsyncMock(return_value=[])
-
-        registry = MCPRegistry(store)
+    async def test_list_returns_empty_when_no_servers(self):
+        registry, _ = make_registry()
         results = await registry.list_for_user("USER-nobody")
         assert results == []
 
@@ -180,51 +161,97 @@ class TestMCPRegistryListForUser:
 class TestMCPRegistryUpdateTrust:
     @pytest.mark.asyncio
     async def test_update_trust_changes_tier(self):
+        registry, _ = make_registry()
         node = make_server_node(trust_tier=TrustTier.GATED)
-        updated_node = make_server_node(trust_tier=TrustTier.AUTO)
+        await registry.register(_USER, node)
 
-        store = make_store()
-        store.get_node = AsyncMock(return_value=node.model_dump())
-        store.update_node = AsyncMock(return_value=updated_node.model_dump())
+        result = await registry.update_trust(_USER, node.id, TrustTier.AUTO)
 
-        registry = MCPRegistry(store)
-        result = await registry.update_trust("MCP-AAAABBBB", TrustTier.AUTO)
-
-        store.update_node.assert_awaited_once()
         assert result.trust_tier == TrustTier.AUTO
+        persisted = await registry.get(_USER, node.id)
+        assert persisted is not None
+        assert persisted.trust_tier == TrustTier.AUTO
 
     @pytest.mark.asyncio
     async def test_blocked_to_auto_raises_value_error(self):
+        registry, _ = make_registry()
         node = make_server_node(trust_tier=TrustTier.BLOCKED)
+        await registry.register(_USER, node)
 
-        store = make_store()
-        store.get_node = AsyncMock(return_value=node.model_dump())
-
-        registry = MCPRegistry(store)
         with pytest.raises(ValueError, match="BLOCKED"):
-            await registry.update_trust("MCP-AAAABBBB", TrustTier.AUTO)
+            await registry.update_trust(_USER, node.id, TrustTier.AUTO)
 
     @pytest.mark.asyncio
     async def test_blocked_to_gated_succeeds(self):
+        registry, _ = make_registry()
         node = make_server_node(trust_tier=TrustTier.BLOCKED)
-        updated_node = make_server_node(trust_tier=TrustTier.GATED)
+        await registry.register(_USER, node)
 
-        store = make_store()
-        store.get_node = AsyncMock(return_value=node.model_dump())
-        store.update_node = AsyncMock(return_value=updated_node.model_dump())
+        result = await registry.update_trust(_USER, node.id, TrustTier.GATED)
 
-        registry = MCPRegistry(store)
-        result = await registry.update_trust("MCP-AAAABBBB", TrustTier.GATED)
         assert result.trust_tier == TrustTier.GATED
 
     @pytest.mark.asyncio
     async def test_update_trust_raises_if_not_found(self):
-        store = make_store()
-        store.get_node = AsyncMock(return_value=None)
+        registry, _ = make_registry()
 
-        registry = MCPRegistry(store)
         with pytest.raises(ValueError, match="not found"):
-            await registry.update_trust("MCP-MISSING1", TrustTier.AUTO)
+            await registry.update_trust(_USER, "MCP-MISSING1", TrustTier.AUTO)
+
+
+# ---------------------------------------------------------------------------
+# enable / disable
+# ---------------------------------------------------------------------------
+
+
+class TestMCPRegistryEnableDisable:
+    @pytest.mark.asyncio
+    async def test_enable_sets_enabled_true(self):
+        registry, _ = make_registry()
+        node = make_server_node(enabled=False)
+        await registry.register(_USER, node)
+
+        await registry.enable(_USER, node.id)
+
+        result = await registry.get(_USER, node.id)
+        assert result is not None
+        assert result.enabled is True
+
+    @pytest.mark.asyncio
+    async def test_disable_sets_enabled_false(self):
+        registry, _ = make_registry()
+        node = make_server_node(enabled=True)
+        await registry.register(_USER, node)
+
+        await registry.disable(_USER, node.id)
+
+        result = await registry.get(_USER, node.id)
+        assert result is not None
+        assert result.enabled is False
+
+
+# ---------------------------------------------------------------------------
+# deregister
+# ---------------------------------------------------------------------------
+
+
+class TestMCPRegistryDeregister:
+    @pytest.mark.asyncio
+    async def test_deregister_removes_node(self):
+        registry, _ = make_registry()
+        node = make_server_node()
+        await registry.register(_USER, node)
+
+        await registry.deregister(_USER, node.id)
+
+        result = await registry.get(_USER, node.id)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_deregister_noop_when_not_found(self):
+        registry, _ = make_registry()
+        # Should not raise
+        await registry.deregister(_USER, "MCP-MISSING1")
 
 
 # ---------------------------------------------------------------------------
@@ -235,40 +262,23 @@ class TestMCPRegistryUpdateTrust:
 class TestMCPRegistryFindByScope:
     @pytest.mark.asyncio
     async def test_find_by_scope_returns_matching_nodes(self):
+        registry, _ = make_registry()
         cal_node = make_server_node("MCP-AAAABBBB", scope=["calendar:read", "calendar:write"])
         gh_node = make_server_node("MCP-CCCCDDDD", scope=["github:read"])
 
-        store = make_store()
-        store.get_edges = AsyncMock(
-            return_value=[
-                {"target_id": "MCP-AAAABBBB"},
-                {"target_id": "MCP-CCCCDDDD"},
-            ]
-        )
+        await registry.register(_USER, cal_node)
+        await registry.register(_USER, gh_node)
 
-        def get_node_side_effect(node_id):
-            if node_id == "MCP-AAAABBBB":
-                return cal_node.model_dump()
-            if node_id == "MCP-CCCCDDDD":
-                return gh_node.model_dump()
-            return None
-
-        store.get_node = AsyncMock(side_effect=get_node_side_effect)
-
-        registry = MCPRegistry(store)
-        results = await registry.find_by_scope("USER-alice", "calendar:read")
+        results = await registry.find_by_scope(_USER, "calendar:read")
 
         assert len(results) == 1
         assert results[0].id == "MCP-AAAABBBB"
 
     @pytest.mark.asyncio
     async def test_find_by_scope_returns_empty_when_no_match(self):
+        registry, _ = make_registry()
         gh_node = make_server_node("MCP-CCCCDDDD", scope=["github:read"])
+        await registry.register(_USER, gh_node)
 
-        store = make_store()
-        store.get_edges = AsyncMock(return_value=[{"target_id": "MCP-CCCCDDDD"}])
-        store.get_node = AsyncMock(return_value=gh_node.model_dump())
-
-        registry = MCPRegistry(store)
-        results = await registry.find_by_scope("USER-alice", "calendar:read")
+        results = await registry.find_by_scope(_USER, "calendar:read")
         assert results == []

@@ -39,6 +39,7 @@ Dependencies
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, timezone
 from typing import Any
@@ -52,6 +53,16 @@ from graphclaw.models.scoring import ScoreExplanation, ScoreFactor, ScoreModifie
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/scoring", tags=["scoring"])
+
+
+def _parse_json_field(value):
+    """Parse a JSON string to dict/list; return as-is if already parsed."""
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except (json.JSONDecodeError, ValueError):
+            return None
+    return value
 
 # ---------------------------------------------------------------------------
 # Request / response models
@@ -168,7 +179,7 @@ async def get_task_score(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"Task '{task_id}' not found"
         )
 
-    scoring = task.get("scoring") or task.get("score_block") or {}
+    scoring = _parse_json_field(task.get("scoring") or task.get("score_block")) or {}
     if not scoring:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -203,7 +214,7 @@ async def get_task_score_history(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"Task '{task_id}' not found"
         )
 
-    scoring = task.get("scoring") or task.get("score_block") or {}
+    scoring = _parse_json_field(task.get("scoring") or task.get("score_block")) or {}
     scores: list[ScoreExplanation] = []
     if scoring:
         scores.append(_scoring_block_to_explanation(task_id, scoring))
@@ -241,7 +252,7 @@ async def simulate_score(
             detail=f"Task '{body.task_id}' not found",
         )
 
-    scoring = dict(task.get("scoring") or task.get("score_block") or {})
+    scoring = dict(_parse_json_field(task.get("scoring") or task.get("score_block")) or {})
     if not scoring:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

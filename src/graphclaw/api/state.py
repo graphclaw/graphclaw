@@ -38,6 +38,7 @@ Dependencies
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -53,6 +54,40 @@ logger = logging.getLogger(__name__)
 
 # The state endpoints live at /tasks/... (no /graph prefix) per the API contract.
 router = APIRouter(prefix="/tasks", tags=["state"])
+
+_JSON_STR_FIELDS = ("scoring", "timeline", "progress", "override", "autonomy")
+_JSON_LIST_FIELDS = ("state_history", "update_log", "tags")
+
+
+def _deserialize_task_fields(raw: dict) -> dict:
+    """Parse JSON-string fields in a task dict from AGE back to native types."""
+    result = dict(raw)
+    for field in _JSON_STR_FIELDS:
+        if isinstance(result.get(field), str):
+            try:
+                result[field] = json.loads(result[field])
+            except (json.JSONDecodeError, ValueError):
+                result[field] = None
+    for field in _JSON_LIST_FIELDS:
+        val = result.get(field)
+        if isinstance(val, str):
+            try:
+                result[field] = json.loads(val)
+            except (json.JSONDecodeError, ValueError):
+                result[field] = []
+        elif isinstance(val, list):
+            # AGE stores list-of-dict as list-of-JSON-strings; parse each element
+            parsed_items = []
+            for item in val:
+                if isinstance(item, str):
+                    try:
+                        parsed_items.append(json.loads(item))
+                    except (json.JSONDecodeError, ValueError):
+                        parsed_items.append(item)
+                else:
+                    parsed_items.append(item)
+            result[field] = parsed_items
+    return result
 
 # ---------------------------------------------------------------------------
 # Request / response models
@@ -189,8 +224,9 @@ async def transition_task(
         )
 
     # Deserialise the dict back to a TaskNode so the state machine can operate.
+    # AGE stores nested objects as JSON strings; parse them before model_validate.
     try:
-        task_node = TaskNode.model_validate(raw_task)
+        task_node = TaskNode.model_validate(_deserialize_task_fields(raw_task))
     except Exception as exc:
         logger.error("state: failed to deserialise task %s: %s", task_id, exc)
         raise HTTPException(

@@ -37,7 +37,7 @@ from graphclaw.api.deps import get_mcp_registry
 from graphclaw.api.router import app_router
 from graphclaw.auth.middleware import require_auth
 from graphclaw.mcp.registry import MCPRegistry
-from tests.test_api.conftest import FakeGraphStore
+from tests.test_api.conftest import FakeGraphStore, FakeStorageClient
 
 _TEST_USER = "USER-test-mcp-001"
 
@@ -51,6 +51,7 @@ _REGISTER_PAYLOAD = {
 
 # Module-level fake store reset by fixture
 _fake_store = FakeGraphStore()
+_fake_storage = FakeStorageClient()
 
 
 # ---------------------------------------------------------------------------
@@ -66,7 +67,7 @@ def _make_app() -> FastAPI:
         return _TEST_USER
 
     async def _fake_mcp_registry() -> MCPRegistry:
-        return MCPRegistry(graph_store=_fake_store)
+        return MCPRegistry(storage_client=_fake_storage)
 
     app.dependency_overrides[require_auth] = _fake_auth
     app.dependency_overrides[get_mcp_registry] = _fake_mcp_registry
@@ -77,8 +78,10 @@ def _make_app() -> FastAPI:
 def clear_mcp_servers():
     """Reset the fake store before and after each test."""
     _fake_store.clear()
+    _fake_storage.clear()
     yield
     _fake_store.clear()
+    _fake_storage.clear()
 
 
 @pytest.fixture()

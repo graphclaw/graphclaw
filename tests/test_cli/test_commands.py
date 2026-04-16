@@ -115,27 +115,27 @@ def _make_queue_entry(task: TaskNode, rank: int = 1) -> ActionQueueEntry:
 
 class TestTaskList:
     def test_task_list_asyncio_run_called(self):
-        with patch("graphclaw.cli.task_commands.asyncio.run") as mock_run:
+        with patch("graphclaw.cli._shared.run_async") as mock_run:
             mock_run.return_value = None
             result = runner.invoke(app, ["task", "list"])
             assert result.exit_code == 0
             mock_run.assert_called_once()
 
     def test_task_list_with_state_filter(self):
-        with patch("graphclaw.cli.task_commands.asyncio.run") as mock_run:
+        with patch("graphclaw.cli._shared.run_async") as mock_run:
             mock_run.return_value = None
             result = runner.invoke(app, ["task", "list", "--state", "ACTIVE"])
             assert result.exit_code == 0
             mock_run.assert_called_once()
 
     def test_task_list_state_flag_short(self):
-        with patch("graphclaw.cli.task_commands.asyncio.run") as mock_run:
+        with patch("graphclaw.cli._shared.run_async") as mock_run:
             mock_run.return_value = None
             result = runner.invoke(app, ["task", "list", "-s", "IN_PROGRESS"])
             assert result.exit_code == 0
 
     def test_task_list_exception_exits_nonzero(self):
-        with patch("graphclaw.cli.task_commands.asyncio.run") as mock_run:
+        with patch("graphclaw.cli._shared.run_async") as mock_run:
             mock_run.side_effect = RuntimeError("unexpected error")
             result = runner.invoke(app, ["task", "list"])
             assert result.exit_code != 0
@@ -148,7 +148,7 @@ class TestTaskList:
 
 class TestTaskShow:
     def test_task_show_delegates_to_asyncio_run(self):
-        with patch("graphclaw.cli.task_commands.asyncio.run") as mock_run:
+        with patch("graphclaw.cli._shared.run_async") as mock_run:
             mock_run.return_value = None
             result = runner.invoke(app, ["task", "show", "TSK-TS-1234-ATM"])
             assert result.exit_code == 0
@@ -166,7 +166,7 @@ class TestTaskShow:
 
 class TestTaskCreate:
     def test_task_create_delegates_to_asyncio_run(self):
-        with patch("graphclaw.cli.task_commands.asyncio.run") as mock_run:
+        with patch("graphclaw.cli._shared.run_async") as mock_run:
             mock_run.return_value = None
             result = runner.invoke(
                 app, ["task", "create", "--title", "My Task", "--type", "ATOMIC"]
@@ -175,7 +175,7 @@ class TestTaskCreate:
             mock_run.assert_called_once()
 
     def test_task_create_requires_title(self):
-        with patch("graphclaw.cli.task_commands.asyncio.run") as mock_run:
+        with patch("graphclaw.cli._shared.run_async") as mock_run:
             mock_run.return_value = None
             result = runner.invoke(app, ["task", "create"])
             # Missing --title should fail.
@@ -189,7 +189,7 @@ class TestTaskCreate:
 
 class TestTaskTransition:
     def test_task_transition_delegates_to_asyncio_run(self):
-        with patch("graphclaw.cli.task_commands.asyncio.run") as mock_run:
+        with patch("graphclaw.cli._shared.run_async") as mock_run:
             mock_run.return_value = None
             result = runner.invoke(app, ["task", "transition", "TSK-TS-0001-ATM", "IN_PROGRESS"])
             assert result.exit_code == 0
@@ -207,27 +207,27 @@ class TestTaskTransition:
 
 class TestAgentScore:
     def test_agent_score_calls_asyncio_run(self):
-        with patch("graphclaw.cli.agent_commands.asyncio.run") as mock_run:
+        with patch("graphclaw.cli._shared.run_async") as mock_run:
             mock_run.return_value = None
             result = runner.invoke(app, ["agent", "score"])
             assert result.exit_code == 0
             mock_run.assert_called_once()
 
     def test_agent_score_top_n_option(self):
-        with patch("graphclaw.cli.agent_commands.asyncio.run") as mock_run:
+        with patch("graphclaw.cli._shared.run_async") as mock_run:
             mock_run.return_value = None
             result = runner.invoke(app, ["agent", "score", "--top", "3"])
             assert result.exit_code == 0
 
     def test_agent_run_calls_asyncio_run(self):
-        with patch("graphclaw.cli.agent_commands.asyncio.run") as mock_run:
+        with patch("graphclaw.cli._shared.run_async") as mock_run:
             mock_run.return_value = None
             result = runner.invoke(app, ["agent", "run"])
             assert result.exit_code == 0
             mock_run.assert_called_once()
 
     def test_agent_briefing_calls_asyncio_run(self):
-        with patch("graphclaw.cli.agent_commands.asyncio.run") as mock_run:
+        with patch("graphclaw.cli._shared.run_async") as mock_run:
             mock_run.return_value = None
             result = runner.invoke(app, ["agent", "briefing"])
             assert result.exit_code == 0
@@ -241,7 +241,7 @@ class TestAgentScore:
 
 class TestGraphCommands:
     def test_graph_stats_calls_asyncio_run(self):
-        with patch("graphclaw.cli.graph_commands.asyncio.run") as mock_run:
+        with patch("graphclaw.cli._shared.run_async") as mock_run:
             mock_run.return_value = None
             result = runner.invoke(app, ["graph", "stats"])
             assert result.exit_code == 0
@@ -252,7 +252,7 @@ class TestGraphCommands:
         assert result.exit_code != 0
 
     def test_graph_query_with_cypher(self):
-        with patch("graphclaw.cli.graph_commands.asyncio.run") as mock_run:
+        with patch("graphclaw.cli._shared.run_async") as mock_run:
             mock_run.return_value = None
             result = runner.invoke(
                 app,

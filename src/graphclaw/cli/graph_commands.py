@@ -30,7 +30,6 @@ with trusted input only.  Never expose this command to untrusted users.
 
 from __future__ import annotations
 
-import asyncio
 import json
 
 import typer
@@ -80,6 +79,27 @@ async def _stats_async() -> None:
         console.print(table)
 
 
+async def _reset_async(labels: list[str]) -> None:
+    from graphclaw.db.connection import get_connection
+
+    async with cli_pool() as (pool, _):
+        for label in labels:
+            try:
+                async with get_connection(pool) as conn:
+                    await conn.execute(
+                        f"""
+                        SELECT * FROM cypher('graphclaw', $$
+                            MATCH (n:{label})
+                            DETACH DELETE n
+                            RETURN count(n)
+                        $$) as (deleted agtype)
+                        """
+                    )
+                console.print(f"[green]✓[/green] Deleted all [bold]{label}[/bold] nodes")
+            except Exception as exc:
+                err_console.print(f"Failed to delete {label}: {exc}")
+
+
 async def _query_async(cypher: str) -> None:
     from graphclaw.db.connection import get_connection
 
@@ -123,6 +143,36 @@ def graph_stats() -> None:
     """Show graph node and edge count statistics."""
     try:
         run_async(_stats_async())
+    except SystemExit:
+        raise
+    except Exception as exc:
+        err_console.print(f"Error: {exc}")
+        raise typer.Exit(code=1)
+
+
+@app.command("reset")
+def graph_reset(
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt."),
+    labels: list[str] = typer.Option(
+        None,
+        "--label",
+        "-l",
+        help="Node label(s) to delete. Defaults to TaskNode and GoalNode.",
+    ),
+) -> None:
+    """Delete all TaskNode and GoalNode vertices from the graph (dev reset).
+
+    Also removes all incident edges via DETACH DELETE.
+    Use --label to target specific labels only.
+    """
+    targets = labels or ["TaskNode", "GoalNode"]
+    if not yes:
+        typer.confirm(
+            f"This will DELETE ALL nodes with labels {targets}. Continue?",
+            abort=True,
+        )
+    try:
+        run_async(_reset_async(targets))
     except SystemExit:
         raise
     except Exception as exc:

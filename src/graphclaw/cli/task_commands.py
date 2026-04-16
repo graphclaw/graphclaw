@@ -37,7 +37,6 @@ The pool is opened and closed on every command invocation (no persistent connect
 
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime, timezone
 
 import typer

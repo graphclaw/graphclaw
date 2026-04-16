@@ -230,19 +230,11 @@ async def get_mcp_server(
     mcp_registry: MCPRegistryDep,
 ) -> MCPServerEntry:
     """Return a specific MCP server belonging to the authenticated user."""
-    node = await mcp_registry.get(server_id)
+    node = await mcp_registry.get(user_id, server_id)
     if node is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"MCP server '{server_id}' not found"
         )
-
-    # Verify ownership via the user's edge list
-    user_servers = await mcp_registry.list_for_user(user_id, enabled_only=False)
-    if not any(s.id == server_id for s in user_servers):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=f"MCP server '{server_id}' not found"
-        )
-
     return _node_to_entry(node)
 
 
@@ -280,18 +272,18 @@ async def update_mcp_server(
                 detail=f"Invalid trust_tier '{body.trust_tier}'. Valid values: {valid_tiers}",
             )
         try:
-            node = await mcp_registry.update_trust(server_id, new_tier)
+            node = await mcp_registry.update_trust(user_id, server_id, new_tier)
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
     else:
-        node = await mcp_registry.get(server_id)
+        node = await mcp_registry.get(user_id, server_id)
 
     if body.enabled is not None and node is not None:
         if body.enabled:
-            await mcp_registry.enable(server_id)
+            await mcp_registry.enable(user_id, server_id)
         else:
-            await mcp_registry.disable(server_id)
-        node = await mcp_registry.get(server_id)
+            await mcp_registry.disable(user_id, server_id)
+        node = await mcp_registry.get(user_id, server_id)
 
     if node is None:
         raise HTTPException(
@@ -324,7 +316,7 @@ async def delete_mcp_server(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"MCP server '{server_id}' not found"
         )
 
-    await mcp_registry.deregister(server_id)
+    await mcp_registry.deregister(user_id, server_id)
     logger.info("mcp-servers: deregistered '%s' for user_id=%s", server_id, user_id)
 
 

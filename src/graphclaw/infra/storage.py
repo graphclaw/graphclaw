@@ -259,6 +259,26 @@ class StoragePaths:
         return f"{user_id}/skills/executions/{skill_id}.json"
 
     # ------------------------------------------------------------------
+    # MCP server config paths
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def mcp_servers_prefix(user_id: str) -> str:
+        """Prefix to list all registered MCP server configs for a user.
+
+        Example: ``USER-abc123/mcp/servers/``
+        """
+        return f"{user_id}/mcp/servers/"
+
+    @staticmethod
+    def mcp_server(user_id: str, server_id: str) -> str:
+        """One MCP server config JSON, isolated under the user's prefix.
+
+        Example: ``USER-abc123/mcp/servers/MCP-github-dev-001.json``
+        """
+        return f"{user_id}/mcp/servers/{server_id}.json"
+
+    # ------------------------------------------------------------------
     # Attachment paths
     # ------------------------------------------------------------------
 

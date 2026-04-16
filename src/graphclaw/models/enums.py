@@ -92,7 +92,6 @@ class EdgeType(str, Enum):
     BELONGS_TO_ORG = "BELONGS_TO_ORG"  # WorkspaceNode → OrganizationNode
     SCOPED_TO_WS = "SCOPED_TO_WS"  # TaskNode / GoalNode → WorkspaceNode
     GRANTS_ACCESS_TO = "GRANTS_ACCESS_TO"  # VisibilityGrantNode → target node
-    GRANTS_ACCESS_TO_MCP = "GRANTS_ACCESS_TO_MCP"  # UserNode → MCPServerNode
 
 
 class GateType(str, Enum):

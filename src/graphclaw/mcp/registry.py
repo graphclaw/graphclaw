@@ -1,56 +1,67 @@
-"""graphclaw.mcp.registry — MCPRegistry: CRUD for MCPServerNode records.
+"""graphclaw.mcp.registry — MCPRegistry: per-user MCP server config in MinIO.
 
 Description
 -----------
-Provides ``MCPRegistry``, a service that persists and retrieves
-``MCPServerNode`` vertices in the graph database.  Each registered server is
-owned by a user via a ``GRANTS_ACCESS_TO_MCP`` edge from the ``UserNode`` to
-the ``MCPServerNode``.
+Provides ``MCPRegistry``, a service that stores and retrieves ``MCPServerNode``
+configs as JSON files in object storage (MinIO/S3).  Each server is stored at
+``{user_id}/mcp/servers/{server_id}.json``, giving hard user-level isolation
+at the storage prefix boundary with no graph traversal required.
 
 Design Patterns
 ---------------
-- Service Object: ``MCPRegistry`` depends on the ``GraphStore`` ABC so any
-  backend (AGE, in-memory fake) can be substituted without changing call sites.
-- Optional SecretsClient: The registry accepts an optional ``SecretsClient``
-  so credential cleanup can be performed in ``deregister()`` when available.
+- Repository: ``MCPRegistry`` depends on the ``StorageClient`` ABC so any
+  backend (S3, MinIO, GCS, local) can be substituted without changing call sites.
+- Read-modify-write: Updates (trust tier, enabled, last_used_at) read the
+  existing JSON, patch the relevant fields, and write back atomically enough
+  for the low-concurrency dev/single-user case.
 
 Public API
 ----------
-- MCPRegistry: Manages MCPServerNode persistence in the graph.
+- MCPRegistry: Manages MCPServerNode config persistence in object storage.
+- MCPRegistry.register: Write a new server config.
+- MCPRegistry.get: Read one server config by user + server ID.
+- MCPRegistry.list_for_user: List all configs for a user.
+- MCPRegistry.update_trust: Change the trust tier.
+- MCPRegistry.update_last_used: Stamp last_used_at.
+- MCPRegistry.enable / disable: Toggle the enabled flag.
+- MCPRegistry.deregister: Delete the config file.
+- MCPRegistry.find_by_scope: Filter servers by capability scope.
 
 Dependencies
 ------------
-- graphclaw.db.base: GraphStore.
+- graphclaw.infra.storage: StorageClient ABC, StoragePaths.
+- graphclaw.infra.secrets: SecretsClient (optional, for credential cleanup).
 - graphclaw.models.base: utcnow.
-- graphclaw.models.enums: EdgeType, TrustTier.
+- graphclaw.models.enums: TrustTier.
 - graphclaw.models.nodes: MCPServerNode.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 
-from graphclaw.db.base import GraphStore
+from graphclaw.infra.storage import StorageClient, StoragePaths
 from graphclaw.models.base import utcnow
-from graphclaw.models.enums import EdgeType, TrustTier
+from graphclaw.models.enums import TrustTier
 from graphclaw.models.nodes import MCPServerNode
 
 logger = logging.getLogger(__name__)
 
 
 class MCPRegistry:
-    """Manages MCPServerNode persistence in the property graph.
+    """Manages MCPServerNode config persistence in object storage.
 
     Parameters
     ----------
-    graph_store:
-        A concrete ``GraphStore`` implementation for all node/edge CRUD.
+    storage_client:
+        A concrete ``StorageClient`` implementation for all read/write ops.
     secrets_client:
         Optional secrets client used to delete credentials in ``deregister()``.
     """
 
-    def __init__(self, graph_store: GraphStore, secrets_client=None) -> None:
-        self._store = graph_store
+    def __init__(self, storage_client: StorageClient, secrets_client=None) -> None:
+        self._storage = storage_client
         self._secrets = secrets_client
 
     # ------------------------------------------------------------------
@@ -58,10 +69,7 @@ class MCPRegistry:
     # ------------------------------------------------------------------
 
     async def register(self, user_id: str, node: MCPServerNode) -> MCPServerNode:
-        """Persist *node* to the graph and link it to the owning user.
-
-        Creates the ``MCPServerNode`` vertex and a directed
-        ``GRANTS_ACCESS_TO_MCP`` edge from *user_id* → *node.id*.
+        """Persist *node* as a JSON file under the user's MCP prefix.
 
         Parameters
         ----------
@@ -75,12 +83,12 @@ class MCPRegistry:
         MCPServerNode
             The registered node (same object; returned for convenience).
         """
-        await self._store.create_node(node)
-        await self._store.create_edge(
-            source_id=user_id,
-            target_id=node.id,
-            edge_type=EdgeType.GRANTS_ACCESS_TO_MCP,
-            properties={"registered_at": node.registered_at.isoformat()},
+        path = StoragePaths.mcp_server(user_id, node.id)
+        data = node.model_dump(mode="json")
+        await self._storage.write(
+            path,
+            json.dumps(data, default=str).encode(),
+            content_type="application/json",
         )
         logger.info(
             "mcp.registry.register",
@@ -88,21 +96,31 @@ class MCPRegistry:
         )
         return node
 
-    async def get(self, server_id: str) -> MCPServerNode | None:
+    async def get(self, user_id: str, server_id: str) -> MCPServerNode | None:
         """Return the ``MCPServerNode`` for *server_id*, or ``None`` if not found.
 
         Parameters
         ----------
+        user_id:
+            The ``USER-{id}`` who owns the server.
         server_id:
-            An ``MCP-{short_uuid}`` identifier.
+            An ``MCP-{identifier}`` server ID.
         """
-        raw = await self._store.get_node(server_id)
-        if raw is None:
+        path = StoragePaths.mcp_server(user_id, server_id)
+        try:
+            raw = await self._storage.read(path)
+            return MCPServerNode.model_validate(json.loads(raw.decode()))
+        except FileNotFoundError:
             return None
-        return MCPServerNode.model_validate(raw)
+        except Exception as exc:
+            logger.warning(
+                "mcp.registry.get.failed",
+                extra={"user_id": user_id, "server_id": server_id, "error": str(exc)},
+            )
+            return None
 
     async def list_for_user(self, user_id: str, enabled_only: bool = True) -> list[MCPServerNode]:
-        """Return all registered MCP servers belonging to *user_id*.
+        """Return all registered MCP servers for *user_id*.
 
         Parameters
         ----------
@@ -116,58 +134,45 @@ class MCPRegistry:
         list[MCPServerNode]
             Servers registered by *user_id*, optionally filtered to enabled only.
         """
-        # Traverse GRANTS_ACCESS_TO_MCP edges from the user
-        edges = await self._store.get_edges(
-            user_id,
-            direction="out",
-            edge_type=EdgeType.GRANTS_ACCESS_TO_MCP,
-        )
+        prefix = StoragePaths.mcp_servers_prefix(user_id)
+        try:
+            keys = await self._storage.list_objects(prefix)
+        except Exception as exc:
+            logger.warning(
+                "mcp.registry.list_for_user.list_failed",
+                extra={"user_id": user_id, "error": str(exc)},
+            )
+            return []
+
         results: list[MCPServerNode] = []
-        for edge in edges:
-            target_id = edge.get("target_id") or edge.get("to") or edge.get("end_id")
-            if not target_id:
-                continue
-            raw = await self._store.get_node(target_id)
-            if raw is None:
+        for key in keys:
+            if not key.endswith(".json"):
                 continue
             try:
-                server = MCPServerNode.model_validate(raw)
+                raw = await self._storage.read(key)
+                server = MCPServerNode.model_validate(json.loads(raw.decode()))
             except Exception:
-                logger.warning(
-                    "mcp.registry.list_for_user.invalid_node",
-                    extra={"node_id": target_id},
-                )
+                logger.warning("mcp.registry.list_for_user.invalid_file", extra={"key": key})
                 continue
             if enabled_only and not server.enabled:
                 continue
             results.append(server)
         return results
 
-    async def update_trust(self, server_id: str, trust_tier: TrustTier) -> MCPServerNode:
+    async def update_trust(
+        self, user_id: str, server_id: str, trust_tier: TrustTier
+    ) -> MCPServerNode:
         """Change the trust tier of a registered MCP server.
-
-        Parameters
-        ----------
-        server_id:
-            Target server ID.
-        trust_tier:
-            The new ``TrustTier`` to apply.
-
-        Returns
-        -------
-        MCPServerNode
-            The updated node.
 
         Raises
         ------
         ValueError
-            If the server is not found, or if attempting to promote a
-            ``BLOCKED`` server to ``AUTO`` without an explicit override flag
-            (this guard prevents accidental re-enabling of blocked servers).
+            If the server is not found, or if promoting a BLOCKED server
+            directly to AUTO (must go BLOCKED → GATED → AUTO).
         """
-        existing = await self.get(server_id)
+        existing = await self.get(user_id, server_id)
         if existing is None:
-            raise ValueError(f"MCP server '{server_id}' not found.")
+            raise ValueError(f"MCP server '{server_id}' not found for user '{user_id}'.")
 
         if existing.trust_tier == TrustTier.BLOCKED and trust_tier == TrustTier.AUTO:
             raise ValueError(
@@ -175,67 +180,43 @@ class MCPRegistry:
                 "Set trust_tier to GATED first, then promote to AUTO."
             )
 
-        now = utcnow()
-        raw = await self._store.update_node(
-            server_id,
-            {"trust_tier": trust_tier.value, "updated_at": now.isoformat()},
-        )
-        return MCPServerNode.model_validate(raw)
+        updated = existing.model_copy(update={"trust_tier": trust_tier, "updated_at": utcnow()})
+        await self.register(user_id, updated)
+        return updated
 
-    async def update_last_used(self, server_id: str) -> None:
-        """Record the current timezone.utc timestamp as ``last_used_at`` for *server_id*.
+    async def update_last_used(self, user_id: str, server_id: str) -> None:
+        """Stamp *last_used_at* on *server_id* with the current UTC time."""
+        existing = await self.get(user_id, server_id)
+        if existing is None:
+            return
+        updated = existing.model_copy(update={"last_used_at": utcnow(), "updated_at": utcnow()})
+        await self.register(user_id, updated)
 
-        Parameters
-        ----------
-        server_id:
-            Target server ID.
-        """
-        now = utcnow()
-        await self._store.update_node(
-            server_id,
-            {"last_used_at": now.isoformat(), "updated_at": now.isoformat()},
-        )
+    async def enable(self, user_id: str, server_id: str) -> None:
+        """Set ``enabled=True`` on *server_id*."""
+        existing = await self.get(user_id, server_id)
+        if existing is None:
+            return
+        await self.register(user_id, existing.model_copy(update={"enabled": True}))
 
-    async def enable(self, server_id: str) -> None:
-        """Set ``enabled=True`` on *server_id*.
+    async def disable(self, user_id: str, server_id: str) -> None:
+        """Set ``enabled=False`` on *server_id*."""
+        existing = await self.get(user_id, server_id)
+        if existing is None:
+            return
+        await self.register(user_id, existing.model_copy(update={"enabled": False}))
 
-        Parameters
-        ----------
-        server_id:
-            Target server ID.
-        """
-        now = utcnow()
-        await self._store.update_node(
-            server_id,
-            {"enabled": True, "updated_at": now.isoformat()},
-        )
-
-    async def disable(self, server_id: str) -> None:
-        """Set ``enabled=False`` on *server_id*.
+    async def deregister(self, user_id: str, server_id: str) -> None:
+        """Delete the server config file and its associated credential secret.
 
         Parameters
         ----------
+        user_id:
+            The ``USER-{id}`` who owns the server.
         server_id:
             Target server ID.
         """
-        now = utcnow()
-        await self._store.update_node(
-            server_id,
-            {"enabled": False, "updated_at": now.isoformat()},
-        )
-
-    async def deregister(self, server_id: str) -> None:
-        """Delete *server_id* from the graph and its associated credential secret.
-
-        If a ``SecretsClient`` was provided at construction time and the server
-        has a ``secret_ref``, the secret is deleted before the node is removed.
-
-        Parameters
-        ----------
-        server_id:
-            Target server ID.
-        """
-        server = await self.get(server_id)
+        server = await self.get(user_id, server_id)
         if server is None:
             logger.warning("mcp.registry.deregister.not_found", extra={"server_id": server_id})
             return
@@ -249,8 +230,12 @@ class MCPRegistry:
                     extra={"server_id": server_id, "error": str(exc)},
                 )
 
-        await self._store.delete_node(server_id)
-        logger.info("mcp.registry.deregister", extra={"server_id": server_id})
+        path = StoragePaths.mcp_server(user_id, server_id)
+        try:
+            await self._storage.delete(path)
+        except FileNotFoundError:
+            pass
+        logger.info("mcp.registry.deregister", extra={"user_id": user_id, "server_id": server_id})
 
     async def find_by_scope(self, user_id: str, scope: str) -> list[MCPServerNode]:
         """Return enabled servers for *user_id* whose scope list contains *scope*.
@@ -261,11 +246,6 @@ class MCPRegistry:
             The ``USER-{id}`` whose servers to search.
         scope:
             A capability scope string (e.g. ``"calendar:read"``).
-
-        Returns
-        -------
-        list[MCPServerNode]
-            Enabled servers where ``scope in server.scope``.
         """
         all_servers = await self.list_for_user(user_id, enabled_only=True)
         return [s for s in all_servers if scope in s.scope]

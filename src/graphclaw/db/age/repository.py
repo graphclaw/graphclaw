@@ -379,6 +379,22 @@ class AgeGraphStore(GraphStore):
             )
         logger.debug("delete_edge", extra={"edge_id": edge_id})
 
+    async def delete_edge_by_property(self, prop_name: str, prop_value: str) -> None:
+        """Delete an edge matched by a string property value (e.g. ``id='EDGE-xxx'``)."""
+        eprop = _escape(prop_name)
+        evalue = _escape(prop_value)
+        async with get_connection(self._pool) as conn:
+            await conn.execute(
+                f"""
+                SELECT * FROM cypher('{self._graph}', $$
+                    MATCH ()-[e]->()
+                    WHERE e.{eprop} = '{evalue}'
+                    DELETE e
+                $$) as (v agtype)
+                """
+            )
+        logger.debug("delete_edge_by_property", extra={"prop": prop_name, "value": prop_value})
+
     # ------------------------------------------------------------------
     # Intelligence Layer — Task/Goal Intelligence Log Helpers
     # ------------------------------------------------------------------

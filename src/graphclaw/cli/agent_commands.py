@@ -586,7 +586,7 @@ async def _chat_async(user_id: str, agent_id: str, message: str | None) -> None:
     try:
         from graphclaw.mcp.registry import MCPRegistry
 
-        mcp_registry = MCPRegistry(graph_store=repo)
+        mcp_registry = MCPRegistry(storage_client=storage)
     except Exception:
         pass
     try:
@@ -630,7 +630,7 @@ async def _chat_async(user_id: str, agent_id: str, message: str | None) -> None:
             )
             while True:
                 try:
-                    user_input = input("[bold]You:[/bold] ").strip()
+                    user_input = console.input("[bold]You:[/bold] ").strip()
                 except (EOFError, KeyboardInterrupt):
                     console.print("\n[dim]Bye![/dim]")
                     break

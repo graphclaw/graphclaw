@@ -187,3 +187,24 @@ async def get_connector_health(
         last_synced_at=target.get("last_synced_at"),
         error="Health probe not yet wired to live connector",
     )
+
+
+@router.delete(
+    "/{connector_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete connector",
+)
+async def delete_connector(
+    connector_id: str,
+    admin_user_id: AdminUserDep,
+    storage_client: StorageClientDep,
+) -> None:
+    connectors = await _load_connectors(storage_client)
+    updated = [c for c in connectors if c.get("connector_id") != connector_id]
+    if len(updated) == len(connectors):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Connector '{connector_id}' not found",
+        )
+    await _save_connectors(storage_client, updated)
+    logger.debug("admin/connectors: deleted %s", connector_id)

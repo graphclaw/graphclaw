@@ -158,4 +158,30 @@ MIGRATIONS: list[Migration] = [
             END $$;
         """,
     ),
+    Migration(
+        version="0006",
+        name="drop_mcp_graph_labels",
+        description=(
+            "Remove MCPServerNode vlabel and GRANTS_ACCESS_TO_MCP elabel. "
+            "MCP server configs are now stored as JSON files in MinIO under "
+            "{user_id}/mcp/servers/{server_id}.json — no graph storage required."
+        ),
+        sql_up="""
+            DO $$ BEGIN
+              -- Drop any remaining MCPServerNode vertices and their edges first
+              PERFORM * FROM cypher('graphclaw', $$
+                MATCH (n:MCPServerNode) DETACH DELETE n RETURN count(n)
+              $$) as (c agtype);
+            EXCEPTION WHEN others THEN NULL;
+            END $$;
+            DO $$ BEGIN
+              PERFORM ag_catalog.drop_elabel('graphclaw', 'GRANTS_ACCESS_TO_MCP', true);
+            EXCEPTION WHEN others THEN NULL;
+            END $$;
+            DO $$ BEGIN
+              PERFORM ag_catalog.drop_vlabel('graphclaw', 'MCPServerNode', true);
+            EXCEPTION WHEN others THEN NULL;
+            END $$;
+        """,
+    ),
 ]

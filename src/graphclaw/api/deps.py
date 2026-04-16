@@ -16,7 +16,7 @@ Available providers
 - ``get_storage_client``         → ``StorageClient`` instance (required).
 - ``get_secrets_client``         → ``SecretsClient`` instance (required).
 - ``get_skill_registry_service`` → ``SkillRegistryService`` (storage-backed, per-request).
-- ``get_mcp_registry``           → ``MCPRegistry`` (graph-backed, per-request).
+- ``get_mcp_registry``           → ``MCPRegistry`` (storage-backed, per-request).
 - ``get_redis``                  → ``redis.asyncio.Redis`` client (optional, 503 if absent).
 - ``require_admin``              → Validates that the authenticated user holds ADMIN or OWNER role.
 
@@ -179,16 +179,19 @@ async def get_skill_registry_service(request: Request) -> SkillRegistryService:
 
 
 async def get_mcp_registry(request: Request) -> MCPRegistry:
-    """Return an ``MCPRegistry`` wired to the app's GraphStore.
+    """Return an ``MCPRegistry`` wired to the app's StorageClient.
+
+    MCP server configs are stored as JSON files under each user's MinIO prefix
+    (``{user_id}/mcp/servers/{server_id}.json``) rather than in the graph DB.
 
     Raises
     ------
     HTTPException(503):
-        If ``app.state.graph_store`` is not set.
+        If ``app.state.storage_client`` is not set.
     """
-    store = await get_graph_store(request)
+    storage = await get_storage_client(request)
     secrets = getattr(request.app.state, "secrets_client", None)
-    return MCPRegistry(graph_store=store, secrets_client=secrets)
+    return MCPRegistry(storage_client=storage, secrets_client=secrets)
 
 
 async def get_redis(request: Request):  # type: ignore[return]

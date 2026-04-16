@@ -48,7 +48,6 @@ Dependencies
 
 from __future__ import annotations
 
-import asyncio
 import os
 from pathlib import Path
 
@@ -56,10 +55,9 @@ import typer
 from rich.console import Console
 from rich.panel import Panel
 from rich.syntax import Syntax
-
-from graphclaw.cli._shared import run_async
 from rich.table import Table
 
+from graphclaw.cli._shared import run_async
 from graphclaw.infra.storage import S3StorageClient, StoragePaths
 
 console = Console()
