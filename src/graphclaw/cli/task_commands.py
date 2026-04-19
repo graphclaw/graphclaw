@@ -19,8 +19,7 @@ Public API
 Dependencies
 ------------
 - graphclaw.cli.formatters: Rich formatting helpers.
-- graphclaw.db.connection: create_pool for database connections.
-- graphclaw.db.graph_repository: GraphRepository for task CRUD.
+- graphclaw.cli._shared: cli_pool for database context.
 - graphclaw.models.base: generate_task_id, utcnow.
 - graphclaw.models.enums: ChangedBy, TaskState, TaskType.
 - graphclaw.models.nodes: TaskNode, Timeline.

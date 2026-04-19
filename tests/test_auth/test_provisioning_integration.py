@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import os
 import uuid
-from datetime import datetime, timezone
 
 import pytest
 import pytest_asyncio
@@ -32,9 +31,10 @@ os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "graphclaw_dev")
 
 from graphclaw.auth.middleware import get_jwt_service
 from graphclaw.auth.provisioning import UserProvisioningService
-from graphclaw.auth.routes import get_oauth_service, get_provisioning_service, router as auth_router
+from graphclaw.auth.routes import get_oauth_service, get_provisioning_service
+from graphclaw.auth.routes import router as auth_router
+from graphclaw.db.age.connection import create_pool
 from graphclaw.db.age.repository import AgeGraphStore
-from graphclaw.db.connection import create_pool
 from graphclaw.infra.storage import S3StorageClient
 
 pytestmark = pytest.mark.integration

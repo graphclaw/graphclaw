@@ -25,7 +25,7 @@ Dependencies
 ------------
 - graphclaw.agent.main_orchestrator: MainOrchestrator.
 - graphclaw.cli.formatters: format_action_queue, format_briefing.
-- graphclaw.db.connection: create_pool.
+- graphclaw.db.age.connection: create_pool.
 - graphclaw.db.age: AgeGraphStore.
 - graphclaw.scoring.engine: ScoringEngine.
 - graphclaw.state.machine: StateMachine.
@@ -66,7 +66,7 @@ async def _build_agent_loop():
 
     from graphclaw.agent.main_orchestrator import MainOrchestrator
     from graphclaw.db.age import AgeGraphStore
-    from graphclaw.db.connection import create_pool
+    from graphclaw.db.age.connection import create_pool
     from graphclaw.scoring.engine import ScoringEngine
     from graphclaw.state.machine import StateMachine
 
@@ -551,7 +551,7 @@ async def _chat_async(
 
     from graphclaw.agent.main_orchestrator import MainOrchestrator
     from graphclaw.db.age import AgeGraphStore
-    from graphclaw.db.connection import create_pool
+    from graphclaw.db.age.connection import create_pool
     from graphclaw.infra.storage import S3StorageClient
     from graphclaw.llm.factory import create_llm_client
     from graphclaw.scoring.engine import ScoringEngine

@@ -25,11 +25,14 @@ from typing import Any
 import pytest
 import pytest_asyncio
 
-from graphclaw.db.connection import create_pool, get_connection
-from graphclaw.db.graph_repository import GraphRepository
-from graphclaw.db.queries.dependencies import (
+from graphclaw.db.age.connection import create_pool, get_connection
+from graphclaw.db.age.queries.dependencies import (
     get_downstream_dependents,
 )
+from graphclaw.db.age.repository import AgeGraphStore
+
+# Type alias for test code compatibility
+GraphRepository = AgeGraphStore
 
 # ---------------------------------------------------------------------------
 # Configuration

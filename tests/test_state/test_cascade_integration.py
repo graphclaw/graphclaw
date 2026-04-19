@@ -31,13 +31,13 @@ from httpx import ASGITransport, AsyncClient
 from graphclaw.api.deps import get_graph_store, get_state_machine
 from graphclaw.api.state import router as state_router
 from graphclaw.auth.middleware import require_auth
+from graphclaw.db.age.connection import create_pool
 from graphclaw.db.age.repository import AgeGraphStore
-from graphclaw.db.connection import create_pool
 from graphclaw.models.base import generate_task_id
 from graphclaw.models.enums import GateType, TaskState, TaskType
 from graphclaw.models.nodes import TaskNode
 from graphclaw.models.type_metadata import CompositeMetadata
-from graphclaw.state.cascade import activate_next_in_chain, check_composite_completion
+from graphclaw.state.cascade import activate_next_in_chain
 
 pytestmark = pytest.mark.integration
 

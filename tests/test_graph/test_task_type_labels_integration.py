@@ -16,8 +16,8 @@ from datetime import datetime, timezone
 import pytest
 import pytest_asyncio
 
+from graphclaw.db.age.connection import create_pool
 from graphclaw.db.age.repository import AgeGraphStore
-from graphclaw.db.connection import create_pool
 from graphclaw.models.base import generate_task_id
 from graphclaw.models.enums import TaskType
 from graphclaw.models.nodes import TaskNode
@@ -130,7 +130,7 @@ async def test_generic_task_node_label_no_longer_used(repo: AgeGraphStore):
     try:
         label = await _get_label_for_node(repo, task.id)
         assert label != "TaskNode", (
-            f"Task was stored under generic 'TaskNode' label — fix not applied"
+            "Task was stored under generic 'TaskNode' label — fix not applied"
         )
     finally:
         await repo.delete_node(task.id)

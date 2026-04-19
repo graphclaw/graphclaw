@@ -21,8 +21,8 @@ import pytest
 import pytest_asyncio
 
 from graphclaw.agent.main_orchestrator import MainOrchestrator as AgentLoop
+from graphclaw.db.age.connection import create_pool
 from graphclaw.db.age.repository import AgeGraphStore
-from graphclaw.db.connection import create_pool
 from graphclaw.infra.storage import S3StorageClient, StoragePaths
 from graphclaw.scoring.engine import ScoringEngine
 from graphclaw.state.machine import StateMachine
@@ -120,6 +120,14 @@ class _NodeStub:
 
     def model_dump(self, **kwargs) -> dict:
         return self._props
+
+
+class _FakeBroker:
+    def __init__(self) -> None:
+        self.published: list[tuple[str, str]] = []
+
+    async def publish(self, queue: str, payload: str) -> None:
+        self.published.append((queue, payload))
 
 
 # ---------------------------------------------------------------------------
@@ -395,3 +403,161 @@ class TestToolGetTaskDetailsWithEdges:
         # Either "error" key or "not_found" status
         assert "error" in result or result.get("found") is False
 
+
+# ---------------------------------------------------------------------------
+# Section 12 integration: create_agent + delegation source resolution
+# ---------------------------------------------------------------------------
+
+
+class TestSection12SubAgentIntegration:
+    @pytest.mark.asyncio
+    async def test_create_agent_writes_manifest_and_lists_agent(self, loop_instance, storage):
+        user_id = f"usr-s12-{uuid.uuid4().hex[:6]}"
+
+        created = await loop_instance._tool_create_agent(
+            user_id,
+            {
+                "name": "Research Helper",
+                "purpose": "Researches external information and summarizes findings.",
+                "skills": ["web_search", "summarization"],
+                "mcp_servers": ["mcp-web"],
+                "tool_hint": "Use for web research and concise summaries.",
+            },
+        )
+        assert created.get("status") == "created"
+
+        agent_id = created["agent_id"]
+        manifest_path = StoragePaths.agent_manifest(user_id, agent_id)
+        profile_path = StoragePaths.agent_profile(user_id, agent_id)
+        config_path = StoragePaths.agent_config(user_id, agent_id)
+        context_path = StoragePaths.agent_memory_working(user_id, agent_id)
+
+        try:
+            raw_manifest = await storage.read(manifest_path)
+            manifest = json.loads(raw_manifest.decode())
+            assert manifest["agent_id"] == agent_id
+            assert manifest["type"] == "user"
+            assert "web_search" in manifest.get("capabilities", [])
+
+            listed = await loop_instance._tool_list_available_agents(user_id, {})
+            listed_ids = {a["agent_id"] for a in listed.get("agents", [])}
+            assert agent_id in listed_ids
+        finally:
+            for path in [context_path, config_path, profile_path, manifest_path]:
+                try:
+                    await storage.delete(path)
+                except Exception:
+                    pass
+
+    @pytest.mark.asyncio
+    async def test_delegate_to_system_agent_sets_agent_source_system(
+        self, loop_instance, storage, db_pool
+    ):
+        from graphclaw.gateway.seeding import seed_system_content
+
+        await seed_system_content(storage)
+
+        repo = AgeGraphStore(db_pool)
+        user_id = f"usr-s12-sys-{uuid.uuid4().hex[:6]}"
+        task = _task_props(user_id, "System Agent Delegation Task")
+        await repo.create_node(_NodeStub(task))
+
+        broker = _FakeBroker()
+        loop_instance._broker = broker
+        loop_instance._current_session_id = f"SES-S12-{uuid.uuid4().hex[:6]}"
+
+        try:
+            result = await loop_instance._tool_delegate_to_agent(
+                user_id,
+                {
+                    "task_id": task["id"],
+                    "agent_id": "comms",
+                    "instructions": "Check latest replies from email channel.",
+                },
+            )
+            assert result.get("status") == "delegated"
+            assert len(broker.published) == 1
+
+            queue, payload = broker.published[0]
+            assert queue == "agent_jobs"
+            job = json.loads(payload)
+            assert job["agent_id"] == "comms"
+            assert job["agent_source"] == "system"
+            assert job["user_id"] == user_id
+        finally:
+            await repo.delete_node(task["id"])
+
+    @pytest.mark.asyncio
+    async def test_delegate_to_unknown_agent_returns_error(self, loop_instance, db_pool):
+        repo = AgeGraphStore(db_pool)
+        user_id = f"usr-s12-miss-{uuid.uuid4().hex[:6]}"
+        task = _task_props(user_id, "Missing Agent Delegation Task")
+        await repo.create_node(_NodeStub(task))
+
+        try:
+            result = await loop_instance._tool_delegate_to_agent(
+                user_id,
+                {
+                    "task_id": task["id"],
+                    "agent_id": f"missing-agent-{uuid.uuid4().hex[:6]}",
+                    "instructions": "Should fail due to missing manifest",
+                },
+            )
+            assert "error" in result
+        finally:
+            await repo.delete_node(task["id"])
+
+    @pytest.mark.asyncio
+    async def test_delegate_to_user_agent_sets_agent_source_user(
+        self, loop_instance, storage, db_pool
+    ):
+        repo = AgeGraphStore(db_pool)
+        user_id = f"usr-s12-usr-{uuid.uuid4().hex[:6]}"
+        task = _task_props(user_id, "User Agent Delegation Task")
+        await repo.create_node(_NodeStub(task))
+
+        created = await loop_instance._tool_create_agent(
+            user_id,
+            {
+                "name": "Inbox Assistant",
+                "purpose": "Handles communication follow-ups.",
+                "skills": ["email_read"],
+            },
+        )
+        assert created.get("status") == "created"
+        agent_id = created["agent_id"]
+
+        manifest_path = StoragePaths.agent_manifest(user_id, agent_id)
+        profile_path = StoragePaths.agent_profile(user_id, agent_id)
+        config_path = StoragePaths.agent_config(user_id, agent_id)
+        context_path = StoragePaths.agent_memory_working(user_id, agent_id)
+
+        broker = _FakeBroker()
+        loop_instance._broker = broker
+        loop_instance._current_session_id = f"SES-S12-{uuid.uuid4().hex[:6]}"
+
+        try:
+            result = await loop_instance._tool_delegate_to_agent(
+                user_id,
+                {
+                    "task_id": task["id"],
+                    "agent_id": agent_id,
+                    "instructions": "Review pending communication updates.",
+                },
+            )
+            assert result.get("status") == "delegated"
+            assert len(broker.published) == 1
+
+            queue, payload = broker.published[0]
+            assert queue == "agent_jobs"
+            job = json.loads(payload)
+            assert job["agent_id"] == agent_id
+            assert job["agent_source"] == "user"
+            assert job["user_id"] == user_id
+        finally:
+            await repo.delete_node(task["id"])
+            for path in [context_path, config_path, profile_path, manifest_path]:
+                try:
+                    await storage.delete(path)
+                except Exception:
+                    pass

@@ -300,25 +300,29 @@ The `db/` directory contains a shim layer sitting on top of the real implementat
 - Deleted `db/utils.py` (was only imported by those three files)
 - Canonical implementations remain in `db/age/queries/` (critical_path.py, dependencies.py, scoring_queries.py, engine.py)
 
-**O-DEAD-03: `db/connection.py` is a live shim (keep for now)**
-- Re-exports `_setup_age`, `create_pool`, `get_connection` from `db/age/connection.py`
-- Used by 5 CLI import lines across `cli/_shared.py`, `cli/agent_commands.py`, `cli/graph_commands.py`
-- Keep until CLI is updated to import directly from `db/age/connection.py`
+**O-DEAD-03: `db/connection.py` shim removed after import migration** ✅ FIXED
+- Deleted `db/connection.py` after migrating all live imports to `db/age/connection.py`
+- Updated all remaining references across CLI modules, integration tests, and utility scripts
+- Canonical connection import path is now `graphclaw.db.age.connection` (with top-level facade exports still available from `graphclaw.db`)
 
-**Files to delete (safe):**
+**Files deleted (safe):**
 - `db/graph_repository.py`
 - `db/_compat.py`
 - `db/queries/critical_path.py`
 - `db/queries/dependencies.py`
 - `db/queries/scoring_queries.py`
-- `db/utils.py` (after the above are removed)
+- `db/utils.py`
+- `db/connection.py`
 
-**Files to update:**
-- `db/__init__.py` — remove `GraphRepository` from exports
+**Files updated:**
+- `db/__init__.py` — `GraphRepository` export removed
+- CLI, tests, and scripts now import connection helpers from `db/age/connection.py`
 
 ---
 
 ## 10. MCPServerNode Design Split
+
+Section status: COMPLETE (3/3 subsections done: O-MCP-01, O-MCP-02, O-MCP-03)
 
 ### Observations / Gaps
 
@@ -527,29 +531,39 @@ Progress snapshot:
 
 ## 12. Sub-agent System — Comms Agent + Agent Discovery
 
+Section status: COMPLETE (5/5 subsections done: 12.1, O-SAGENT-01, O-SAGENT-02, 12.3, 12.4)
+
 ### 12.1 Agent Discovery Gap
 
 **Problem:** The main agent has no way to discover what agents are available. `delegate_to_agent` requires passing `agent_id` explicitly, but there is no `list_available_agents` tool and no agent catalog. The LLM cannot know what agents exist unless told in the prompt.
 
-**Decision:** 
+**Decision:**
 - Add `list_available_agents` tool to the core tool set
 - Inject a compact agent catalog into the system prompt (built by `AgentCatalog` class in `agent/catalog.py`)
 - Every agent (system or user-created) has a `manifest.json` with `agent_id`, `type`, `description`, `capabilities`, `tool_hint`
 - The compact catalog (~100 tokens) in the system prompt: agent ID + `tool_hint` line per agent
 
+✅ FIXED
+- Added `AgentCatalog` (`src/graphclaw/agent/catalog.py`) and integrated it into `MainOrchestrator` system prompt construction via `_agent_catalog.get_compact_catalog(user_id)`
+- Added core tool handler `_tool_list_available_agents()` in `src/graphclaw/agent/main_orchestrator.py`
+- `ToolSetRegistry` core set includes `list_available_agents` (`src/graphclaw/agent/tool_registry.py`)
+
 ### 12.2 AgentJobEvent Bugs
 
-**O-SAGENT-01: `user_id` derived from `session_id` — broken**
+**O-SAGENT-01: `user_id` derived from `session_id` — broken** ✅ FIXED
 - `sub_agent_runner.py:382`: `user_id = job.session_id.split("-")[1] if "-" in job.session_id else ""`
 - Session IDs have format `"ses-000000"` — the split yields the index, not a user ID
 - Profile lookup fails silently; agent runs without context
 
-**O-SAGENT-02: No `agent_source` field — system agents not distinguishable**
+**O-SAGENT-02: No `agent_source` field — system agents not distinguishable** ✅ FIXED
 - `AgentJobEvent` has no field to indicate whether the target agent is a system agent or user agent
 - `SubAgentRunner` always looks up profile at `{user_id}/agents/{agent_id}/profile.md`
 - System agents at `system/agents/{agent_id}/profile.md` are never found
 
-**Fix (both bugs):** Add `user_id: str = ""` and `agent_source: str = "user"` to `AgentJobEvent`. `_tool_delegate_to_agent()` in `loop.py` resolves the source by checking `system/agents/{agent_id}/manifest.json` first, then `{user_id}/agents/{agent_id}/manifest.json`. `SubAgentRunner._build_system_prompt()` branches on `job.agent_source`.
+Implemented:
+- `AgentJobEvent` now includes explicit `user_id` and `agent_source` in `src/graphclaw/agent/sub_agent_runner.py`
+- `_tool_delegate_to_agent()` in `src/graphclaw/agent/main_orchestrator.py` resolves and publishes both fields into `AGENT_JOBS`
+- `SubAgentRunner._build_system_prompt()` branches on `job.agent_source` and loads system-agent profile from `system/agents/{agent_id}/profile.md`
 
 ### 12.3 System Agent Directory Layout
 
@@ -577,6 +591,11 @@ User-created agents remain at `{user_id}/agents/{agent_id}/` and also gain a `ma
 - `agent_manifest(user_id, agent_id)` → `f"{user_id}/agents/{agent_id}/manifest.json"`
 - `agents_prefix(user_id)` → `f"{user_id}/agents/"`
 
+✅ FIXED
+- Added all `StoragePaths` helpers above in `src/graphclaw/infra/storage.py`
+- Updated `_tool_create_agent()` (`src/graphclaw/agent/main_orchestrator.py`) to write user-agent `manifest.json` alongside `profile.md`, `config.json`, and working context
+- Added legacy arg compatibility in `_tool_create_agent()` (`profile`/`capabilities` aliases) while standardizing on `name`/`purpose`/`skills`
+
 ### 12.4 Comms Agent
 
 **Decision:** Replace the `check_inbox` tool (which reads from MinIO preprocessed inbox) with a `comms` system agent that connects to live communication channels via MCP tools.
@@ -596,6 +615,12 @@ User-created agents remain at `{user_id}/agents/{agent_id}/` and also gain a `ma
 
 **`check_inbox` tool removed** from `loop.py` tool sets.
 
+✅ FIXED
+- Seeded `system/agents/comms/{profile.md,manifest.json,config.json}` via `seed_system_content()` (`src/graphclaw/gateway/seeding.py`)
+- Gateway lifespan invokes seeding on startup (`src/graphclaw/gateway/app.py`)
+- `check_inbox` removed from orchestrator tool paths; delegation flow uses `delegate_to_agent` and `AGENT_JOBS`
+- Delegation now validates manifest existence before publish (system first, then user), preventing silent dispatch to unknown agents
+
 ### 12.5 Files to Create / Modify (for §12)
 
 | # | File | Action |
@@ -603,8 +628,21 @@ User-created agents remain at `{user_id}/agents/{agent_id}/` and also gain a `ma
 | 1 | `src/graphclaw/infra/storage.py` | Add system_agent_* and agent_manifest paths |
 | 2 | `src/graphclaw/agent/catalog.py` | NEW: `AgentCatalog` class (discovery + compact list) |
 | 3 | `src/graphclaw/agent/sub_agent_runner.py` | Add `user_id`/`agent_source` to `AgentJobEvent`; fix `_build_system_prompt()` |
-| 4 | `src/graphclaw/agent/loop.py` | Add `list_available_agents` tool; resolve agent source in `_tool_delegate_to_agent()`; pass `user_id`/`agent_source` in `AgentJobEvent`; remove `check_inbox` |
+| 4 | `src/graphclaw/agent/main_orchestrator.py` | Add `list_available_agents` tool; resolve/validate agent source in `_tool_delegate_to_agent()`; pass `user_id`/`agent_source` in `AgentJobEvent`; remove `check_inbox` |
 | 5 | Gateway lifespan / seeding | Seed `system/agents/comms/` (profile.md, manifest.json, config.json) |
+
+Progress snapshot:
+- #1 ✅ done
+- #2 ✅ done
+- #3 ✅ done
+- #4 ✅ done
+- #5 ✅ done
+
+Validation completed against real local services (MinIO + AGE):
+- Extended integration suite `tests/test_agent/test_loop_new_tools_integration.py`
+- Verified user-agent creation writes `manifest.json` and appears in `list_available_agents`
+- Verified `delegate_to_agent` publishes `AgentJobEvent` with `agent_source="system"` for `comms` and `agent_source="user"` for user-created agents
+- Verified `AgentJobEvent.user_id` is propagated from caller (not derived from `session_id`)
 
 ---
 

@@ -19,8 +19,8 @@ from datetime import datetime, timedelta, timezone
 import pytest
 import pytest_asyncio
 
+from graphclaw.db.age.connection import create_pool
 from graphclaw.db.age.repository import AgeGraphStore
-from graphclaw.db.connection import create_pool
 from graphclaw.models.base import generate_task_id
 from graphclaw.models.enums import TaskState, TaskType
 from graphclaw.models.nodes import TaskNode
@@ -126,7 +126,6 @@ class TestScoreTaskUpdatesInMemory:
 class TestScoreAllPersistsToAGE:
     async def test_score_all_persists_computed_priority(self, repo: AgeGraphStore):
         """score_all() must write computed_priority into the scoring block in AGE."""
-        import json
 
         from graphclaw.api.state import _deserialize_task_fields
 
@@ -175,7 +174,6 @@ class TestScoreAllPersistsToAGE:
 
     async def test_score_all_persists_scoring_block(self, repo: AgeGraphStore):
         """score_all() must write the scoring sub-block (timeline_urgency etc.) to AGE."""
-        import json
 
         from graphclaw.api.state import _deserialize_task_fields
 

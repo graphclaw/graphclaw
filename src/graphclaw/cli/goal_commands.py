@@ -18,8 +18,7 @@ Public API
 Dependencies
 ------------
 - graphclaw.cli.formatters: format_goal_panel, format_goal_table.
-- graphclaw.db.connection: create_pool.
-- graphclaw.db.graph_repository: GraphRepository.
+- graphclaw.cli._shared: cli_pool.
 - graphclaw.models.nodes: GoalNode.
 - typer: CLI framework.
 - rich: Console output.

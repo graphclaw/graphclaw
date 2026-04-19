@@ -24,10 +24,8 @@ from httpx import ASGITransport, AsyncClient
 from graphclaw.api.deps import get_graph_store
 from graphclaw.api.graph import router as graph_router
 from graphclaw.auth.middleware import require_auth
+from graphclaw.db.age.connection import create_pool
 from graphclaw.db.age.repository import AgeGraphStore
-from graphclaw.db.connection import create_pool
-from graphclaw.models.base import generate_task_id
-from graphclaw.models.enums import TaskState, TaskType
 from graphclaw.models.nodes import UserNode
 
 pytestmark = pytest.mark.integration
@@ -85,9 +83,7 @@ def app(repo: AgeGraphStore):
 
 @pytest_asyncio.fixture
 async def client(app: FastAPI):
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as c:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         yield c
 
 
@@ -113,9 +109,7 @@ async def _find_followup(repo: AgeGraphStore, delegated_id: str) -> dict | None:
 
 
 class TestFollowUpSpawnViaRestAPI:
-    async def test_delegated_task_spawns_followup(
-        self, client: AsyncClient, repo: AgeGraphStore
-    ):
+    async def test_delegated_task_spawns_followup(self, client: AsyncClient, repo: AgeGraphStore):
         """POST /graph/tasks with task_type=DELEGATED creates a FollowUp sibling."""
         resp = await client.post(
             "/graph/tasks",
@@ -186,9 +180,7 @@ class TestFollowUpSpawnViaRestAPI:
 
         try:
             edges = await repo.get_edges(atomic_id, direction="in", edge_type="FOLLOW_UP_FOR")
-            assert len(edges) == 0, (
-                f"ATOMIC task should not have FOLLOW_UP_FOR edges, got: {edges}"
-            )
+            assert len(edges) == 0, f"ATOMIC task should not have FOLLOW_UP_FOR edges, got: {edges}"
         finally:
             await repo.delete_node(atomic_id)
 
@@ -231,10 +223,11 @@ class TestFollowUpSpawnViaRestAPI:
 class TestFollowUpSpawnViaAgentLoop:
     async def test_delegated_task_spawns_followup_via_agent(self, repo: AgeGraphStore):
         """AgentLoop._tool_create_task with task_type=delegated spawns a FollowUp."""
+        from unittest.mock import MagicMock
+
         from graphclaw.agent.main_orchestrator import MainOrchestrator as AgentLoop
         from graphclaw.scoring.engine import ScoringEngine
         from graphclaw.state.machine import StateMachine
-        from unittest.mock import AsyncMock, MagicMock
 
         loop = AgentLoop(
             graph_repo=repo,
@@ -244,15 +237,17 @@ class TestFollowUpSpawnViaAgentLoop:
 
         result = await loop._tool_create_task(
             user_id=_TEST_USER,
-            args={"title": "Agent delegated", "task_type": "delegated", "assigned_to": _TEST_ASSIGNEE},
+            args={
+                "title": "Agent delegated",
+                "task_type": "delegated",
+                "assigned_to": _TEST_ASSIGNEE,
+            },
         )
         delegated_id = result["task_id"]
 
         try:
             followup = await _find_followup(repo, delegated_id)
-            assert followup is not None, (
-                f"AgentLoop should auto-spawn FollowUp for {delegated_id}"
-            )
+            assert followup is not None, f"AgentLoop should auto-spawn FollowUp for {delegated_id}"
             assert followup.get("task_type") == "FOLLOWUP"
             assert followup.get("state") == "INACTIVE_PENDING"
         finally:
@@ -260,4 +255,3 @@ class TestFollowUpSpawnViaAgentLoop:
             if followup:
                 await repo.delete_node(followup["id"])
             await repo.delete_node(delegated_id)
-

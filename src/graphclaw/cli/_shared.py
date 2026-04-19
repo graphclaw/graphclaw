@@ -18,7 +18,7 @@ Public API
 
 Dependencies
 ------------
-- graphclaw.db.connection: create_pool.
+- graphclaw.db.age.connection: create_pool.
 - graphclaw.db: GraphStore ABC, AgeGraphStore concrete implementation.
 """
 
@@ -30,7 +30,7 @@ import sys
 from contextlib import asynccontextmanager
 
 from graphclaw.db.age import AgeGraphStore
-from graphclaw.db.connection import create_pool
+from graphclaw.db.age.connection import create_pool
 
 
 def run_async(coro: object) -> object:  # type: ignore[return]

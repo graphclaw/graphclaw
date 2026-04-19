@@ -18,8 +18,8 @@ import uuid
 import pytest
 import pytest_asyncio
 
+from graphclaw.db.age.connection import create_pool
 from graphclaw.db.age.repository import AgeGraphStore
-from graphclaw.db.connection import create_pool
 from graphclaw.infra.storage import S3StorageClient, StoragePaths
 from graphclaw.mcp.approval import GatedApprovalService
 from graphclaw.mcp.registry import MCPRegistry

@@ -24,8 +24,8 @@ from httpx import ASGITransport, AsyncClient
 from graphclaw.api.deps import get_graph_store, get_state_machine
 from graphclaw.api.state import router as state_router
 from graphclaw.auth.middleware import require_auth
+from graphclaw.db.age.connection import create_pool
 from graphclaw.db.age.repository import AgeGraphStore
-from graphclaw.db.connection import create_pool
 from graphclaw.models.base import generate_task_id
 from graphclaw.models.enums import TaskState, TaskType
 from graphclaw.models.nodes import TaskNode
@@ -72,9 +72,7 @@ def app(repo: AgeGraphStore):
 
 @pytest_asyncio.fixture
 async def client(app: FastAPI):
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as c:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         yield c
 
 

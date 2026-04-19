@@ -16,8 +16,8 @@ Public API
 
 Dependencies
 ------------
-- graphclaw.db.connection: create_pool, get_connection.
-- graphclaw.db.graph_repository: GraphRepository.
+- graphclaw.cli._shared: cli_pool.
+- graphclaw.db.age.connection: get_connection.
 - typer: CLI framework.
 - rich: Console and Table for output.
 
@@ -80,7 +80,7 @@ async def _stats_async() -> None:
 
 
 async def _reset_async(labels: list[str]) -> None:
-    from graphclaw.db.connection import get_connection
+    from graphclaw.db.age.connection import get_connection
 
     async with cli_pool() as (pool, _):
         for label in labels:
@@ -101,7 +101,7 @@ async def _reset_async(labels: list[str]) -> None:
 
 
 async def _query_async(cypher: str) -> None:
-    from graphclaw.db.connection import get_connection
+    from graphclaw.db.age.connection import get_connection
 
     async with cli_pool() as (pool, _):
         try:

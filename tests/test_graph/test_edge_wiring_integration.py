@@ -28,11 +28,9 @@ from httpx import ASGITransport, AsyncClient
 from graphclaw.api.deps import get_graph_store
 from graphclaw.api.graph import router as graph_router
 from graphclaw.auth.middleware import require_auth
+from graphclaw.db.age.connection import create_pool
 from graphclaw.db.age.repository import AgeGraphStore
-from graphclaw.db.connection import create_pool
-from graphclaw.models.base import generate_task_id
-from graphclaw.models.enums import TaskState, TaskType
-from graphclaw.models.nodes import TaskNode, UserNode
+from graphclaw.models.nodes import UserNode
 
 pytestmark = pytest.mark.integration
 
@@ -64,7 +62,6 @@ async def repo(pool):
 @pytest_asyncio.fixture(autouse=True)
 async def seed_user_nodes(repo: AgeGraphStore):
     """Create stub UserNodes so OWNED_BY / ASSIGNED_TO edges can link to real nodes."""
-    from graphclaw.models.nodes import UserNode
 
     for uid in (_TEST_USER, _TEST_ASSIGNEE):
         existing = await repo.get_node(uid)
@@ -93,9 +90,7 @@ def app(repo: AgeGraphStore):
 
 @pytest_asyncio.fixture
 async def client(app: FastAPI):
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as c:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         yield c
 
 
@@ -140,9 +135,7 @@ class TestCreateTaskEdgesViaRestAPI:
             assert "OWNED_BY" in _edge_types(edges), (
                 f"Expected OWNED_BY edge from {task_id}, got: {_edge_types(edges)}"
             )
-            owned_by_edge = next(
-                e for e in edges if e.get("_label") == "OWNED_BY"
-            )
+            owned_by_edge = next(e for e in edges if e.get("_label") == "OWNED_BY")
             assert _edge_target(owned_by_edge) == _TEST_USER
         finally:
             await repo.delete_node(task_id)
@@ -189,9 +182,7 @@ class TestCreateTaskEdgesViaRestAPI:
             assert "OWNED_BY" in edge_types, f"Missing OWNED_BY edge for {task_id}"
             assert "ASSIGNED_TO" in edge_types, f"Missing ASSIGNED_TO edge for {task_id}"
 
-            assigned_edge = next(
-                e for e in edges if e.get("_label") == "ASSIGNED_TO"
-            )
+            assigned_edge = next(e for e in edges if e.get("_label") == "ASSIGNED_TO")
             assert _edge_target(assigned_edge) == _TEST_ASSIGNEE
         finally:
             await repo.delete_node(task_id)
@@ -205,9 +196,6 @@ class TestCreateTaskEdgesViaRestAPI:
 class TestCreateTaskEdgesViaAgentLoop:
     async def test_owned_by_edge_created_by_agent_tool(self, repo: AgeGraphStore):
         """AgentLoop._tool_create_task creates OWNED_BY edge when it creates a task."""
-        from unittest.mock import AsyncMock, MagicMock
-
-        from graphclaw.agent.main_orchestrator import MainOrchestrator as AgentLoop
 
         loop = _make_agent_loop(repo)
 
@@ -241,9 +229,7 @@ class TestCreateTaskEdgesViaAgentLoop:
             assert "OWNED_BY" in edge_types, f"Missing OWNED_BY for {task_id}"
             assert "ASSIGNED_TO" in edge_types, f"Missing ASSIGNED_TO for {task_id}"
 
-            assigned_edge = next(
-                e for e in edges if e.get("_label") == "ASSIGNED_TO"
-            )
+            assigned_edge = next(e for e in edges if e.get("_label") == "ASSIGNED_TO")
             assert _edge_target(assigned_edge) == _TEST_ASSIGNEE
         finally:
             await repo.delete_node(task_id)
@@ -298,4 +284,3 @@ def _make_agent_loop(repo: AgeGraphStore):
         state_machine=mock_sm,
     )
     return loop
-
