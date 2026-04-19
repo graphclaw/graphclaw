@@ -674,7 +674,11 @@ class AgentLoop:
 
         # ── run.started ──────────────────────────────────────────────────────
         started_event = make_event(
-            ET.RUN_STARTED, run_id, sid, user_id, seq,
+            ET.RUN_STARTED,
+            run_id,
+            sid,
+            user_id,
+            seq,
             RunStartedPayload(message_preview=text[:100]),
         )
         seq += 1
@@ -683,7 +687,11 @@ class AgentLoop:
 
         if self._llm is None:
             failed_event = make_event(
-                ET.RUN_FAILED, run_id, sid, user_id, seq,
+                ET.RUN_FAILED,
+                run_id,
+                sid,
+                user_id,
+                seq,
                 RunFailedPayload(
                     error_class="NotInitialised",
                     error_message="LLM client is not connected.",
@@ -745,7 +753,11 @@ class AgentLoop:
                     elif chunk.content_delta:
                         accumulated_text += chunk.content_delta
                         delta_event = make_event(
-                            ET.ASSISTANT_DELTA, run_id, sid, user_id, seq,
+                            ET.ASSISTANT_DELTA,
+                            run_id,
+                            sid,
+                            user_id,
+                            seq,
                             AssistantDeltaPayload(delta=chunk.content_delta),
                         )
                         seq += 1
@@ -783,7 +795,11 @@ class AgentLoop:
                     for tc in tool_calls:
                         tool_call_count += 1
                         t_start = make_event(
-                            ET.TOOL_STARTED, run_id, sid, user_id, seq,
+                            ET.TOOL_STARTED,
+                            run_id,
+                            sid,
+                            user_id,
+                            seq,
                             ToolStartedPayload(
                                 tool_name=tc.name,
                                 args_summary=sanitize_args(tc.arguments),
@@ -795,18 +811,18 @@ class AgentLoop:
 
                         t0_tool = _time.monotonic()
                         try:
-                            tool_result = await self._execute_tool(
-                                user_id, tc.name, tc.arguments
-                            )
+                            tool_result = await self._execute_tool(user_id, tc.name, tc.arguments)
                             latency = int((_time.monotonic() - t0_tool) * 1000)
                             t_done = make_event(
-                                ET.TOOL_COMPLETED, run_id, sid, user_id, seq,
+                                ET.TOOL_COMPLETED,
+                                run_id,
+                                sid,
+                                user_id,
+                                seq,
                                 ToolCompletedPayload(
                                     tool_name=tc.name,
                                     latency_ms=latency,
-                                    result_summary=sanitize_text(
-                                        str(tool_result), 300
-                                    ),
+                                    result_summary=sanitize_text(str(tool_result), 300),
                                 ),
                             )
                             seq += 1
@@ -822,7 +838,11 @@ class AgentLoop:
                         except Exception as tc_exc:  # noqa: BLE001
                             latency = int((_time.monotonic() - t0_tool) * 1000)
                             t_fail = make_event(
-                                ET.TOOL_FAILED, run_id, sid, user_id, seq,
+                                ET.TOOL_FAILED,
+                                run_id,
+                                sid,
+                                user_id,
+                                seq,
                                 ToolFailedPayload(
                                     tool_name=tc.name,
                                     error_class=type(tc_exc).__name__,
@@ -845,7 +865,11 @@ class AgentLoop:
 
                 # ── Text-only branch — emit assistant.final then run.completed ─
                 final_event = make_event(
-                    ET.ASSISTANT_FINAL, run_id, sid, user_id, seq,
+                    ET.ASSISTANT_FINAL,
+                    run_id,
+                    sid,
+                    user_id,
+                    seq,
                     AssistantFinalPayload(
                         content_length=len(accumulated_text),
                         input_tokens=total_input_tokens,
@@ -857,7 +881,11 @@ class AgentLoop:
                 yield final_event
 
                 completed_event = make_event(
-                    ET.RUN_COMPLETED, run_id, sid, user_id, seq,
+                    ET.RUN_COMPLETED,
+                    run_id,
+                    sid,
+                    user_id,
+                    seq,
                     RunCompletedPayload(
                         input_tokens=total_input_tokens,
                         output_tokens=total_output_tokens,
@@ -871,7 +899,11 @@ class AgentLoop:
 
             # Safety cap reached
             cap_event = make_event(
-                ET.RUN_FAILED, run_id, sid, user_id, seq,
+                ET.RUN_FAILED,
+                run_id,
+                sid,
+                user_id,
+                seq,
                 RunFailedPayload(
                     error_class="ToolLoopCapReached",
                     error_message="Agent tool-call loop limit (15) reached.",
@@ -884,7 +916,11 @@ class AgentLoop:
         except Exception as exc:  # noqa: BLE001
             logger.exception("AgentLoop.stream: unhandled error for user_id=%s", user_id)
             err_event = make_event(
-                ET.RUN_FAILED, run_id, sid, user_id, seq,
+                ET.RUN_FAILED,
+                run_id,
+                sid,
+                user_id,
+                seq,
                 RunFailedPayload(
                     error_class=type(exc).__name__,
                     error_message=sanitize_text(str(exc), 200),
@@ -1362,9 +1398,7 @@ class AgentLoop:
                     task_id,
                 )
             except Exception as exc:
-                logger.warning(
-                    "AgentLoop: could not auto-spawn follow-up for %s: %s", task_id, exc
-                )
+                logger.warning("AgentLoop: could not auto-spawn follow-up for %s: %s", task_id, exc)
 
         return {
             "task_id": task_id,

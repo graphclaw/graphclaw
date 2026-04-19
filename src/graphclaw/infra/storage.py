@@ -297,6 +297,101 @@ class StoragePaths:
         return f"{user_id}/attachments/"
 
     # ------------------------------------------------------------------
+    # System prompt paths
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def system_prompt_header() -> str:
+        """Main agent system prompt header (editable without redeployment).
+
+        Example: ``system/prompts/system_header.md``
+        """
+        return "system/prompts/system_header.md"
+
+    @staticmethod
+    def system_prompts_prefix() -> str:
+        """Prefix to list all system prompt files."""
+        return "system/prompts/"
+
+    # ------------------------------------------------------------------
+    # System knowledge paths
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def system_knowledge(topic: str) -> str:
+        """One domain knowledge document for the agent.
+
+        Example: ``system/knowledge/node_creation_rules.md``
+        """
+        return f"system/knowledge/{topic}.md"
+
+    @staticmethod
+    def system_knowledge_prefix() -> str:
+        """Prefix to list all system knowledge documents."""
+        return "system/knowledge/"
+
+    # ------------------------------------------------------------------
+    # System agent paths
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def system_agent_root(agent_id: str) -> str:
+        """Root prefix for a system-level agent's objects.
+
+        Example: ``system/agents/comms/``
+        """
+        return f"system/agents/{agent_id}/"
+
+    @staticmethod
+    def system_agent_profile(agent_id: str) -> str:
+        """System agent persona / instructions document.
+
+        Example: ``system/agents/comms/profile.md``
+        """
+        return f"system/agents/{agent_id}/profile.md"
+
+    @staticmethod
+    def system_agent_manifest(agent_id: str) -> str:
+        """System agent manifest JSON (capabilities, tool_hint, invocation type).
+
+        Example: ``system/agents/comms/manifest.json``
+        """
+        return f"system/agents/{agent_id}/manifest.json"
+
+    @staticmethod
+    def system_agent_config(agent_id: str) -> str:
+        """System agent operational config JSON.
+
+        Example: ``system/agents/comms/config.json``
+        """
+        return f"system/agents/{agent_id}/config.json"
+
+    @staticmethod
+    def system_agents_prefix() -> str:
+        """Prefix to list all system agent directories."""
+        return "system/agents/"
+
+    # ------------------------------------------------------------------
+    # User agent manifest paths (complement to existing agent_profile/config)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def agent_manifest(user_id: str, agent_id: str) -> str:
+        """User-created agent manifest JSON (capabilities, tool_hint).
+
+        Example: ``usr-abc123/agents/main/manifest.json``
+        """
+        return f"{user_id}/agents/{agent_id}/manifest.json"
+
+    @staticmethod
+    def agents_prefix(user_id: str) -> str:
+        """Prefix to list all agent directories for a user.
+
+        Example: ``usr-abc123/agents/``
+        """
+        return f"{user_id}/agents/"
+
+    # ------------------------------------------------------------------
     # Agent inbox paths
     # ------------------------------------------------------------------
 
@@ -400,10 +495,14 @@ class S3StorageClient(StorageClient):
         bucket: str,
         endpoint_url: str | None = None,
         region: str = "us-east-1",
+        aws_access_key_id: str | None = None,
+        aws_secret_access_key: str | None = None,
     ) -> None:
         self._bucket = bucket
         self._endpoint_url = endpoint_url
         self._region = region
+        self._aws_access_key_id = aws_access_key_id
+        self._aws_secret_access_key = aws_secret_access_key
         self._client: object | None = None  # lazy init
 
     # ------------------------------------------------------------------
@@ -418,6 +517,10 @@ class S3StorageClient(StorageClient):
             kwargs: dict = {"region_name": self._region}
             if self._endpoint_url is not None:
                 kwargs["endpoint_url"] = self._endpoint_url
+            if self._aws_access_key_id is not None:
+                kwargs["aws_access_key_id"] = self._aws_access_key_id
+            if self._aws_secret_access_key is not None:
+                kwargs["aws_secret_access_key"] = self._aws_secret_access_key
             self._client = boto3.client("s3", **kwargs)
         return self._client
 

@@ -132,6 +132,14 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
             )
             logger.info("GraphClaw: storage client initialised")
 
+            # Seed system content (idempotent — skips existing objects)
+            try:
+                from graphclaw.gateway.seeding import seed_system_content  # noqa: PLC0415
+
+                await seed_system_content(app.state.storage_client)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("GraphClaw: system content seeding failed — %s", exc)
+
             # Secrets backend
             secrets_backend = os.environ.get("SECRETS_BACKEND", "env_file")
             if secrets_backend == "aws_sm":
@@ -264,6 +272,24 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
                                 exc_info=exc,
                             )
 
+                    # User event publisher — Redis if available, else no-op
+                    _event_publisher = None
+                    try:
+                        from graphclaw.infra.user_events import (  # noqa: PLC0415
+                            NullUserEventPublisher,
+                            RedisUserEventPublisher,
+                        )
+
+                        _redis = getattr(app.state, "redis", None)
+                        if _redis is not None:
+                            _event_publisher = RedisUserEventPublisher(_redis)
+                            logger.info("GraphClaw: user event publisher (Redis) initialised")
+                        else:
+                            _event_publisher = NullUserEventPublisher()
+                            logger.info("GraphClaw: user event publisher (Null) initialised")
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning("GraphClaw: user event publisher init failed — %s", exc)
+
                     agent_loop = AgentLoop(
                         graph_repo=app.state.graph_store,
                         scoring_engine=app.state.scoring_engine,
@@ -277,6 +303,7 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
                         broker=broker,
                         dispatch_planner=_dispatch_planner,
                         sub_agent_pool=_sub_agent_pool,
+                        event_publisher=_event_publisher,
                     )
                     app.state.agent_loop = agent_loop
                     logger.info("GraphClaw: agent loop initialised (agent_id=%s)", agent_id)

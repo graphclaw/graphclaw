@@ -55,6 +55,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Query, Request, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from graphclaw.api.deps import CurrentUserDep, StorageClientDep
@@ -78,7 +79,7 @@ async def _load_history(user_id: str, storage_client) -> list[dict[str, Any]]:
     try:
         raw = await storage_client.read(_history_path(user_id))
         return json.loads(raw.decode())
-    except FileNotFoundError:
+    except Exception:  # noqa: BLE001 — treat any storage failure as empty history
         return []
 
 
@@ -183,8 +184,11 @@ async def send_chat_message(
     )
     history.append(user_message.model_dump())
 
-    # Generate agent response
-    agent_text = await _generate_agent_response(request, user_id, body.content)
+    # Generate agent response — pass loaded history and session_id
+    session_id = f"ses-{msg_index:06d}"
+    agent_text = await _generate_agent_response(
+        request, user_id, body.content, history=history, session_id=session_id
+    )
     agent_message = ChatMessage(
         message_id=f"msg-{msg_index:06d}-a",
         role="agent",
@@ -217,12 +221,23 @@ async def clear_chat_history(
 # ---------------------------------------------------------------------------
 
 
-async def _generate_agent_response(request: Request, user_id: str, user_text: str) -> str:
+async def _generate_agent_response(
+    request: Request,
+    user_id: str,
+    user_text: str,
+    history: list | None = None,
+    session_id: str | None = None,
+) -> str:
     """Try to get an AI response from AgentLoop; fall back to a placeholder."""
     agent_loop = getattr(request.app.state, "agent_loop", None)
     if agent_loop is not None and hasattr(agent_loop, "process_chat_message"):
         try:
-            return await agent_loop.process_chat_message(user_id, user_text)
+            return await agent_loop.process_chat_message(
+                user_id,
+                user_text,
+                conversation_history=history,
+                session_id=session_id,
+            )
         except Exception as exc:
             logger.warning("chat: agent_loop.process_chat_message failed: %s", exc)
 
@@ -231,4 +246,67 @@ async def _generate_agent_response(request: Request, user_id: str, user_text: st
         "I received your message. The agent loop is not yet connected in this "
         "environment. Once the backend is fully initialised I will be able to "
         "analyse your task graph and respond here."
+    )
+
+
+@router.post(
+    "/messages/stream",
+    status_code=status.HTTP_200_OK,
+    summary="Send a chat message and stream transparency events",
+    description=(
+        "Send a natural-language message and receive a ``text/event-stream`` "
+        "response.  Each SSE frame carries one ``AgentRunEvent`` (delta text, "
+        "tool calls, plan steps, etc.).  The run always ends with a "
+        "``run.completed`` or ``run.failed`` terminal event.  Chat history is "
+        "persisted after the terminal event."
+    ),
+)
+async def send_chat_message_stream(
+    body: ChatMessageRequest,
+    request: Request,
+    user_id: CurrentUserDep,
+    storage_client: StorageClientDep,
+) -> StreamingResponse:
+    """Stream agent transparency events for one chat turn."""
+    history = await _load_history(user_id, storage_client)
+    msg_index = len(history)
+    session_id = f"ses-{msg_index:06d}-stream"
+
+    agent_loop = getattr(request.app.state, "agent_loop", None)
+    if agent_loop is None or not hasattr(agent_loop, "process_chat_message_stream"):
+        # Fallback: emit a single run.failed SSE frame
+        import json as _json  # noqa: PLC0415
+
+        payload = _json.dumps(
+            {
+                "event_type": "run.failed",
+                "payload": {
+                    "schema_version": "1.0",
+                    "error_class": "NotInitialised",
+                    "error_message": "Agent loop is not available in this environment.",
+                    "duration_ms": 0,
+                },
+            }
+        )
+        fallback = f"event: run.failed\ndata: {payload}\n\n"
+        return StreamingResponse(
+            iter([fallback]),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    from graphclaw.api.chat_streaming import stream_chat_run  # noqa: PLC0415
+
+    generator = stream_chat_run(
+        agent_loop=agent_loop,
+        storage_client=storage_client,
+        user_id=user_id,
+        text=body.content,
+        history=history,
+        session_id=session_id,
+    )
+    return StreamingResponse(
+        generator,
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

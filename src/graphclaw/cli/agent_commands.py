@@ -540,7 +540,9 @@ def agent_send_welcome(
 # ---------------------------------------------------------------------------
 
 
-async def _chat_async(user_id: str, agent_id: str, message: str | None) -> None:
+async def _chat_async(
+    user_id: str, agent_id: str, message: str | None, trace: bool = False
+) -> None:
     """Run a single-message or interactive chat session with the agent."""
     try:
         import readline  # noqa: F401  (enables arrow keys / history on Linux/macOS)
@@ -612,15 +614,62 @@ async def _chat_async(user_id: str, agent_id: str, message: str | None) -> None:
 
     history: list[dict] = []
 
+    async def _run_with_trace(text: str) -> str:
+        """Run one turn via process_chat_message_stream and print trace events."""
+        from graphclaw.agent.run_events import RunEventType as ET  # noqa: PLC0415
+
+        full_text = ""
+        console.print()
+        async for event in agent_loop.process_chat_message_stream(
+            user_id=user_id,
+            text=text,
+            conversation_history=list(history),
+        ):
+            etype = event.event_type
+            payload = event.payload
+            if etype == ET.RUN_STARTED:
+                console.print(f"  [dim]▶ run started  ({event.run_id[:8]}…)[/dim]")
+            elif etype == ET.ASSISTANT_DELTA:
+                delta = getattr(payload, "delta", "")
+                console.print(delta, end="", highlight=False)
+                full_text += delta
+            elif etype == ET.ASSISTANT_FINAL:
+                console.print()  # newline after streamed text
+            elif etype == ET.TOOL_STARTED:
+                name = getattr(payload, "tool_name", "?")
+                args = getattr(payload, "args_summary", "")
+                console.print(f"  [yellow]⚙ calling {name}[/yellow]  [dim]{args}[/dim]")
+            elif etype == ET.TOOL_COMPLETED:
+                name = getattr(payload, "tool_name", "?")
+                ms = getattr(payload, "latency_ms", 0)
+                summary = getattr(payload, "result_summary", "")[:80]
+                console.print(f"  [green]✓ {name}[/green] [dim]({ms}ms) → {summary}[/dim]")
+            elif etype == ET.TOOL_FAILED:
+                name = getattr(payload, "tool_name", "?")
+                err = getattr(payload, "error_message", "")
+                console.print(f"  [red]✗ {name} failed:[/red] {err}")
+            elif etype == ET.RUN_COMPLETED:
+                in_t = getattr(payload, "input_tokens", 0)
+                out_t = getattr(payload, "output_tokens", 0)
+                ms = getattr(payload, "duration_ms", 0)
+                console.print(f"  [dim]✔ run completed  in={in_t} out={out_t} {ms}ms[/dim]")
+            elif etype == ET.RUN_FAILED:
+                err = getattr(payload, "error_message", "?")
+                console.print(f"  [red]run failed:[/red] {err}")
+        return full_text
+
     try:
         if message:
             # Single-shot mode
-            with console.status("[bold cyan]Betty is thinking...[/bold cyan]"):
-                reply = await agent_loop.process_chat_message(
-                    user_id=user_id,
-                    text=message,
-                    conversation_history=history,
-                )
+            if trace:
+                reply = await _run_with_trace(message)
+            else:
+                with console.status("[bold cyan]Betty is thinking...[/bold cyan]"):
+                    reply = await agent_loop.process_chat_message(
+                        user_id=user_id,
+                        text=message,
+                        conversation_history=history,
+                    )
             console.print(f"\n[bold cyan]Betty:[/bold cyan] {reply}\n")
         else:
             # Interactive REPL mode
@@ -645,12 +694,15 @@ async def _chat_async(user_id: str, agent_id: str, message: str | None) -> None:
                     console.print("[dim]Conversation history cleared.[/dim]")
                     continue
 
-                with console.status("[bold cyan]Betty is thinking...[/bold cyan]"):
-                    reply = await agent_loop.process_chat_message(
-                        user_id=user_id,
-                        text=user_input,
-                        conversation_history=history,
-                    )
+                if trace:
+                    reply = await _run_with_trace(user_input)
+                else:
+                    with console.status("[bold cyan]Betty is thinking...[/bold cyan]"):
+                        reply = await agent_loop.process_chat_message(
+                            user_id=user_id,
+                            text=user_input,
+                            conversation_history=history,
+                        )
 
                 console.print(f"\n[bold cyan]Betty:[/bold cyan] {reply}\n")
                 history.append({"role": "user", "content": user_input})
@@ -672,6 +724,12 @@ def agent_chat(
         help="User ID. Defaults to GRAPHCLAW_USER_ID env var.",
     ),
     agent_id: str = typer.Option("main", "--agent-id", help="Agent storage ID (default: main)."),
+    trace: bool = typer.Option(
+        False,
+        "--trace",
+        "-t",
+        help="Stream live run-trace events (tool calls, deltas, timing) to the terminal.",
+    ),
 ) -> None:
     """Chat with the Betty agent. Omit MESSAGE for an interactive REPL session."""
     resolved_user_id = user_id or os.environ.get("GRAPHCLAW_USER_ID", "")
@@ -679,7 +737,7 @@ def agent_chat(
         err_console.print("User ID required. Pass --user-id or set GRAPHCLAW_USER_ID env var.")
         raise typer.Exit(code=1)
     try:
-        run_async(_chat_async(resolved_user_id, agent_id, message))
+        run_async(_chat_async(resolved_user_id, agent_id, message, trace=trace))
     except SystemExit:
         raise
     except Exception as exc:
