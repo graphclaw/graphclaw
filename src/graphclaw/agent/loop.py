@@ -1321,6 +1321,51 @@ class AgentLoop:
             except Exception as exc:
                 logger.warning("AgentLoop: could not wire ASSIGNED_TO edge: %s", exc)
 
+        # Auto-spawn a FollowUp task for DELEGATED tasks (PRD §3.1, §6.2).
+        if task_type == TaskType.DELEGATED:
+            from datetime import timedelta
+
+            from graphclaw.models.type_metadata import DelegatedMetadata, FollowUpMetadata
+
+            followup_id = generate_task_id("AG", TaskType.FOLLOWUP)
+            scheduled_fire_at = now_task + timedelta(hours=48)
+            followup = TaskNode(
+                id=followup_id,
+                task_type=TaskType.FOLLOWUP,
+                title=f"Follow-up: {args['title']}",
+                description=f"Auto-generated follow-up for delegated task {task_id}",
+                created_by=user_id,
+                owned_by=user_id,
+                state=TaskState.INACTIVE_PENDING,
+                timeline=Timeline(),
+                created_at=now_task,
+                updated_at=now_task,
+                type_metadata=FollowUpMetadata(
+                    target_task_id=task_id,
+                    parent_delegated_id=task_id,
+                    scheduled_fire_at=scheduled_fire_at,
+                ),
+            )
+            try:
+                await self._repo.create_node(followup)
+                await self._repo.create_edge(followup_id, task_id, "FOLLOW_UP_FOR", {})
+                del_meta = DelegatedMetadata(
+                    assigned_resource_id=args.get("assigned_to") or user_id,
+                    follow_up_task_id=followup_id,
+                )
+                await self._repo.update_node(
+                    task_id, {"type_metadata": del_meta.model_dump(mode="json")}
+                )
+                logger.info(
+                    "AgentLoop: auto-spawned follow-up %s for delegated task %s",
+                    followup_id,
+                    task_id,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "AgentLoop: could not auto-spawn follow-up for %s: %s", task_id, exc
+                )
+
         return {
             "task_id": task_id,
             "title": args["title"],

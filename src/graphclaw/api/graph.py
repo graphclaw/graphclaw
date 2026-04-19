@@ -380,6 +380,54 @@ async def create_task(
         except Exception as exc:
             logger.warning("graph: could not wire ASSIGNED_TO edge for task %s: %s", task_id, exc)
 
+    # Auto-spawn a FollowUp task when creating a DELEGATED task (PRD §3.1, §6.2).
+    if ttype == TaskType.DELEGATED:
+        from graphclaw.models.nodes import TaskNode as _TN
+        from graphclaw.models.type_metadata import FollowUpMetadata
+
+        followup_id = generate_task_id("API", TaskType.FOLLOWUP)
+        # Default scheduled_fire_at: 48 hours from now (placeholder; O-AGT-03 will refine)
+        from datetime import timedelta
+        scheduled_fire_at = utcnow() + timedelta(hours=48)
+
+        followup = _TN(
+            id=followup_id,
+            created_at=utcnow(),
+            updated_at=utcnow(),
+            task_type=TaskType.FOLLOWUP,
+            title=f"Follow-up: {body.title}",
+            description=f"Auto-generated follow-up for delegated task {task_id}",
+            owned_by=user_id,
+            created_by=user_id,
+            state=TaskState.INACTIVE_PENDING,
+            type_metadata=FollowUpMetadata(
+                target_task_id=task_id,
+                parent_delegated_id=task_id,
+                scheduled_fire_at=scheduled_fire_at,
+            ),
+        )
+        try:
+            await graph_store.create_node(followup)
+            await graph_store.create_edge(followup_id, task_id, "FOLLOW_UP_FOR", {})
+            # Also update the delegated task's type_metadata with follow_up_task_id
+            from graphclaw.models.type_metadata import DelegatedMetadata
+            del_meta = DelegatedMetadata(
+                assigned_resource_id=body.assignee_id or user_id,
+                follow_up_task_id=followup_id,
+            )
+            await graph_store.update_node(task_id, {"type_metadata": del_meta.model_dump(mode="json")})
+            logger.info(
+                "graph: auto-spawned follow-up %s for delegated task %s",
+                followup_id,
+                task_id,
+            )
+        except Exception as exc:
+            logger.warning(
+                "graph: could not auto-spawn follow-up for delegated task %s: %s",
+                task_id,
+                exc,
+            )
+
     logger.info("graph: created task %s for user_id=%s", task_id, user_id)
     return created
 

@@ -68,10 +68,11 @@
 - There is no explicit prompt that encodes the graph construction rules from §3–6 (e.g. "always create a FollowUp sibling when creating a Delegated task", "always create OWNED_BY and ASSIGNED_TO edges after creating a task node")
 - The agent is likely making structurally incorrect graphs silently
 
-**O-AGT-02: Auto-spawn FollowUp on Delegated task creation not wired**
-- Spec (§3.1, §6.2): every Delegated task must automatically spawn a FollowUp child on creation
-- No code enforces this — it would need to be in `create_task` API handler or a post-create hook
-- Currently zero `FOLLOW_UP_FOR` edges exist in the DB
+**O-AGT-02: Auto-spawn FollowUp on Delegated task creation not wired** ✅ FIXED
+- `api/graph.py` `create_task()`: when `task_type == DELEGATED`, now auto-creates a FollowUp sibling with `state=INACTIVE_PENDING`, `type_metadata=FollowUpMetadata(target_task_id=..., scheduled_fire_at=now+48h)`, and wires `FOLLOW_UP_FOR` edge; also updates the DELEGATED task's `type_metadata.follow_up_task_id`
+- `agent/loop.py` `_tool_create_task()`: same logic for the agent tool path
+- FollowUp default `scheduled_fire_at = now + 48h` (placeholder; O-AGT-03 will refine with the formula)
+- 5 integration tests: spawns FollowUp, FOLLOW_UP_FOR edge exists, ATOMIC does not spawn, metadata has follow_up_task_id, AgentLoop path
 
 **O-AGT-03: Follow-up timing formula not implemented**
 - Spec (§10): `follow_up_timing = base_cadence × complexity_factor × resource_reliability × recency_adjustment`
