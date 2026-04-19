@@ -427,20 +427,38 @@ def _make_delegation_tools() -> list[ToolDefinition]:
             {
                 "agent_id": {
                     "type": "string",
-                    "description": "Short identifier for the agent (lowercase, hyphens ok).",
+                    "description": "Optional short identifier for the agent (lowercase, hyphens). If omitted, generated from name.",
                 },
                 "name": {"type": "string", "description": "Human-readable agent name."},
-                "profile": {
+                "purpose": {
                     "type": "string",
-                    "description": "Agent persona, goals, and instructions (Markdown).",
+                    "description": "What this agent is for and how it should behave.",
                 },
-                "capabilities": {
+                "skills": {
                     "type": "array",
                     "items": {"type": "string"},
                     "description": "Capability tags (e.g. ['email_read', 'task_create']).",
                 },
+                "mcp_servers": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional MCP server IDs this agent should use.",
+                },
+                "tool_hint": {
+                    "type": "string",
+                    "description": "Short hint shown in list_available_agents.",
+                },
+                "profile": {
+                    "type": "string",
+                    "description": "Legacy alias for purpose (still supported).",
+                },
+                "capabilities": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Legacy alias for skills (still supported).",
+                },
             },
-            required=["agent_id", "name", "profile"],
+            required=["name"],
         ),
     ]
 

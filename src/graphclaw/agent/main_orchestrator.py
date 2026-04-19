@@ -1198,7 +1198,9 @@ class MainOrchestrator:
         include_completed = bool(args.get("include_completed", False))
         assigned_to = args.get("assigned_to")
         state_filter_norm = str(state_filter).upper() if state_filter else None
-        task_type_filter_norm = str(task_type_filter).upper().replace("_", "") if task_type_filter else None
+        task_type_filter_norm = (
+            str(task_type_filter).upper().replace("_", "") if task_type_filter else None
+        )
 
         def _norm_state(value: Any) -> str:
             return str(getattr(value, "value", value or "")).upper()
@@ -1239,7 +1241,9 @@ class MainOrchestrator:
         if state_filter_norm:
             tasks = [t for t in tasks if _norm_state(t.get("state")) == state_filter_norm]
         if task_type_filter_norm:
-            tasks = [t for t in tasks if _norm_task_type(t.get("task_type")) == task_type_filter_norm]
+            tasks = [
+                t for t in tasks if _norm_task_type(t.get("task_type")) == task_type_filter_norm
+            ]
         if assigned_to:
             tasks = [t for t in tasks if t.get("assigned_to") == assigned_to]
 
@@ -1593,42 +1597,30 @@ class MainOrchestrator:
                 return str(edge.get("type") or edge.get("_label") or "")
 
             def _edge_target(edge: dict[str, Any]) -> Any:
-                return edge.get("target_id") or edge.get("_end_id") or edge.get("target", {}).get("id")
+                return (
+                    edge.get("target_id") or edge.get("_end_id") or edge.get("target", {}).get("id")
+                )
 
             def _edge_source(edge: dict[str, Any]) -> Any:
-                return edge.get("source_id") or edge.get("_start_id") or edge.get("source", {}).get("id")
+                return (
+                    edge.get("source_id")
+                    or edge.get("_start_id")
+                    or edge.get("source", {}).get("id")
+                )
 
             result["depends_on"] = [
-                _edge_target(e)
-                for e in out_edges
-                if _edge_label(e) == "DEPENDS_ON"
+                _edge_target(e) for e in out_edges if _edge_label(e) == "DEPENDS_ON"
             ]
-            result["blocks"] = [
-                _edge_target(e)
-                for e in out_edges
-                if _edge_label(e) == "BLOCKS"
-            ]
+            result["blocks"] = [_edge_target(e) for e in out_edges if _edge_label(e) == "BLOCKS"]
             result["part_of_goal"] = next(
-                (
-                    _edge_target(e)
-                    for e in out_edges
-                    if _edge_label(e) == "PART_OF"
-                ),
+                (_edge_target(e) for e in out_edges if _edge_label(e) == "PART_OF"),
                 None,
             )
             result["assigned_to_user"] = next(
-                (
-                    _edge_target(e)
-                    for e in out_edges
-                    if _edge_label(e) == "ASSIGNED_TO"
-                ),
+                (_edge_target(e) for e in out_edges if _edge_label(e) == "ASSIGNED_TO"),
                 None,
             )
-            result["blocked_by"] = [
-                _edge_source(e)
-                for e in in_edges
-                if _edge_label(e) == "BLOCKS"
-            ]
+            result["blocked_by"] = [_edge_source(e) for e in in_edges if _edge_label(e) == "BLOCKS"]
         except Exception as exc:
             logger.debug("AgentLoop: get_task_details edge enrichment failed: %s", exc)
 
@@ -2150,6 +2142,28 @@ class MainOrchestrator:
             except Exception:
                 pass
 
+        # Validate the resolved agent source against manifest existence.
+        if self._storage:
+            from graphclaw.infra.storage import StoragePaths
+
+            manifest_path = (
+                StoragePaths.system_agent_manifest(agent_id)
+                if agent_source == "system"
+                else StoragePaths.agent_manifest(user_id, agent_id)
+            )
+            try:
+                await self._storage.read(manifest_path)
+            except FileNotFoundError:
+                return {
+                    "error": (
+                        f"Agent '{agent_id}' not found for user '{user_id}'. "
+                        "Call list_available_agents first."
+                    )
+                }
+            except Exception as exc:
+                logger.warning("AgentLoop: agent manifest lookup failed for %s: %s", agent_id, exc)
+                return {"error": f"Could not validate agent '{agent_id}': {exc}"}
+
         # Update task state to IN_PROGRESS and assign to agent
         import datetime as _dt
 
@@ -2252,15 +2266,54 @@ class MainOrchestrator:
 
         from graphclaw.infra.storage import StoragePaths
 
-        name = args["name"]
-        purpose = args["purpose"]
-        skills = args.get("skills", [])
-        mcp_servers = args.get("mcp_servers", [])
+        # Accept both the current schema (name/purpose/skills) and legacy
+        # variants (agent_id/profile/capabilities) for compatibility.
+        name = str(args.get("name") or args.get("agent_id") or "").strip()
+        if not name:
+            return {"error": "name is required"}
 
-        # Generate agent_id from name (lowercase, hyphenated)
-        agent_id = name.lower().replace(" ", "-").replace("_", "-")[:40]
-        # Ensure uniqueness with short uuid suffix
-        agent_id = f"{agent_id}-{uuid.uuid4().hex[:6]}"
+        purpose = str(args.get("purpose") or args.get("profile") or "").strip()
+        if not purpose:
+            purpose = "User-created sub-agent"
+
+        skills = args.get("skills") or args.get("capabilities") or []
+        if not isinstance(skills, list):
+            return {"error": "skills/capabilities must be a list"}
+
+        mcp_servers = args.get("mcp_servers", [])
+        if not isinstance(mcp_servers, list):
+            return {"error": "mcp_servers must be a list"}
+
+        requested_agent_id = str(args.get("agent_id") or "").strip()
+
+        def _slugify(value: str) -> str:
+            raw = value.lower().replace("_", "-").replace(" ", "-")
+            cleaned = "".join(ch for ch in raw if ch.isalnum() or ch == "-").strip("-")
+            return cleaned or "agent"
+
+        # Generate/normalise agent_id.
+        # If caller supplied agent_id use it; otherwise derive from name.
+        agent_id_base = _slugify(requested_agent_id or name)[:40]
+        if requested_agent_id:
+            agent_id = agent_id_base
+        else:
+            agent_id = f"{agent_id_base}-{uuid.uuid4().hex[:6]}"
+
+        profile_path = StoragePaths.agent_profile(user_id, agent_id)
+        manifest_path = StoragePaths.agent_manifest(user_id, agent_id)
+        config_path = StoragePaths.agent_config(user_id, agent_id)
+        context_path = StoragePaths.agent_memory_working(user_id, agent_id)
+
+        # If a caller-supplied id already exists, keep behavior explicit.
+        if requested_agent_id:
+            try:
+                if await self._storage.exists(profile_path) or await self._storage.exists(
+                    manifest_path
+                ):
+                    return {"error": f"Agent '{agent_id}' already exists."}
+            except Exception:
+                # Best-effort existence check; write path will still fail if needed.
+                pass
 
         # Create profile.md
         profile_content = (
@@ -2300,13 +2353,23 @@ class MainOrchestrator:
             "created_by": self._agent_id,
         }
 
-        # Write files
-        profile_path = StoragePaths.agent_profile(user_id, agent_id)
-        config_path = StoragePaths.agent_config(user_id, agent_id)
-        context_path = StoragePaths.agent_memory_working(user_id, agent_id)
+        manifest = {
+            "agent_id": agent_id,
+            "name": name,
+            "type": "user",
+            "description": purpose,
+            "capabilities": skills,
+            "invocation": "async",
+            "tool_hint": args.get("tool_hint") or f"{purpose}",
+        }
 
         try:
             await self._storage.write(profile_path, profile_content.encode())
+            await self._storage.write(
+                manifest_path,
+                json.dumps(manifest, indent=2).encode(),
+                content_type="application/json",
+            )
             await self._storage.write(config_path, json.dumps(config, indent=2).encode())
             await self._storage.write(
                 context_path, b"# Working Context\n\nAgent initialised. Awaiting first task.\n"
@@ -2322,6 +2385,7 @@ class MainOrchestrator:
             "mcp_servers": mcp_servers,
             "status": "created",
             "profile_path": profile_path,
+            "manifest_path": manifest_path,
         }
 
     # ------------------------------------------------------------------
