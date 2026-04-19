@@ -180,8 +180,9 @@ class MainOrchestrator:
         self._dispatch_planner = dispatch_planner
         self._sub_agent_pool = sub_agent_pool
         self._event_publisher: UserEventPublisher | None = event_publisher
-        # Cache last action queue so system prompt can include current priorities
+        # Cache last action queue so system prompt can include current priorities.
         self._last_queue: list[ActionQueueEntry] = []
+        self._last_queue_by_scope: dict[str, list[ActionQueueEntry]] = {}
         # Track current session_id for structured logging
         self._current_session_id: str | None = None
         # Buffer for delegation calls within a single LLM turn (batch dispatch)
@@ -207,12 +208,13 @@ class MainOrchestrator:
     # Public API
     # ------------------------------------------------------------------
 
-    async def run_cycle(self) -> list[ActionQueueEntry]:
+    async def run_cycle(self, user_id: str | None = None) -> list[ActionQueueEntry]:
         """Execute one full agent reasoning cycle.
 
         Steps
         -----
-        1. Fetch all active (non-terminal) TaskNode records from the graph.
+          1. Fetch active (non-terminal) TaskNode records from the graph.
+              If ``user_id`` is provided, the fetch is user-scoped.
         2. Build a ScoringContext by querying relationships for each task.
         3. Score all tasks via ScoringEngine.score_all().
         4. Return the ranked ActionQueueEntry list.
@@ -222,10 +224,11 @@ class MainOrchestrator:
         list[ActionQueueEntry]
             Sorted descending by final_score with rank assigned.
         """
-        logger.info("AgentLoop: starting scoring cycle")
+        scope = user_id or "all"
+        logger.info("AgentLoop: starting scoring cycle (scope=%s)", scope)
 
         # 1. Fetch active tasks.
-        tasks = await self._fetch_active_tasks()
+        tasks = await self._fetch_active_tasks(user_id=user_id)
         logger.info("AgentLoop: fetched %d active tasks", len(tasks))
 
         if not tasks:
@@ -237,6 +240,7 @@ class MainOrchestrator:
         # 3. Score all tasks and return.
         queue = await self._engine.score_all(tasks, context)
         self._last_queue = queue
+        self._last_queue_by_scope[user_id or "__all__"] = queue
         logger.info("AgentLoop: scoring cycle complete — %d items in queue", len(queue))
 
         # Log scoring cycle completion
@@ -245,7 +249,7 @@ class MainOrchestrator:
                 "INFO",
                 "agent.scoring_cycle",
                 session_id="",
-                user_id="system",
+                user_id=user_id or "system",
                 tasks_scored=len(tasks),
                 top_task_id=queue[0].node_id if queue else None,
                 queue_depth=len(queue),
@@ -1050,13 +1054,14 @@ class MainOrchestrator:
             logger.debug("AgentLoop: goal summary failed: %s", exc)
 
         # --- Top priority tasks section ---
-        if not self._last_queue:
+        scoped_queue = self._last_queue_by_scope.get(user_id, [])
+        if not scoped_queue:
             try:
-                self._last_queue = await self.run_cycle()
+                scoped_queue = await self.run_cycle(user_id=user_id)
             except Exception as exc:  # noqa: BLE001
                 logger.debug("AgentLoop: scoring cycle for graph summary failed: %s", exc)
 
-        if self._last_queue:
+        if scoped_queue:
             try:
                 tasks = await self._fetch_active_tasks(user_id)
                 task_index = {t.id: t for t in tasks}
@@ -1064,7 +1069,7 @@ class MainOrchestrator:
                 task_index = {}
 
             task_lines = ["### Top Priority Tasks"]
-            for entry in self._last_queue[:5]:
+            for entry in scoped_queue[:5]:
                 task = task_index.get(entry.node_id)
                 if task is None:
                     continue  # skip tasks from other users

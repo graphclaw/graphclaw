@@ -173,6 +173,24 @@ class TestRunCycle:
 
         assert queue == []
 
+    @pytest.mark.asyncio
+    async def test_run_cycle_user_scope_uses_list_nodes_by_user(self):
+        task = _make_task(title="Scoped Task")
+        entry = _make_queue_entry(task, rank=1, score=0.8)
+
+        loop, repo, engine = _make_loop()
+        repo.list_nodes_by_user = AsyncMock(return_value=[task.model_dump(mode="json")])
+        repo.list_nodes = AsyncMock(return_value=[])
+        repo.get_edges = AsyncMock(return_value=[])
+        repo.get_node = AsyncMock(return_value=None)
+        engine.score_all = AsyncMock(return_value=[entry])
+
+        queue = await loop.run_cycle(user_id="USER-test")
+
+        assert len(queue) == 1
+        repo.list_nodes_by_user.assert_called_once_with("TaskNode", "USER-test")
+        repo.list_nodes.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # AgentLoop.build_scoring_context
@@ -397,6 +415,24 @@ class TestGenerateBriefing:
         assert "5" in briefing  # total queue size
 
 
+class TestGraphSummaryScoping:
+    @pytest.mark.asyncio
+    async def test_build_graph_summary_triggers_user_scoped_cycle(self):
+        task = _make_task(title="Summary Task")
+        entry = _make_queue_entry(task, rank=1, score=0.91)
+
+        loop, repo, engine = _make_loop()
+        repo.list_nodes_by_user = AsyncMock(return_value=[])
+        loop.run_cycle = AsyncMock(return_value=[entry])
+        loop._fetch_active_tasks = AsyncMock(return_value=[task])
+
+        summary = await loop._build_graph_summary("USER-summary")
+
+        loop.run_cycle.assert_called_once_with(user_id="USER-summary")
+        assert "Top Priority Tasks" in summary
+        assert task.id in summary
+
+
 # ---------------------------------------------------------------------------
 # AgentLoop constructor / wiring
 # ---------------------------------------------------------------------------
@@ -413,4 +449,3 @@ class TestAgentLoopConstructor:
         assert loop._repo is repo
         assert loop._engine is engine
         assert loop._sm is sm
-

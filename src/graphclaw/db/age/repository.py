@@ -224,11 +224,29 @@ class AgeGraphStore(GraphStore):
         if where_fragments:
             where_clause = "WHERE " + " AND ".join(where_fragments)
 
+        # Task vertices are stored under type-specific labels (TaskAtomic,
+        # TaskDelegated, ...). Treat "TaskNode" as a virtual label that matches
+        # any vertex with a task_type property.
+        if label == "TaskNode":
+            match_clause = "MATCH (n)"
+            task_clause = "WHERE exists(n.task_type)"
+        else:
+            match_clause = f"MATCH (n:{label})"
+            task_clause = ""
+
+        where_clause = ""
+        if where_fragments and task_clause:
+            where_clause = task_clause + " AND " + " AND ".join(where_fragments)
+        elif where_fragments:
+            where_clause = "WHERE " + " AND ".join(where_fragments)
+        elif task_clause:
+            where_clause = task_clause
+
         async with get_connection(self._pool) as conn:
             result = await conn.execute(
                 f"""
                 SELECT * FROM cypher('{self._graph}', $$
-                    MATCH (n:{label})
+                    {match_clause}
                     {where_clause}
                     RETURN n
                 $$) as (v agtype)
@@ -252,7 +270,45 @@ class AgeGraphStore(GraphStore):
         user_id:
             The ``USER-{id}`` to filter by.
         """
-        return await self.list_nodes(label, filters={"owned_by": user_id})
+        if label != "TaskNode":
+            return await self.list_nodes(label, filters={"owned_by": user_id})
+
+        # TaskNode is virtual; match all task labels by property existence.
+        # Prefer graph ownership edges (OWNED_BY) and keep a property fallback
+        # for legacy records written before edge wiring was added.
+        euid = _escape(user_id)
+        rows = []
+        async with get_connection(self._pool) as conn:
+            edge_result = await conn.execute(
+                f"""
+                SELECT * FROM cypher('{self._graph}', $$
+                    MATCH (u:UserNode {{id: '{euid}'}})<-[:OWNED_BY]-(n)
+                    WHERE exists(n.task_type)
+                    RETURN n
+                $$) as (v agtype)
+                """
+            )
+            rows.extend(await edge_result.fetchall())
+
+            prop_result = await conn.execute(
+                f"""
+                SELECT * FROM cypher('{self._graph}', $$
+                    MATCH (n {{owned_by: '{euid}'}})
+                    WHERE exists(n.task_type)
+                    RETURN n
+                $$) as (v agtype)
+                """
+            )
+            rows.extend(await prop_result.fetchall())
+
+        deduped: dict[str, dict] = {}
+        for row in rows:
+            props = _extract_properties(row[0])
+            task_id = str(props.get("id", ""))
+            if task_id:
+                deduped[task_id] = props
+
+        return list(deduped.values())
 
     async def list_nodes_for_goal(self, goal_id: str) -> list[dict]:
         """Return all TaskNode vertices linked to *goal_id* via a PART_OF edge.
@@ -269,7 +325,8 @@ class AgeGraphStore(GraphStore):
             result = await conn.execute(
                 f"""
                 SELECT * FROM cypher('{self._graph}', $$
-                    MATCH (t:TaskNode)-[:PART_OF]->(g {{id: '{eid}'}})
+                    MATCH (t)-[:PART_OF]->(g {{id: '{eid}'}})
+                    WHERE exists(t.task_type)
                     RETURN t
                 $$) as (v agtype)
                 """

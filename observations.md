@@ -650,60 +650,37 @@ Validation completed against real local services (MinIO + AGE):
 
 ## 13. Multi-Tenancy and Query Isolation
 
-### Current Reality
+Section status: COMPLETE (Phase 1 scope) (4/4 subsections addressed)
 
-The graph database has no enforced query-level isolation per user or organization. All multi-tenancy
-is currently aspirational (data model fields exist; query layer ignores them).
+### What was implemented
 
-**O-TENANT-01: `_fetch_active_tasks()` returns all users' tasks**
+**O-TENANT-01: `_fetch_active_tasks()` returns all users' tasks** ✅ FIXED
+- `src/graphclaw/agent/main_orchestrator.py` `_fetch_active_tasks(user_id: str | None)` now uses user-scoped retrieval when `user_id` is provided (`list_nodes_by_user("TaskNode", user_id)`), with terminal-state filtering preserved.
+- `run_cycle()` now accepts optional `user_id` and fetches tasks in that scope for chat-driven cycles.
 
-`loop.py:2212` calls `self._repo.list_nodes("TaskNode")` with no filters. This returns every
-`TaskNode` in the entire AGE graph, from every user. The only filter applied is a Python-side
-check removing terminal states (COMPLETE/CANCELLED/SNOOZED). In a multi-user deployment, every
-user's agent sees every other user's tasks.
+**O-TENANT-02: `OWNED_BY` edge is written but never read** ✅ FIXED
+- `src/graphclaw/db/age/repository.py` `list_nodes_by_user("TaskNode", user_id)` now reads ownership from graph edges:
+  - primary: `MATCH (u:UserNode {id: ...})<-[:OWNED_BY]-(n)`
+  - fallback: `owned_by` property match for legacy rows
+- Results are de-duplicated by task id when both edge and property are present.
+- Added live integration coverage in `tests/test_db/test_user_scope_integration.py`:
+  - task visible via `OWNED_BY` edge only
+  - no duplicate result when both edge + property exist
 
-Fix: Pass `{"owned_by": user_id}` as filter to `list_nodes()`. This uses the existing
-`owned_by` property that `create_task` already writes. But this requires `_fetch_active_tasks()`
-to receive and use `user_id`, which means the `AgentLoop` instance must be user-scoped (already
-is — `user_id` is passed through `process_chat_message`) or the fetch method needs the param.
+**O-TENANT-03: Organization/Workspace scoping is Phase 2 — nothing is wired** ✅ TRACKED (Phase 2 boundary)
+- Confirmed as intentionally out of Phase 1 scope.
+- No partial org/workspace implementation introduced in Phase 1 to avoid unsafe half-isolation semantics.
+- User-level isolation is now enforced for current cycle/listing paths; org/workspace scoping remains an explicit Phase 2 item.
 
-**O-TENANT-02: `OWNED_BY` edge is written but never read**
+**O-TENANT-04: Full table scan on every LLM system prompt build** ✅ FIXED
+- `src/graphclaw/agent/main_orchestrator.py` `_build_graph_summary(user_id)` now triggers user-scoped scoring (`run_cycle(user_id=user_id)`) instead of global scans.
+- Added scoped queue cache (`_last_queue_by_scope`) so summaries for a user reuse that user's queue instead of cross-user/global queue data.
+- Added unit regression in `tests/test_agent/test_loop.py` to assert `_build_graph_summary()` invokes user-scoped cycle execution.
 
-`_tool_create_task()` at `loop.py:1251` writes:
-```python
-await self._repo.create_edge(task_id, user_id, "OWNED_BY", {})
-```
-But no query in the codebase traverses `OWNED_BY` to scope results. The edge exists in the
-graph but provides zero isolation. The correct query pattern for user-scoped task retrieval:
-```cypher
-MATCH (u:UserNode {id: $user_id})<-[:OWNED_BY]-(t:TaskNode)
-WHERE NOT t.state IN ['COMPLETE', 'CANCELLED', 'SNOOZED']
-RETURN t
-```
-This doesn't exist anywhere — only property-based filter is available via `list_nodes(filters)`.
-
-**O-TENANT-03: Organization/Workspace scoping is Phase 2 — nothing is wired**
-
-`OrganizationNode` and `WorkspaceNode` are fully modelled in `models/nodes.py` and their
-labels exist in `init-db.sql`. But:
-- No API endpoint creates an `OrganizationNode`
-- No `MEMBER_OF` edges are ever written
-- No `SCOPED_TO_WS` edges are ever written
-- No query filters tasks by workspace or org membership
-- `WorkspaceNode.org_id` and `OrganizationNode.owner_id` fields exist as dead schema
-
-This is expected for a Phase 2 feature, but must not be forgotten when Phase 2 begins.
-For Phase 1 correctness, user-level isolation via `owned_by` property filter is sufficient.
-
-**O-TENANT-04: Full table scan on every LLM system prompt build**
-
-`_build_graph_summary()` at `loop.py:589` calls `run_cycle()` → `_fetch_active_tasks()` →
-`list_nodes("TaskNode")` — a full AGE graph scan — every time a system prompt is assembled.
-As the graph grows (across users, across time) this becomes an unbounded scan. Compounding:
-completed tasks are fetched from DB and discarded in Python, so DB load scales with total
-historical task count, not active task count.
-
-Fix plan: The filtering/scoping below addresses this.
+Validation completed against real local services:
+- `pytest tests/test_db/test_user_scope_integration.py -v` (10 passed; AGE integration)
+- `pytest tests/test_agent/test_loop_new_tools_integration.py -k "ListTasksWithParams" -v` (4 passed; scoped task listing)
+- `pytest tests/test_agent/test_loop.py -k "TestRunCycle or TestGraphSummaryScoping" -v` (6 passed; orchestrator scoping)
 
 ---
 
