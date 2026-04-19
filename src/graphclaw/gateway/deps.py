@@ -47,6 +47,8 @@ import os
 
 from graphclaw.infra.broker import MessageBroker, RedisMessageBroker
 from graphclaw.infra.logger import AsyncLogger
+from graphclaw.infra.sinks import CloudWatchSink, LogSink, ObjectStorageSink, StdoutSink
+from graphclaw.infra.storage import S3StorageClient
 
 # ---------------------------------------------------------------------------
 # Module-level singletons (set by init_services / cleared by shutdown_services)
@@ -113,7 +115,51 @@ async def init_services(
     url = redis_url or os.environ.get("REDIS_URL", "redis://localhost:6379")
     _broker = RedisMessageBroker(url=url)
 
-    _logger = AsyncLogger(service_name=service_name)
+    log_format = os.environ.get("LOG_FORMAT", "jsonl").strip().lower()
+    if log_format not in {"jsonl", "pipe"}:
+        log_format = "jsonl"
+
+    log_level = os.environ.get("LOG_LEVEL", "INFO").strip().upper()
+    sink_names = [
+        name.strip().lower()
+        for name in os.environ.get("LOG_SINKS", "stdout").split(",")
+        if name.strip()
+    ]
+    if not sink_names:
+        sink_names = ["stdout"]
+
+    sinks: list[LogSink] = []
+
+    if "stdout" in sink_names:
+        sinks.append(StdoutSink(log_format=log_format))
+
+    if "object_storage" in sink_names:
+        storage_client = S3StorageClient(
+            bucket=os.environ.get("STORAGE_BUCKET", "graphclaw"),
+            endpoint_url=os.environ.get("STORAGE_ENDPOINT_URL") or None,
+            region=os.environ.get("STORAGE_REGION", "us-east-1"),
+        )
+        sinks.append(
+            ObjectStorageSink(
+                storage=storage_client,
+                log_format=log_format,
+                min_level=log_level,
+            )
+        )
+
+    if "cloudwatch" in sink_names:
+        sinks.append(
+            CloudWatchSink(
+                region=os.environ.get("CLOUDWATCH_REGION", "us-east-1"),
+                log_group_prefix=os.environ.get("CLOUDWATCH_LOG_GROUP_PREFIX", "/graphclaw"),
+                log_format=log_format,
+            )
+        )
+
+    if not sinks:
+        sinks.append(StdoutSink(log_format=log_format))
+
+    _logger = AsyncLogger(service_name=service_name, sinks=sinks)
     await _logger.start()
 
 

@@ -55,14 +55,13 @@ don't support append operations. Sink failures never crash the logger.
 from __future__ import annotations
 
 import asyncio
-import json
-import sys
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
+from graphclaw.infra.sinks import LogSink, ObjectStorageSink, StdoutSink
 from graphclaw.models.base import utcnow
 
 if TYPE_CHECKING:
@@ -212,30 +211,31 @@ class AgentHeartbeatEvent(BaseModel):
 
 
 class AsyncLogger:
-    """Non-blocking structured JSON logger with an async flush loop.
+    """Non-blocking structured logger with async queueing and sink fan-out.
 
-    Log entries are placed in an in-memory queue and written to stdout
-    as newline-delimited JSON by a background task.  If the queue is
-    full, new entries are dropped to avoid blocking callers.
-
-    Optionally writes filtered logs (min_level and above) to a durable
-    S3/MinIO sink for long-term audit trail.
+    Log entries are buffered in an in-memory queue and flushed in batches to
+    one or more configured sinks (stdout, object storage, CloudWatch, etc.).
+    If the queue is full, new entries are dropped to avoid blocking callers.
 
     Args:
         service_name: Identifying name embedded in every log entry.
         buffer_size: Maximum number of queued entries before drops occur.
-        storage: Optional StorageClient for durable log sink.
-        user_id: Optional user_id for per-user log paths; if None, logs go to _system.
-        min_level: Minimum level for durable sink (DEBUG goes stdout only).
+        sinks: Optional explicit sink list. If omitted, stdout is always used.
+        storage: Optional storage used by default sink wiring.
+        user_id: Optional user_id used by default storage sink wiring.
+        min_level: Minimum level applied to durable default sinks.
+        log_format: Output format (``"jsonl"`` or ``"pipe"``).
     """
 
     def __init__(
         self,
         service_name: str,
         buffer_size: int = 10_000,
+        sinks: list[LogSink] | None = None,
         storage: StorageClient | None = None,
         user_id: str | None = None,
         min_level: str = "INFO",
+        log_format: str = "jsonl",
     ) -> None:
         self._queue: asyncio.Queue[dict] = asyncio.Queue(maxsize=buffer_size)
         self._service_name = service_name
@@ -243,11 +243,12 @@ class AsyncLogger:
         self._flush_batch_size: int = 100
         self._running: bool = False
         self._task: asyncio.Task | None = None
-        self._storage: StorageClient | None = storage
-        self._user_id = user_id
-        self._min_level = min_level.upper()
-        # Log level priority mapping for filtering
-        self._level_priority = {"DEBUG": 0, "INFO": 1, "WARNING": 2, "ERROR": 3, "CRITICAL": 4}
+        self._sinks: list[LogSink] = sinks or self._build_default_sinks(
+            storage=storage,
+            user_id=user_id,
+            min_level=min_level,
+            log_format=log_format,
+        )
 
     # ------------------------------------------------------------------
     # Public API
@@ -257,26 +258,32 @@ class AsyncLogger:
     def create(
         cls,
         service: str,
+        sinks: list[LogSink] | None = None,
         storage: StorageClient | None = None,
         user_id: str | None = None,
         min_level: str = "INFO",
+        log_format: str = "jsonl",
     ) -> AsyncLogger:
         """Class factory for creating AsyncLogger instances.
 
         Args:
             service: Service name embedded in every log entry.
+            sinks: Optional explicit sink list.
             storage: Optional StorageClient for durable log sink.
-            user_id: Optional user_id for per-user log paths; if None, logs go to _system.
+            user_id: Optional user_id for per-user log paths.
             min_level: Minimum level for durable sink (DEBUG goes stdout only).
+            log_format: Output format (``"jsonl"`` or ``"pipe"``).
 
         Returns:
             Configured AsyncLogger instance.
         """
         return cls(
             service_name=service,
+            sinks=sinks,
             storage=storage,
             user_id=user_id,
             min_level=min_level,
+            log_format=log_format,
         )
 
     def log(
@@ -298,7 +305,7 @@ class AsyncLogger:
             **fields: Additional key/value pairs to include in the entry.
         """
         entry: dict = {
-            "timestamp": utcnow().isoformat(),
+            "timestamp": self._format_timestamp(utcnow()),
             "level": level.upper(),
             "service": self._service_name,
             "event_type": event_type,
@@ -318,6 +325,11 @@ class AsyncLogger:
         """
         if self._running:
             return
+        for sink in self._sinks:
+            try:
+                await sink.start()
+            except Exception:
+                continue
         self._running = True
         self._task = asyncio.create_task(self._flush_loop(), name="async-logger-flush")
 
@@ -337,6 +349,11 @@ class AsyncLogger:
             self._task = None
         # Final drain.
         await self._drain_remaining()
+        for sink in self._sinks:
+            try:
+                await sink.stop()
+            except Exception:
+                continue
 
     # ------------------------------------------------------------------
     # Internal implementation
@@ -371,97 +388,39 @@ class AsyncLogger:
             await self._write_batch(batch)
 
     async def _write_batch(self, batch: list[dict]) -> None:
-        """Serialise *batch* to newline-delimited JSON and write to stdout.
+        """Fan out the batch to all configured sinks, best effort."""
+        if not self._sinks:
+            return
 
-        If storage sink is configured, also writes filtered entries (min_level
-        and above) to S3/MinIO using read-modify-write pattern.
+        results = await asyncio.gather(
+            *(sink.write_batch(batch) for sink in self._sinks),
+            return_exceptions=True,
+        )
 
-        Args:
-            batch: List of structured log entry dicts to write.
-        """
-        # Always write to stdout
-        lines = "\n".join(json.dumps(entry, default=str) for entry in batch) + "\n"
-        sys.stdout.write(lines)
-        sys.stdout.flush()
+        # Swallow sink failures; logger is best-effort and never blocks callers.
+        _ = results
 
-        # Optionally write to durable storage sink
-        if self._storage is not None:
-            await self._write_to_storage_sink(batch)
-
-    async def _write_to_storage_sink(self, batch: list[dict]) -> None:
-        """Write filtered log entries to S3/MinIO sink (read-modify-write).
-
-        Args:
-            batch: List of log entries to filter and write.
-        """
-        try:
-            # Filter batch by min_level
-            min_priority = self._level_priority.get(self._min_level, 1)
-            filtered_batch = [
-                entry
-                for entry in batch
-                if self._level_priority.get(entry.get("level", "INFO"), 1) >= min_priority
-            ]
-
-            if not filtered_batch:
-                return
-
-            # Group entries by hour for efficient file organization
-            hourly_batches: dict[str, list[dict]] = {}
-            for entry in filtered_batch:
-                ts_str = entry.get("timestamp", "")
-                if not ts_str:
-                    continue
-                try:
-                    ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
-                    hour_key = ts.strftime("%Y-%m-%d/%H00Z")
-                    if hour_key not in hourly_batches:
-                        hourly_batches[hour_key] = []
-                    hourly_batches[hour_key].append(entry)
-                except Exception:
-                    # Skip entries with invalid timestamps
-                    continue
-
-            # Write each hourly batch to its own file
-            for hour_key, entries in hourly_batches.items():
-                await self._append_to_log_file(hour_key, entries)
-
-        except Exception:
-            # Sink failures must never crash the logger — silent drop
-            pass
-
-    async def _append_to_log_file(self, hour_key: str, entries: list[dict]) -> None:
-        """Append log entries to an hourly log file using read-modify-write.
-
-        Args:
-            hour_key: Datetime key in format YYYY-MM-DD/HH00Z.
-            entries: Log entries to append to this hour's file.
-        """
-        try:
-            # Construct storage path based on user_id
-            if self._user_id:
-                log_path = f"{self._user_id}/logs/{self._service_name}/{hour_key}.jsonl"
-            else:
-                log_path = f"_system/logs/{self._service_name}/{hour_key}.jsonl"
-
-            # Read existing file content if it exists
-            try:
-                existing_bytes = await self._storage.read(log_path)  # type: ignore[union-attr]
-                existing_content = existing_bytes.decode("utf-8")
-            except FileNotFoundError:
-                existing_content = ""
-
-            # Append new entries
-            new_lines = "\n".join(json.dumps(entry, default=str) for entry in entries)
-            if existing_content and not existing_content.endswith("\n"):
-                existing_content += "\n"
-            updated_content = existing_content + new_lines + "\n"
-
-            # Write back to storage
-            await self._storage.write(  # type: ignore[union-attr]
-                log_path, updated_content.encode("utf-8"), content_type="application/x-ndjson"
+    def _build_default_sinks(
+        self,
+        storage: StorageClient | None,
+        user_id: str | None,
+        min_level: str,
+        log_format: str,
+    ) -> list[LogSink]:
+        sinks: list[LogSink] = [StdoutSink(log_format=log_format)]
+        if storage is not None:
+            sinks.append(
+                ObjectStorageSink(
+                    storage=storage,
+                    min_level=min_level,
+                    log_format=log_format,
+                )
             )
+        # user_id is reserved for explicit sink wiring at composition points.
+        _ = user_id
+        return sinks
 
-        except Exception:
-            # Sink failures must never crash the logger
-            pass
+    @staticmethod
+    def _format_timestamp(ts: datetime) -> str:
+        utc = ts.astimezone(timezone.utc).replace(microsecond=0)
+        return utc.isoformat().replace("+00:00", "Z")

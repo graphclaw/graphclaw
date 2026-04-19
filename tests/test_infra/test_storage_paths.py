@@ -67,6 +67,7 @@ def test_user_root_is_prefix_of_all_user_paths() -> None:
         StoragePaths.skill_executions(user_id, "skill-abc"),
         StoragePaths.attachment(user_id, "email", "2026-01-01", "msg-001", "file.pdf"),
         StoragePaths.attachments_prefix(user_id),
+        StoragePaths.user_log_path(user_id, "gateway", "2026-04-19/1000Z"),
     ]
     for path in paths_under_test:
         assert path.startswith(f"{user_id}/"), (
@@ -209,6 +210,21 @@ def test_attachment_path_sanitises_slashes_in_msg_id() -> None:
 
 def test_attachments_prefix() -> None:
     assert StoragePaths.attachments_prefix(_USER) == f"{_USER}/attachments/"
+
+
+# ---------------------------------------------------------------------------
+# Log paths
+# ---------------------------------------------------------------------------
+
+
+def test_user_log_path() -> None:
+    path = StoragePaths.user_log_path(_USER, "gateway", "2026-04-19/1000Z")
+    assert path == f"{_USER}/logs/gateway/2026-04-19/1000Z.jsonl"
+
+
+def test_system_log_path() -> None:
+    path = StoragePaths.system_log_path("gateway", "2026-04-19/1000Z")
+    assert path == "system/logs/gateway/2026-04-19/1000Z.jsonl"
 
 
 # ---------------------------------------------------------------------------

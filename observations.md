@@ -810,179 +810,48 @@ Validation completed against real local services (AGE + MinIO):
 
 ## 17. Log Files — Template, Format & Sink Architecture
 
-### Current State
-- Format: **JSONL** (newline-delimited JSON, `.jsonl`)
-- User-level path: `{user_id}/logs/{service}/{YYYY-MM-DD/HH00Z}.jsonl`
-- System-level: `user_id or "_system"` inlined in `logger.py` → `_system/logs/{service}/{date}/{hour}.jsonl`
-- Non-blocking asyncio queue (10,000 buffer); flush every 1 s or 100 entries
-- PII-safe event models with explicit field allowlists
-- Single hardwired sink: stdout + optional S3 write — no abstraction layer
+Section status: COMPLETE (Phase 1 scope) (5/5 subsections addressed)
 
-### Gaps
-1. **Format**: JSONL is not human-scannable for local debugging. Desired format is flat file **pipe-delimited** (`tail -f` and `grep`-friendly).
-2. **No sink abstraction**: The logger has the S3 write path hardcoded. Swapping to CloudWatch or any other monitoring tool requires rewriting `logger.py`. There is no ABC/interface that sinks implement.
-3. **System log path inconsistency**: System logs use `_system/` (underscore) inconsistent with `system/` used for all other system objects. `StoragePaths` has no factory method for system log paths — path is assembled inline in `logger.py`.
-4. **No CloudWatch sink**: PRD §09.9 defines six CloudWatch log groups but no integration code exists.
+**O-LOG-01: Pipe-delimited line format support** ✅ FIXED
+- Added shared formatting helpers in `src/graphclaw/infra/sinks/formatting.py` with fixed-column pipe output:
+  - `timestamp|level|service|event_type|session_id|user_id|task_id|extra_json`
+  - `-` placeholders for absent optional fields
+  - pipe escaping (`|` → `\|`) and compact JSON extras
+- `AsyncLogger` now emits second-precision UTC timestamps (`...Z`) in `src/graphclaw/infra/logger.py`.
 
----
+**O-LOG-02: Sink abstraction layer for logger fan-out** ✅ FIXED
+- Added sink interface and implementations:
+  - `src/graphclaw/infra/sinks/base.py` (`LogSink` ABC)
+  - `src/graphclaw/infra/sinks/stdout.py` (`StdoutSink`)
+  - `src/graphclaw/infra/sinks/object_storage.py` (`ObjectStorageSink`)
+  - `src/graphclaw/infra/sinks/cloudwatch.py` (`CloudWatchSink`)
+  - `src/graphclaw/infra/sinks/__init__.py` exports
+- Refactored `src/graphclaw/infra/logger.py` to accept sink lists and fan out with `asyncio.gather(..., return_exceptions=True)`; sink failures are swallowed by design.
 
-### Log Line Template (Pipe-Delimited)
+**O-LOG-03: System log path consistency (`_system` → `system`)** ✅ FIXED
+- Added canonical storage path helpers in `src/graphclaw/infra/storage.py`:
+  - `StoragePaths.user_log_path(...)`
+  - `StoragePaths.system_log_path(...)`
+- `ObjectStorageSink` now uses these helpers; no inline `_system/logs/...` string construction remains in logger flow.
 
-Every log line — regardless of sink — uses the same fixed-column format:
+**O-LOG-04: CloudWatch sink integration and service-group mapping** ✅ FIXED
+- Added `CloudWatchSink` with watchtower-based best-effort dispatch and service-group routing in `src/graphclaw/infra/sinks/cloudwatch.py`.
+- Supports primary service groups plus secondary fan-out to platform groups for `ERROR/CRITICAL` and `audit.*` events.
+- Added optional dependency group in `pyproject.toml`:
+  - `[project.optional-dependencies].monitoring = ["watchtower>=3.0.0"]`
 
-```
-{timestamp}|{level}|{service}|{event_type}|{session_id}|{user_id}|{task_id}|{extra_json}
-```
+**O-LOG-05: Runtime sink/format selection via env vars** ✅ FIXED
+- `src/graphclaw/gateway/deps.py` `init_services()` now builds sink lists from env:
+  - `LOG_FORMAT` (`jsonl` or `pipe`)
+  - `LOG_SINKS` (`stdout`, `object_storage`, `cloudwatch`)
+  - `LOG_LEVEL` (applied to durable storage sink)
+  - CloudWatch config (`CLOUDWATCH_REGION`, `CLOUDWATCH_LOG_GROUP_PREFIX`)
+- Default behavior remains safe (`stdout` fallback if config is empty/invalid).
 
-**Field definitions:**
-
-| Position | Field | Format | Null value | Example |
-|---|---|---|---|---|
-| 1 | `timestamp` | ISO-8601 UTC, no milliseconds | — (always present) | `2026-04-19T10:05:00Z` |
-| 2 | `level` | `DEBUG` / `INFO` / `WARNING` / `ERROR` / `CRITICAL` | — (always present) | `INFO` |
-| 3 | `service` | Lowercase slug matching CloudWatch log group | — (always present) | `gateway` |
-| 4 | `event_type` | Dotted path, noun.verb | — (always present) | `agent.intelligence_update` |
-| 5 | `session_id` | `SES-{uuid4}` | `-` | `SES-abc123` |
-| 6 | `user_id` | `USER-{id}` or `SYSTEM` | `-` | `USER-001` |
-| 7 | `task_id` | `TSK-{id}` | `-` | `TSK-042` |
-| 8 | `extra_json` | Compact JSON of remaining PII-safe fields | `-` | `{"channel":"email","direction":"inbound"}` |
-
-**Rules:**
-- Use `-` (single hyphen) for any field not applicable to an event — never empty string, never `null`
-- `extra_json` contains only the fields from the event's PII-safe allowlist — same fields as the current JSONL model
-- No field may contain a literal `|` character — escape as `\|` if needed (rare; task IDs and service names never contain pipes)
-
-**Example lines:**
-
-```
-# Normal inbound processing
-2026-04-19T10:05:00Z|INFO|gateway|inbound.processed|SES-abc123|USER-001|TSK-042|{"channel":"email","signal":"status_update","matched_by":"task_id"}
-
-# State transition
-2026-04-19T10:05:01Z|INFO|gateway|state.transition|SES-abc123|USER-001|TSK-042|{"from":"ACTIVE","to":"IN_PROGRESS","changed_by":"HUMAN"}
-
-# Scoring cycle
-2026-04-19T10:06:00Z|INFO|agent-runtime|scoring.cycle|SES-abc123|USER-001|-|{"tasks_scored":12,"top_task_id":"TSK-007","trigger_source":"property_change"}
-
-# System-level error (no user context)
-2026-04-19T10:06:05Z|ERROR|platform|-|-|SYSTEM|-|{"error":"S3 write timeout","bucket":"graphclaw","path":"system/prompts/system_header.md"}
-
-# Audit event
-2026-04-19T10:07:00Z|INFO|platform|audit.permission_check|SES-def456|USER-002|-|{"action":"mcp.call","server_id":"SRV-001","granted":true}
-```
-
-**CloudWatch metric filter pattern** (for pipe format ingestion):
-```
-[timestamp, level, service, event_type, session_id, user_id, task_id, extra]
-```
-This lets CloudWatch parse each field as a named variable for metric filters and Insights queries.
-
----
-
-### Sink ABC Pattern
-
-Replace the hardcoded S3 write path in `logger.py` with an abstract sink interface. `AsyncLogger` accepts a list of sinks and fans out to all of them.
-
-**Abstract base** (`src/graphclaw/infra/sinks/base.py`):
-
-```python
-class LogSink(ABC):
-    """Abstract log sink. Implement to add a new monitoring backend."""
-
-    @abstractmethod
-    async def start(self) -> None:
-        """Called once when the logger starts. Open connections, etc."""
-
-    @abstractmethod
-    async def stop(self) -> None:
-        """Called on graceful shutdown. Flush and close."""
-
-    @abstractmethod
-    async def write_batch(self, entries: list[LogEntry]) -> None:
-        """Write a batch of log entries. Must never raise — swallow and count errors."""
-
-    @property
-    @abstractmethod
-    def name(self) -> str:
-        """Human-readable sink name for diagnostics."""
-```
-
-**Concrete implementations:**
-
-| Class | File | Behaviour |
-|---|---|---|
-| `StdoutSink` | `sinks/stdout.py` | Writes pipe or JSONL to stdout; controlled by `LOG_FORMAT` env var |
-| `ObjectStorageSink` | `sinks/object_storage.py` | Current S3/MinIO write logic extracted here; path via `StoragePaths.system_log_path()` or `StoragePaths.user_log_path()` |
-| `CloudWatchSink` | `sinks/cloudwatch.py` | Writes to CloudWatch Logs via `watchtower`; maps service name → log group (see below) |
-
-**`AsyncLogger` change** (`infra/logger.py`):
-
-```python
-class AsyncLogger:
-    def __init__(self, sinks: list[LogSink], min_level: LogLevel = LogLevel.INFO, ...):
-        self._sinks = sinks
-        ...
-
-    async def _flush(self, batch: list[LogEntry]) -> None:
-        # Fan out to all sinks concurrently; individual sink errors are swallowed
-        await asyncio.gather(
-            *(sink.write_batch(batch) for sink in self._sinks),
-            return_exceptions=True,
-        )
-```
-
-Sink construction happens in `gateway/app.py` at startup, driven by env vars — the logger itself has no knowledge of which sinks are active.
-
----
-
-### CloudWatch Log Group Mapping
-
-The `CloudWatchSink` maps the `service` field in each log entry to the log group defined in PRD §09.9:
-
-| `service` field | CloudWatch log group | Log stream |
-|---|---|---|
-| `gateway` | `/graphclaw/channel-gateway` | `{YYYY/MM/DD}/{hostname}` |
-| `trigger-engine` | `/graphclaw/trigger-engine` | `{YYYY/MM/DD}/{hostname}` |
-| `agent-runtime` | `/graphclaw/agent-runtime/{user_id}` | `{YYYY/MM/DD}/{session_id}` |
-| `skill-agents` | `/graphclaw/skill-agents/{user_id}` | `{YYYY/MM/DD}/{session_id}` |
-| any, `level=ERROR\|CRITICAL` | `/graphclaw/platform/errors` | `{YYYY/MM/DD}/{service}` |
-| any, `event_type` starts with `audit.` | `/graphclaw/platform/audit` | `{YYYY/MM/DD}/{service}` |
-
-Rules:
-- Error and audit events are written to **both** their primary log group and their secondary platform log group (fan-out inside `CloudWatchSink.write_batch()`).
-- Log group prefix is configurable via `CLOUDWATCH_LOG_GROUP_PREFIX` env var (default `/graphclaw`) to support staging (`/graphclaw-staging`) without code changes.
-- `watchtower` handles batching and retries. Its internal buffer is separate from `AsyncLogger`'s queue.
-
----
-
-### Environment Variables
-
-| Variable | Values | Default | Effect |
-|---|---|---|---|
-| `LOG_FORMAT` | `jsonl` \| `pipe` | `jsonl` | Controls line format for all sinks that support both |
-| `LOG_SINKS` | comma-separated: `stdout`, `object_storage`, `cloudwatch` | `stdout` | Activates sinks at startup |
-| `LOG_LEVEL` | `DEBUG` \| `INFO` \| `WARNING` \| `ERROR` | `INFO` | Minimum level written to durable sinks (stdout always gets all) |
-| `CLOUDWATCH_REGION` | AWS region string | `us-east-1` | Region for CloudWatch Logs client |
-| `CLOUDWATCH_LOG_GROUP_PREFIX` | string | `/graphclaw` | Prefix for all log group names |
-
-Production baseline: `LOG_FORMAT=pipe LOG_SINKS=stdout,object_storage,cloudwatch LOG_LEVEL=INFO`
-Dev baseline: `LOG_FORMAT=pipe LOG_SINKS=stdout LOG_LEVEL=DEBUG`
-
----
-
-### Files to Create / Modify
-
-| # | File | Action |
-|---|---|---|
-| 1 | `src/graphclaw/infra/sinks/__init__.py` | NEW: exports `LogSink`, `StdoutSink`, `ObjectStorageSink`, `CloudWatchSink` |
-| 2 | `src/graphclaw/infra/sinks/base.py` | NEW: `LogSink` ABC |
-| 3 | `src/graphclaw/infra/sinks/stdout.py` | NEW: `StdoutSink` — pipe and JSONL format support |
-| 4 | `src/graphclaw/infra/sinks/object_storage.py` | NEW: `ObjectStorageSink` — extracted from current `logger.py` S3 write logic |
-| 5 | `src/graphclaw/infra/sinks/cloudwatch.py` | NEW: `CloudWatchSink` — `watchtower` integration, log group mapping |
-| 6 | `src/graphclaw/infra/logger.py` | MODIFY: `AsyncLogger` accepts `sinks: list[LogSink]`; remove hardcoded S3 write path |
-| 7 | `src/graphclaw/infra/storage.py` | MODIFY: add `system_log_path()`, rename `_system` → `system` in log path construction |
-| 8 | `src/graphclaw/gateway/app.py` | MODIFY: build sink list from env vars at startup; pass to `AsyncLogger.create()` |
-| 9 | `pyproject.toml` | MODIFY: add `watchtower>=3.0` as optional dependency under `[project.optional-dependencies] monitoring` |
+Validation completed against real local services:
+- `pytest tests/test_infra/test_logger.py tests/test_infra/test_log_sinks.py tests/test_infra/test_storage_paths.py -v`
+- `pytest tests/test_inbound/test_intelligence_agent_integration.py -v`
+- `ruff check --fix src/ tests/ && ruff format src/ tests/`
 
 ---
 

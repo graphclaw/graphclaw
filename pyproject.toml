@@ -68,10 +68,14 @@ dev = [
 load-testing = [
     "locust>=2.20.0",
 ]
+monitoring = [
+    "watchtower>=3.0.0",
+]
 all = [
     "graphclaw[openai]",
     "graphclaw[connectors]",
     "graphclaw[load-testing]",
+    "graphclaw[monitoring]",
 ]
 
 [project.urls]

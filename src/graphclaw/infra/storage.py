@@ -430,6 +430,26 @@ class StoragePaths:
         """
         return f"{user_id}/agents/{agent_id}/inbox/archive/{entry_name}"
 
+    # ------------------------------------------------------------------
+    # Log paths
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def user_log_path(user_id: str, service: str, hour_key: str, extension: str = "jsonl") -> str:
+        """User-scoped log object path.
+
+        Example: ``usr-abc123/logs/gateway/2026-04-19/1000Z.jsonl``
+        """
+        return f"{user_id}/logs/{service}/{hour_key}.{extension}"
+
+    @staticmethod
+    def system_log_path(service: str, hour_key: str, extension: str = "jsonl") -> str:
+        """System-scoped log object path.
+
+        Example: ``system/logs/gateway/2026-04-19/1000Z.jsonl``
+        """
+        return f"system/logs/{service}/{hour_key}.{extension}"
+
 
 class StorageClient(ABC):
     """Abstract interface for object storage backends."""

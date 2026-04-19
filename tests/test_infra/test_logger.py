@@ -26,6 +26,7 @@ from __future__ import annotations
 import re
 
 from graphclaw.infra.logger import AsyncLogger, generate_session_id
+from graphclaw.infra.sinks.base import LogEntry, LogSink
 
 # ---------------------------------------------------------------------------
 # Capturing logger helper
@@ -41,6 +42,28 @@ class CapturingLogger(AsyncLogger):
 
     async def _write_batch(self, batch: list[dict]) -> None:
         self.captured.extend(batch)
+
+
+class RecordingSink(LogSink):
+    """Sink double used to verify sink start/stop and batch fan-out."""
+
+    def __init__(self) -> None:
+        self.started = False
+        self.stopped = False
+        self.entries: list[LogEntry] = []
+
+    @property
+    def name(self) -> str:
+        return "recording"
+
+    async def start(self) -> None:
+        self.started = True
+
+    async def stop(self) -> None:
+        self.stopped = True
+
+    async def write_batch(self, entries: list[LogEntry]) -> None:
+        self.entries.extend(entries)
 
 
 # ---------------------------------------------------------------------------
@@ -122,6 +145,19 @@ async def test_stop_flushes_remaining() -> None:
     logger.log("INFO", "orphan.event", "SES-orphan")
     await logger.stop()
     assert any(e["event_type"] == "orphan.event" for e in logger.captured)
+
+
+async def test_logger_fans_out_to_configured_sink() -> None:
+    sink = RecordingSink()
+    logger = AsyncLogger(service_name="test-service", sinks=[sink])
+
+    await logger.start()
+    logger.log("INFO", "task.started", "SES-333", task_id="T3")
+    await logger.stop()
+
+    assert sink.started is True
+    assert sink.stopped is True
+    assert any(entry.get("event_type") == "task.started" for entry in sink.entries)
 
 
 # ---------------------------------------------------------------------------
