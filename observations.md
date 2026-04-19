@@ -141,9 +141,11 @@
 - Engine always uses hardcoded defaults — never reads `UserNode.scoring_weights`
 - No weight update mechanism when user overrides or confirms agent actions
 
-**O-SCR-02: ScoreExplanation not persisted**
-- Computed in memory, returned from `score_task()`, never written to the DB
-- Breaks explainability (§13) and audit mode
+**O-SCR-02: ScoreExplanation not persisted** ✅ FIXED
+- `score_task()`: after computing the `ScoreExplanation`, now updates `task.scoring.*` in-memory (all 7 factor values, `computed_priority`, `last_scored_at`, `score_reasoning`)
+- `score_all()`: after assigning ranks, iterates scored tasks and calls `context.graph_repo.update_node()` to persist the scoring block and `last_scored_at` to AGE; guarded with `try/except` per task
+- COMPLETE/CANCELLED tasks are correctly excluded from scoring (and their DB records are untouched)
+- 7 integration tests: 3 in-memory mutations, 4 AGE persistence tests including completed-task exclusion
 
 **O-SCR-03: Scoring context (`ScoringContext`) requires graph queries that may not be wired**
 - `build_scoring_context()` in `AgentLoop` queries graph for relationships (goal priority, dependents, blocker type, resource reliability, constraints)

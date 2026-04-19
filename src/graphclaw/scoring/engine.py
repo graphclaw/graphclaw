@@ -349,6 +349,18 @@ class ScoringEngine:
             summary=summary,
         )
 
+        # Update the task's in-memory scoring block so callers can persist it.
+        task.scoring.timeline_urgency = f1_raw
+        task.scoring.dependency_weight = f2_raw
+        task.scoring.critical_path = f3_raw
+        task.scoring.blocker = f4_raw
+        task.scoring.human_override = f5_raw
+        task.scoring.resource_risk = f6_raw
+        task.scoring.constraint_pressure = f7_raw
+        task.scoring.computed_priority = final_score
+        task.scoring.last_scored_at = now
+        task.scoring.score_reasoning = summary
+
         self.cache.set(tid, explanation)
         return explanation
 
@@ -419,11 +431,37 @@ class ScoringEngine:
 
         # Assign ranks and build ActionQueueEntries.
         ranked_explanations: list[ScoreExplanation] = []
-        for rank, (_, expl) in enumerate(scored, start=1):
+        for rank, (task, expl) in enumerate(scored, start=1):
             expl.rank = rank
+            task.scoring.computed_priority = expl.final_score
             # Update cached version with rank.
             self.cache.set(expl.node_id, expl)
             ranked_explanations.append(expl)
+
+        # Persist scoring block to graph store.
+        if context.graph_repo is not None:
+            tasks_by_id = {t.id: t for t in scoreable}
+            for expl in ranked_explanations:
+                task = tasks_by_id.get(expl.node_id)
+                if task is None:
+                    continue
+                try:
+                    scored_at_iso = (
+                        task.scoring.last_scored_at.isoformat()
+                        if task.scoring.last_scored_at
+                        else None
+                    )
+                    await context.graph_repo.update_node(
+                        task.id,
+                        {
+                            "scoring": task.scoring.model_dump(mode="json"),
+                            "last_scored_at": scored_at_iso,
+                        },
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "score_all: could not persist score for %s: %s", task.id, exc
+                    )
 
         tasks_by_id = {t.id: t for t in scoreable}
         queue = build_action_queue([(tasks_by_id[e.node_id], e) for e in ranked_explanations])
