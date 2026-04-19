@@ -208,10 +208,12 @@
 
 ### Observations / Gaps
 
-**O-AUTH-01: Provisioning apparently never called in practice**
-- 0 UserNodes in DB despite provisioning code being complete
-- Either: OAuth routes are not wired to provisioning service, or the OAuth flow itself fails before reaching provisioning
-- Files to check: `auth/routes.py`, `auth/oauth.py`
+**O-AUTH-01: Provisioning apparently never called in practice** ✅ FIXED
+- `UserProvisioningService.provision_new_user()` is now called in the OAuth callback
+- Added `get_provisioning_service()` dependency in `auth/routes.py` (reads `app.state.graph_store` + `app.state.storage_client`)
+- Callback creates/looks up UserNode + WorkspaceNode + OWNS edge on every login; idempotent on repeat logins
+- Falls back to token-only mode if provisioning service unavailable (no DB, or transient error)
+- 5 integration tests covering: new user creation, workspace + OWNS edge, idempotency, deprovision, HTTP endpoint end-to-end
 
 **O-AUTH-02: All test data uses hardcoded `USER-dev-001` string**
 - Not a real UserNode — just a string property on tasks

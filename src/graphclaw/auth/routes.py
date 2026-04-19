@@ -44,7 +44,7 @@ import logging
 import os
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from jose import JWTError
 from pydantic import BaseModel
@@ -52,6 +52,7 @@ from pydantic import BaseModel
 from graphclaw.auth.jwt import JWTService
 from graphclaw.auth.middleware import get_current_user_id, get_jwt_service
 from graphclaw.auth.oauth import OAuthService
+from graphclaw.auth.provisioning import UserProvisioningService
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +79,27 @@ def get_oauth_service() -> OAuthService:
         logger.debug("OAuthService singleton: initialising from environment")
         _oauth_service = OAuthService.from_env()
     return _oauth_service
+
+
+async def get_provisioning_service(
+    request: Request,
+    jwt_service: JWTService = Depends(get_jwt_service),
+) -> UserProvisioningService | None:
+    """Return a ``UserProvisioningService`` backed by ``app.state`` services.
+
+    Returns ``None`` when the graph store or storage client is not yet
+    initialised (e.g. at startup or in tests without a DB).  Callers
+    must handle ``None`` gracefully by falling back to token-only issuance.
+    """
+    graph_store = getattr(request.app.state, "graph_store", None)
+    storage_client = getattr(request.app.state, "storage_client", None)
+    if graph_store is None or storage_client is None:
+        return None
+    return UserProvisioningService(
+        graph_store=graph_store,
+        storage_client=storage_client,
+        jwt_service=jwt_service,
+    )
 
 
 # ── Request / Response models ──────────────────────────────────────────────────
@@ -198,9 +220,8 @@ async def login(
     description=(
         "Receives the IdP authorization callback, validates the CSRF state, "
         "exchanges the authorization code for an access token, fetches the user "
-        "profile, and issues GraphClaw access + refresh tokens. "
-        "User provisioning (WS-U) is stubbed — the user_id is derived from the "
-        "OAuth ``provider_user_id`` for now."
+        "profile, provisions a UserNode if needed, and returns GraphClaw access "
+        "+ refresh tokens."
     ),
 )
 async def callback(
@@ -209,6 +230,7 @@ async def callback(
     state: str,
     jwt_service: JWTService = Depends(get_jwt_service),
     oauth_service: OAuthService = Depends(get_oauth_service),
+    provisioning_service: UserProvisioningService | None = Depends(get_provisioning_service),
 ) -> dict[str, Any]:
     """Exchange OAuth authorization code for GraphClaw JWT tokens.
 
@@ -224,6 +246,9 @@ async def callback(
         ``JWTService`` injected via ``Depends``.
     oauth_service:
         ``OAuthService`` injected via ``Depends``.
+    provisioning_service:
+        ``UserProvisioningService`` injected via ``Depends``; ``None`` when the
+        graph store is not initialised (dev / test without DB).
 
     Returns
     -------
@@ -254,28 +279,52 @@ async def callback(
             detail=str(exc),
         ) from exc
 
-    # ── User provisioning stub (WS-U will implement full DB lookup/creation) ──
-    # For now, construct a deterministic user_id from provider + provider_user_id
     provider_name: str = userinfo.get("provider", provider)
     provider_user_id: str = userinfo.get("provider_user_id", "")
     email: str = userinfo.get("email", "")
     name: str = userinfo.get("name", "")
+    oauth_subject = f"{provider_name}:{provider_user_id}"
 
-    # Stub: use "{provider}:{provider_user_id}" as the platform user_id
-    user_id = f"{provider_name}:{provider_user_id}"
+    # ── User provisioning — create/lookup UserNode + WorkspaceNode ───────────
+    if provisioning_service is not None:
+        try:
+            result = await provisioning_service.provision_new_user(
+                oauth_subject=oauth_subject,
+                email=email,
+                display_name=name,
+                provider=provider_name,
+            )
+            logger.info(
+                "auth/callback: provisioned user_id=%s is_new=%s provider=%s email=%s",
+                result.user_id,
+                result.is_new_user,
+                provider_name,
+                email,
+            )
+            return {
+                "access_token": result.access_token,
+                "refresh_token": result.refresh_token,
+                "token_type": "bearer",
+                "expires_in": 900,
+            }
+        except Exception as exc:  # noqa: BLE001
+            # Log and fall through to token-only issuance so login still works
+            # even if provisioning encounters a transient error.
+            logger.error(
+                "auth/callback: provisioning failed for %s — falling back to token-only: %s",
+                email,
+                exc,
+            )
 
+    # ── Fallback: token-only (no DB, or provisioning error) ──────────────────
     logger.info(
-        "auth/callback: authenticated user provider=%s provider_user_id=%s email=%s name=%s "
-        "platform_user_id=%s (user provisioning stubbed — WS-U pending)",
+        "auth/callback: token-only mode for provider=%s email=%s platform_user_id=%s",
         provider_name,
-        provider_user_id,
         email,
-        name,
-        user_id,
+        oauth_subject,
     )
-
-    access_token = jwt_service.issue_access_token(user_id)
-    refresh_token = jwt_service.issue_refresh_token(user_id)
+    access_token = jwt_service.issue_access_token(oauth_subject)
+    refresh_token = jwt_service.issue_refresh_token(oauth_subject)
 
     return {
         "access_token": access_token,
