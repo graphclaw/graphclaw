@@ -187,14 +187,17 @@
 
 ### Observations / Gaps
 
-**O-BRF-01: Only section 1 of 5 briefing sections implemented**
-- Spec (§12.1) defines 5 sections: Critical / Inferences to Confirm / Completed Since Last / Ahead of the Curve / Deferred Items Check
-- Current `briefing.py` only generates the "Critical" action queue
-- Sections 2-5 are entirely missing
+**O-BRF-01: Only section 1 of 5 briefing sections implemented** ✅ FIXED
+- `agent/briefing.py` `format_briefing()` now generates all 5 sections from PRD §12.1 via optional `BriefingContext` dataclass:
+  - §1 Critical (ranked action queue, capped at 3)
+  - §2 Inferences to Confirm
+  - §3 Completed Since Last Briefing
+  - §4 Ahead of the Curve (proactive items)
+  - §5 Deferred Items Check (snoozed tasks)
 
-**O-BRF-02: Cognitive load limit not enforced**
-- Spec: max 3 critical items surfaced; agent handles the rest autonomously and tells user
-- No cap implemented
+**O-BRF-02: Cognitive load limit not enforced** ✅ FIXED
+- `format_briefing()` now caps critical section at `MAX_CRITICAL_ITEMS = 3`; extra items include an autonomous note: "Agent handling N additional lower-priority items autonomously."
+- Default `top_n` parameter changed from 5 → 3 (PRD §12.1)
 
 **O-BRF-03: Interrupt threshold not checked**
 - Spec (§12.3): `UserNode.preferences.interrupt_threshold` — items above this score break through mid-day
