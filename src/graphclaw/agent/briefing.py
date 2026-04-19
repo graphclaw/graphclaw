@@ -80,6 +80,7 @@ def format_briefing(
     queue: list[ActionQueueEntry],
     top_n: int = MAX_CRITICAL_ITEMS,
     context: BriefingContext | None = None,
+    interrupt_threshold: float | None = None,
 ) -> str:
     """Generate a structured 5-section text briefing from the action queue.
 
@@ -93,6 +94,11 @@ def format_briefing(
     context:
         Optional BriefingContext with data for sections 2-5.  If None,
         only section 1 (Critical) is generated.
+    interrupt_threshold:
+        When provided, any queue entry with ``final_score`` exceeding this
+        value is flagged as an interrupt candidate (PRD §12.3, O-BRF-03).
+        Items above the threshold are marked ``[INTERRUPT]`` in the briefing.
+        Defaults to None (no interrupt filtering).
 
     Returns
     -------
@@ -126,6 +132,12 @@ def format_briefing(
                 f"#{entry.rank}  {entry.node_id}  "
                 f"[score: {entry.final_score:.3f}]  "
                 f"[autonomy: {entry.autonomy_level.value}]"
+                + (
+                    "  [INTERRUPT]"
+                    if interrupt_threshold is not None
+                    and entry.final_score > interrupt_threshold
+                    else ""
+                )
             )
             lines.append(f"    Action:  {entry.recommended_action}")
             if top_factor:
@@ -224,4 +236,31 @@ def format_briefing(
     return "\n".join(lines)
 
 
-__all__ = ["format_briefing", "BriefingContext", "MAX_CRITICAL_ITEMS"]
+def has_interrupt_items(
+    queue: list[ActionQueueEntry], interrupt_threshold: float
+) -> bool:
+    """Return True if any entry in *queue* exceeds *interrupt_threshold*.
+
+    Callers (e.g. ``TriggerEngine``) use this to decide whether a mid-day
+    briefing interrupt is warranted (PRD §12.3, O-BRF-03).
+
+    Parameters
+    ----------
+    queue:
+        Ranked ActionQueueEntry list.
+    interrupt_threshold:
+        The ``UserNode.preferences.interrupt_threshold`` value for the user.
+
+    Returns
+    -------
+    bool
+    """
+    return any(e.final_score > interrupt_threshold for e in queue)
+
+
+__all__ = [
+    "format_briefing",
+    "has_interrupt_items",
+    "BriefingContext",
+    "MAX_CRITICAL_ITEMS",
+]

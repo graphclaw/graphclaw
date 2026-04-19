@@ -3,13 +3,19 @@
 Covers:
   - O-BRF-01: All 5 sections (Critical, Inferences, Completed, Ahead of Curve, Deferred)
   - O-BRF-02: Critical section capped at MAX_CRITICAL_ITEMS (3) with autonomous note
+  - O-BRF-03: interrupt_threshold filtering — items above threshold tagged [INTERRUPT]
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from graphclaw.agent.briefing import BriefingContext, MAX_CRITICAL_ITEMS, format_briefing
+from graphclaw.agent.briefing import (
+    BriefingContext,
+    MAX_CRITICAL_ITEMS,
+    format_briefing,
+    has_interrupt_items,
+)
 from graphclaw.models.enums import AutonomyLevel
 from graphclaw.models.scoring import ActionQueueEntry, ScoreExplanation, ScoreFactor
 
@@ -228,3 +234,49 @@ async def test_footer_shows_total_queue_length():
     entries = [_entry(i) for i in range(1, 6)]
     output = format_briefing(entries)
     assert "Total tasks in queue: 5" in output
+
+
+# ---------------------------------------------------------------------------
+# O-BRF-03: interrupt_threshold
+# ---------------------------------------------------------------------------
+
+
+async def test_interrupt_threshold_tags_high_score_items():
+    """Items above interrupt_threshold are tagged [INTERRUPT] in section 1."""
+    low = _entry(1, score=0.6)
+    high = _entry(2, score=0.95)
+    output = format_briefing([high, low], top_n=3, interrupt_threshold=0.8)
+    assert "[INTERRUPT]" in output
+    # Low-score item should not be tagged
+    lines = output.splitlines()
+    for line in lines:
+        if "TSK-TT-0001-ATM" in line:
+            assert "[INTERRUPT]" not in line
+
+
+async def test_interrupt_threshold_none_no_interrupt_tags():
+    """When interrupt_threshold is None, no [INTERRUPT] tags should appear."""
+    entries = [_entry(1, score=0.99)]
+    output = format_briefing(entries, interrupt_threshold=None)
+    assert "[INTERRUPT]" not in output
+
+
+async def test_interrupt_threshold_boundary_not_above():
+    """Score exactly equal to threshold does NOT trigger [INTERRUPT] (strictly >)."""
+    entry = _entry(1, score=0.8)
+    output = format_briefing([entry], interrupt_threshold=0.8)
+    assert "[INTERRUPT]" not in output
+
+
+async def test_has_interrupt_items_true():
+    entries = [_entry(1, score=0.95), _entry(2, score=0.5)]
+    assert has_interrupt_items(entries, interrupt_threshold=0.8) is True
+
+
+async def test_has_interrupt_items_false():
+    entries = [_entry(1, score=0.7), _entry(2, score=0.5)]
+    assert has_interrupt_items(entries, interrupt_threshold=0.8) is False
+
+
+async def test_has_interrupt_items_empty_queue():
+    assert has_interrupt_items([], interrupt_threshold=0.8) is False

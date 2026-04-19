@@ -199,9 +199,10 @@
 - `format_briefing()` now caps critical section at `MAX_CRITICAL_ITEMS = 3`; extra items include an autonomous note: "Agent handling N additional lower-priority items autonomously."
 - Default `top_n` parameter changed from 5 → 3 (PRD §12.1)
 
-**O-BRF-03: Interrupt threshold not checked**
-- Spec (§12.3): `UserNode.preferences.interrupt_threshold` — items above this score break through mid-day
-- Not implemented; briefing is never triggered mid-day regardless of priority
+**O-BRF-03: Interrupt threshold not checked** ✅ FIXED
+- `format_briefing()` now accepts `interrupt_threshold: float | None` parameter; items with `final_score > interrupt_threshold` are tagged `[INTERRUPT]` in section 1
+- Added `has_interrupt_items(queue, interrupt_threshold) -> bool` helper for callers (e.g. `TriggerEngine`) to decide whether to fire a mid-day notification
+- Default threshold is `None` (opt-in, no change to existing call sites)
 
 ---
 
