@@ -23,7 +23,7 @@ Public API
 
 Dependencies
 ------------
-- graphclaw.agent.loop: AgentLoop.
+- graphclaw.agent.main_orchestrator: MainOrchestrator.
 - graphclaw.cli.formatters: format_action_queue, format_briefing.
 - graphclaw.db.connection: create_pool.
 - graphclaw.db.age: AgeGraphStore.
@@ -58,13 +58,13 @@ err_console = Console(stderr=True, style="bold red")
 
 
 async def _build_agent_loop():
-    """Initialise and return an AgentLoop from environment config.
+    """Initialise and return a MainOrchestrator from environment config.
 
-    Returns (pool, AgentLoop).  Raises SystemExit on any setup failure.
+    Returns (pool, MainOrchestrator).  Raises SystemExit on any setup failure.
     """
     import os
 
-    from graphclaw.agent.loop import AgentLoop
+    from graphclaw.agent.main_orchestrator import MainOrchestrator
     from graphclaw.db.age import AgeGraphStore
     from graphclaw.db.connection import create_pool
     from graphclaw.scoring.engine import ScoringEngine
@@ -87,7 +87,7 @@ async def _build_agent_loop():
     repo = AgeGraphStore(pool)
     engine = ScoringEngine()
     sm = StateMachine()
-    loop = AgentLoop(graph_repo=repo, scoring_engine=engine, state_machine=sm)
+    loop = MainOrchestrator(graph_repo=repo, scoring_engine=engine, state_machine=sm)
     return pool, loop
 
 
@@ -549,7 +549,7 @@ async def _chat_async(
     except ImportError:
         pass  # readline is not available on Windows
 
-    from graphclaw.agent.loop import AgentLoop
+    from graphclaw.agent.main_orchestrator import MainOrchestrator
     from graphclaw.db.age import AgeGraphStore
     from graphclaw.db.connection import create_pool
     from graphclaw.infra.storage import S3StorageClient
@@ -600,7 +600,7 @@ async def _chat_async(
     except Exception:
         pass
 
-    agent_loop = AgentLoop(
+    agent_loop = MainOrchestrator(
         graph_repo=repo,
         scoring_engine=engine,
         state_machine=sm,

@@ -3,4 +3,4 @@ WORKDIR /app
 COPY pyproject.toml ./
 RUN pip install -e "." --no-cache-dir
 COPY src/ ./src/
-CMD ["python", "-m", "graphclaw.agent.loop"]
+CMD ["python", "-m", "graphclaw.agent.main_orchestrator"]

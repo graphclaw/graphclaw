@@ -207,7 +207,7 @@ class TestCreateTaskEdgesViaAgentLoop:
         """AgentLoop._tool_create_task creates OWNED_BY edge when it creates a task."""
         from unittest.mock import AsyncMock, MagicMock
 
-        from graphclaw.agent.loop import AgentLoop
+        from graphclaw.agent.main_orchestrator import MainOrchestrator as AgentLoop
 
         loop = _make_agent_loop(repo)
 
@@ -277,7 +277,7 @@ def _make_agent_loop(repo: AgeGraphStore):
     """Build a minimal AgentLoop with only the graph repo wired up."""
     from unittest.mock import AsyncMock, MagicMock
 
-    from graphclaw.agent.loop import AgentLoop
+    from graphclaw.agent.main_orchestrator import MainOrchestrator as AgentLoop
     from graphclaw.scoring.engine import ScoringEngine
     from graphclaw.state.machine import StateMachine
 
@@ -298,3 +298,4 @@ def _make_agent_loop(repo: AgeGraphStore):
         state_machine=mock_sm,
     )
     return loop
+

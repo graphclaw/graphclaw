@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from graphclaw.agent.loop import AgentLoop
+from graphclaw.agent.main_orchestrator import MainOrchestrator as AgentLoop
 from graphclaw.models.base import generate_task_id
 from graphclaw.models.enums import (
     GoalPriority,
@@ -413,3 +413,4 @@ class TestAgentLoopConstructor:
         assert loop._repo is repo
         assert loop._engine is engine
         assert loop._sm is sm
+

@@ -83,6 +83,8 @@ class AgentJobEvent(BaseModel):
     agent_id: str
     task_id: str
     session_id: str
+    user_id: str = ""  # Explicit user ID — do NOT derive from session_id
+    agent_source: str = "user"  # "system" | "user" — determines profile resolution path
     parent_task_id: str | None = None
     batch_id: str = Field(default_factory=lambda: f"batch-{uuid.uuid4().hex[:8]}")
     instructions: str = ""
@@ -380,15 +382,34 @@ class SubAgentRunner:
             try:
                 from graphclaw.infra.storage import StoragePaths
 
-                user_id = job.session_id.split("-")[1] if "-" in job.session_id else ""
-                profile_path = StoragePaths.agent_profile(user_id, job.agent_id)
-                profile_bytes = await self._storage.read(profile_path)
-                if profile_bytes:
-                    base += f"\n## Agent Profile\n{profile_bytes.decode(errors='replace')}\n"
-                context_path = StoragePaths.agent_memory_working(user_id, job.agent_id)
-                ctx_bytes = await self._storage.read(context_path)
-                if ctx_bytes:
-                    base += f"\n## Delegation Context\n{ctx_bytes.decode(errors='replace')}\n"
+                if job.agent_source == "system":
+                    # System agents: load profile from system/agents/{agent_id}/profile.md
+                    profile_path = StoragePaths.system_agent_profile(job.agent_id)
+                    context_path = None  # System agents have no per-user working memory
+                else:
+                    # User agents: load profile from {user_id}/agents/{agent_id}/profile.md
+                    user_id = job.user_id
+                    profile_path = StoragePaths.agent_profile(user_id, job.agent_id)
+                    context_path = StoragePaths.agent_memory_working(user_id, job.agent_id)
+
+                try:
+                    profile_bytes = await self._storage.read(profile_path)
+                    if profile_bytes:
+                        base += f"\n## Agent Profile\n{profile_bytes.decode(errors='replace')}\n"
+                except FileNotFoundError:
+                    logger.debug(
+                        "SubAgentRunner: no profile found for agent '%s' (source=%s)",
+                        job.agent_id,
+                        job.agent_source,
+                    )
+
+                if context_path:
+                    try:
+                        ctx_bytes = await self._storage.read(context_path)
+                        if ctx_bytes:
+                            base += f"\n## Working Context\n{ctx_bytes.decode(errors='replace')}\n"
+                    except FileNotFoundError:
+                        pass
             except Exception as exc:
                 logger.debug("SubAgentRunner: could not load profile/context: %s", exc)
         return base

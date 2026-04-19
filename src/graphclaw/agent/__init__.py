@@ -1,10 +1,12 @@
 """GraphClaw agent package.
 
-Exports the AgentLoop which orchestrates scoring cycles and briefings.
+Exports MainOrchestrator (and backward-compatible AgentLoop alias).
 """
 
 from __future__ import annotations
 
-from graphclaw.agent.loop import AgentLoop
+from graphclaw.agent.main_orchestrator import MainOrchestrator
 
-__all__ = ["AgentLoop"]
+AgentLoop = MainOrchestrator
+
+__all__ = ["MainOrchestrator", "AgentLoop"]

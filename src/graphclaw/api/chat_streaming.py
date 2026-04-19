@@ -3,7 +3,7 @@
 Description
 -----------
 Provides ``sse_frame`` for SSE formatting and ``stream_chat_run`` as the
-async generator that bridges ``AgentLoop.process_chat_message_stream`` to an
+async generator that bridges ``MainOrchestrator.process_chat_message_stream`` to an
 HTTP ``text/event-stream`` response body.
 
 After the run completes the helper persists both the user message and the
@@ -24,7 +24,7 @@ Public API
 
 Dependencies
 ------------
-- graphclaw.agent.loop: AgentLoop (TYPE_CHECKING).
+- graphclaw.agent.main_orchestrator: MainOrchestrator (TYPE_CHECKING).
 - graphclaw.agent.run_events: RunEventType (for terminal detection).
 - graphclaw.api.chat: _load_history, _save_history, _HISTORY_MAX, ChatMessage.
 - fastapi.responses: StreamingResponse (not imported here, used by caller).
@@ -44,7 +44,7 @@ from graphclaw.agent.run_events import RunEventType
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
-    from graphclaw.agent.loop import AgentLoop
+    from graphclaw.agent.main_orchestrator import MainOrchestrator
     from graphclaw.infra.storage import StorageClient
 
 logger = logging.getLogger(__name__)
@@ -80,7 +80,7 @@ def sse_comment(text: str = "keepalive") -> str:
 
 
 async def stream_chat_run(
-    agent_loop: AgentLoop,
+    agent_loop: MainOrchestrator,
     storage_client: StorageClient,
     user_id: str,
     text: str,

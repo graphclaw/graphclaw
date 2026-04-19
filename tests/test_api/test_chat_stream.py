@@ -170,7 +170,7 @@ def app_with_stream(real_storage):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
-    from graphclaw.agent.loop import AgentLoop
+    from graphclaw.agent.main_orchestrator import MainOrchestrator as AgentLoop
     from graphclaw.api.chat import router as chat_router
     from graphclaw.api.deps import get_storage_client
     from graphclaw.auth.middleware import require_auth
@@ -327,3 +327,4 @@ class TestChatStreamRoute:
         assert "text/event-stream" in res.headers.get("content-type", "")
         events = parse_sse_body(res.content)
         assert any(e.get("_sse_event") == "run.failed" for e in events)
+

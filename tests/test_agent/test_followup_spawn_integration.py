@@ -231,7 +231,7 @@ class TestFollowUpSpawnViaRestAPI:
 class TestFollowUpSpawnViaAgentLoop:
     async def test_delegated_task_spawns_followup_via_agent(self, repo: AgeGraphStore):
         """AgentLoop._tool_create_task with task_type=delegated spawns a FollowUp."""
-        from graphclaw.agent.loop import AgentLoop
+        from graphclaw.agent.main_orchestrator import MainOrchestrator as AgentLoop
         from graphclaw.scoring.engine import ScoringEngine
         from graphclaw.state.machine import StateMachine
         from unittest.mock import AsyncMock, MagicMock
@@ -260,3 +260,4 @@ class TestFollowUpSpawnViaAgentLoop:
             if followup:
                 await repo.delete_node(followup["id"])
             await repo.delete_node(delegated_id)
+

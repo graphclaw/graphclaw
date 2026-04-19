@@ -1,8 +1,8 @@
-"""graphclaw.agent.loop — AgentLoop: orchestrates the scoring cycle and builds the action queue.
+"""graphclaw.agent.main_orchestrator — MainOrchestrator core orchestration runtime.
 
 Description
 -----------
-Provides the ``AgentLoop`` class, which is the primary entry point for the
+Provides the ``MainOrchestrator`` class, which is the primary entry point for the
 agent-side of the GraphClaw system.  One call to ``run_cycle()`` fetches all
 active tasks, builds a ``ScoringContext`` by querying graph relationships for each
 task, scores all tasks via ``ScoringEngine.score_all()``, and returns a ranked
@@ -15,7 +15,7 @@ tool-use support for task/goal mutations, and returns the agent reply.
 
 Design Patterns
 ---------------
-- Facade: ``AgentLoop`` hides the complexity of fetching, context-building, scoring,
+- Facade: ``MainOrchestrator`` hides the complexity of fetching, context-building, scoring,
   and formatting behind a simple ``run_cycle()`` call.
 - Dependency Injection: GraphStore, ScoringEngine, StateMachine, LLMClient, and
   StorageClient are injected at construction time, making the loop fully testable
@@ -23,10 +23,10 @@ Design Patterns
 
 Public API
 ----------
-- AgentLoop.run_cycle: Execute one full agent scoring cycle and return the action queue.
-- AgentLoop.build_scoring_context: Build a ScoringContext for a given task list.
-- AgentLoop.generate_briefing: Generate a human-readable briefing from the action queue.
-- AgentLoop.process_chat_message: Handle a conversational user message with LLM + tool-use.
+- MainOrchestrator.run_cycle: Execute one full agent scoring cycle and return the action queue.
+- MainOrchestrator.build_scoring_context: Build a ScoringContext for a given task list.
+- MainOrchestrator.generate_briefing: Generate a human-readable briefing from the action queue.
+- MainOrchestrator.process_chat_message: Handle a conversational user message with LLM + tool-use.
 
 Dependencies
 ------------
@@ -38,6 +38,11 @@ Dependencies
 - graphclaw.agent.briefing: format_briefing (imported lazily to avoid circular imports).
 - graphclaw.llm.base: LLMClient, LLMMessage, ToolDefinition (TYPE_CHECKING).
 - graphclaw.infra.storage: StorageClient, StoragePaths (TYPE_CHECKING).
+
+Backward Compatibility
+----------------------
+The class alias ``AgentLoop`` remains available from ``graphclaw.agent`` during
+the migration to ``MainOrchestrator`` naming.
 """
 
 from __future__ import annotations
@@ -115,7 +120,7 @@ their task graph (blocked tasks, overdue items, upcoming deadlines), mention it 
 """
 
 
-class AgentLoop:
+class MainOrchestrator:
     """Orchestrates one scoring cycle of the GraphClaw agent.
 
     Parameters
@@ -1192,45 +1197,63 @@ class AgentLoop:
         limit = min(int(args.get("limit", 10)), 50)
         include_completed = bool(args.get("include_completed", False))
         assigned_to = args.get("assigned_to")
+        state_filter_norm = str(state_filter).upper() if state_filter else None
+        task_type_filter_norm = str(task_type_filter).upper().replace("_", "") if task_type_filter else None
+
+        def _norm_state(value: Any) -> str:
+            return str(getattr(value, "value", value or "")).upper()
+
+        def _norm_task_type(value: Any) -> str:
+            return str(getattr(value, "value", value or "")).upper().replace("_", "")
+
+        def _deadline_from_props(task_props: dict[str, Any]) -> str | None:
+            timeline = task_props.get("timeline")
+            if isinstance(timeline, str) and timeline and timeline[0] in ("{", "["):
+                try:
+                    timeline = json.loads(timeline)
+                except (TypeError, ValueError):
+                    timeline = None
+            if isinstance(timeline, dict):
+                deadline = timeline.get("deadline")
+                if deadline:
+                    return str(deadline)
+            return None
 
         # Fetch by goal subgraph or full user task list
         if goal_id:
             try:
                 raw_nodes = await self._repo.list_nodes_for_goal(goal_id)
-                tasks = []
-                for props in raw_nodes:
-                    try:
-                        tasks.append(TaskNode.model_validate(_deserialise_graph_props(props)))
-                    except Exception:
-                        pass
+                tasks = [_deserialise_graph_props(props) for props in raw_nodes]
             except Exception as exc:
                 return {"error": f"Failed to load tasks for goal {goal_id}: {exc}"}
         else:
-            tasks = await self._fetch_active_tasks(user_id)
+            raw_nodes = await self._repo.list_nodes_by_user("TaskNode", user_id)
+            tasks = [_deserialise_graph_props(props) for props in raw_nodes]
+
+        # Enforce user scope for all list paths, including goal-scoped lookups.
+        tasks = [t for t in tasks if t.get("owned_by") == user_id]
 
         # Apply filters
         if not include_completed:
-            tasks = [t for t in tasks if t.state not in _TERMINAL]
-        if state_filter:
-            tasks = [t for t in tasks if t.state == state_filter]
-        if task_type_filter:
-            tasks = [t for t in tasks if t.task_type == task_type_filter]
+            tasks = [t for t in tasks if _norm_state(t.get("state")) not in _TERMINAL]
+        if state_filter_norm:
+            tasks = [t for t in tasks if _norm_state(t.get("state")) == state_filter_norm]
+        if task_type_filter_norm:
+            tasks = [t for t in tasks if _norm_task_type(t.get("task_type")) == task_type_filter_norm]
         if assigned_to:
-            tasks = [t for t in tasks if t.assigned_to == assigned_to]
+            tasks = [t for t in tasks if t.get("assigned_to") == assigned_to]
 
         tasks = tasks[:limit]
 
         return {
             "tasks": [
                 {
-                    "id": t.id,
-                    "title": t.title,
-                    "state": t.state,
-                    "task_type": t.task_type,
-                    "assigned_to": t.assigned_to,
-                    "deadline": str(t.timeline.deadline)
-                    if t.timeline and t.timeline.deadline
-                    else None,
+                    "id": t.get("id"),
+                    "title": t.get("title"),
+                    "state": t.get("state"),
+                    "task_type": str(getattr(t.get("task_type"), "value", t.get("task_type"))),
+                    "assigned_to": t.get("assigned_to"),
+                    "deadline": _deadline_from_props(t),
                 }
                 for t in tasks
             ],
@@ -1282,20 +1305,21 @@ class AgentLoop:
 
         # Map string task_type to TaskType enum
         _TYPE_MAP: dict[str, TaskType] = {
-            "atomic": TaskType.ATOMIC,
-            "composite": TaskType.COMPOSITE,
-            "follow_up": TaskType.FOLLOWUP,
-            "research": TaskType.RESEARCH,
-            "approval": TaskType.APPROVAL,
-            "milestone": TaskType.MILESTONE,
-            "review": TaskType.REVIEW,
-            "recurring": TaskType.RECURRING,
-            "decision": TaskType.DECISION,
-            "checkin": TaskType.CHECKIN,
-            "delegated": TaskType.DELEGATED,
+            "ATOMIC": TaskType.ATOMIC,
+            "COMPOSITE": TaskType.COMPOSITE,
+            "FOLLOWUP": TaskType.FOLLOWUP,
+            "RESEARCH": TaskType.RESEARCH,
+            "APPROVAL": TaskType.APPROVAL,
+            "MILESTONE": TaskType.MILESTONE,
+            "REVIEW": TaskType.REVIEW,
+            "RECURRING": TaskType.RECURRING,
+            "DECISION": TaskType.DECISION,
+            "CHECKIN": TaskType.CHECKIN,
+            "DELEGATED": TaskType.DELEGATED,
         }
-        task_type_str = args.get("task_type", "atomic")
-        task_type = _TYPE_MAP.get(task_type_str, TaskType.ATOMIC)
+        task_type_str = str(args.get("task_type", "ATOMIC"))
+        task_type_key = task_type_str.upper().replace("_", "")
+        task_type = _TYPE_MAP.get(task_type_key, TaskType.ATOMIC)
 
         # Agent-generated tasks use "AG" initials
         task_id = generate_task_id("AG", task_type)
@@ -1403,7 +1427,7 @@ class AgentLoop:
         return {
             "task_id": task_id,
             "title": args["title"],
-            "task_type": task_type_str,
+            "task_type": str(task_type.value),
             "status": "created",
         }
 
@@ -1565,36 +1589,45 @@ class AgentLoop:
             out_edges = await self._repo.get_edges(node_id, direction="out")
             in_edges = await self._repo.get_edges(node_id, direction="in")
 
+            def _edge_label(edge: dict[str, Any]) -> str:
+                return str(edge.get("type") or edge.get("_label") or "")
+
+            def _edge_target(edge: dict[str, Any]) -> Any:
+                return edge.get("target_id") or edge.get("_end_id") or edge.get("target", {}).get("id")
+
+            def _edge_source(edge: dict[str, Any]) -> Any:
+                return edge.get("source_id") or edge.get("_start_id") or edge.get("source", {}).get("id")
+
             result["depends_on"] = [
-                e.get("target_id") or e.get("target", {}).get("id")
+                _edge_target(e)
                 for e in out_edges
-                if e.get("type") == "DEPENDS_ON"
+                if _edge_label(e) == "DEPENDS_ON"
             ]
             result["blocks"] = [
-                e.get("target_id") or e.get("target", {}).get("id")
+                _edge_target(e)
                 for e in out_edges
-                if e.get("type") == "BLOCKS"
+                if _edge_label(e) == "BLOCKS"
             ]
             result["part_of_goal"] = next(
                 (
-                    e.get("target_id") or e.get("target", {}).get("id")
+                    _edge_target(e)
                     for e in out_edges
-                    if e.get("type") == "PART_OF"
+                    if _edge_label(e) == "PART_OF"
                 ),
                 None,
             )
             result["assigned_to_user"] = next(
                 (
-                    e.get("target_id") or e.get("target", {}).get("id")
+                    _edge_target(e)
                     for e in out_edges
-                    if e.get("type") == "ASSIGNED_TO"
+                    if _edge_label(e) == "ASSIGNED_TO"
                 ),
                 None,
             )
             result["blocked_by"] = [
-                e.get("source_id") or e.get("source", {}).get("id")
+                _edge_source(e)
                 for e in in_edges
-                if e.get("type") == "BLOCKS"
+                if _edge_label(e) == "BLOCKS"
             ]
         except Exception as exc:
             logger.debug("AgentLoop: get_task_details edge enrichment failed: %s", exc)
@@ -1659,7 +1692,7 @@ class AgentLoop:
             LLMMessage(role="user", content=description),
         ]
 
-        response = await self._llm.complete(messages, model=None, max_tokens=2048, temperature=0.3)
+        response = await self._llm.complete(messages, model=None, max_tokens=4096, temperature=0.3)
         raw_output = response.content or ""
 
         # Parse the LLM JSON output
@@ -2440,4 +2473,7 @@ def _deserialise_graph_props(props: dict) -> dict:
     return out
 
 
-__all__ = ["AgentLoop"]
+# Backward-compatibility alias while import sites migrate.
+AgentLoop = MainOrchestrator
+
+__all__ = ["MainOrchestrator", "AgentLoop"]

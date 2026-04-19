@@ -27,7 +27,7 @@ from datetime import datetime, timezone
 import pytest
 import pytest_asyncio
 
-from graphclaw.agent.loop import AgentLoop
+from graphclaw.agent.main_orchestrator import MainOrchestrator as AgentLoop
 from graphclaw.agent.run_events import RunEventType
 from graphclaw.db.age.repository import AgeGraphStore
 from graphclaw.db.connection import create_pool
@@ -417,3 +417,4 @@ class TestProcessChatMessageStreamHistory:
                 terminal_found = True
 
         assert terminal_found, "Stream did not terminate when history was provided"
+

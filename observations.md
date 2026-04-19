@@ -290,17 +290,15 @@ The `db/` directory contains a shim layer sitting on top of the real implementat
 
 ### Observations / Gaps
 
-**O-DEAD-01: `db/graph_repository.py` and `db/_compat.py` are completely dead**
-- Full import chain: `graph_repository.py` → `db/_compat.py` (`GraphRepository = AgeGraphStore`) → `db/age/repository.py`
-- Zero files in the codebase import from either file
-- Safe to delete both; also remove the `GraphRepository` export from `db/__init__.py`
+**O-DEAD-01: `db/graph_repository.py` and `db/_compat.py` are completely dead** ✅ FIXED
+- Deleted `db/graph_repository.py` and `db/_compat.py`
+- Removed `GraphRepository` export from `db/__init__.py`
+- `db/__init__.py` now exports only: `GraphStore`, `GraphQueryEngine`, `create_graph_store`, `create_query_engine`, `create_pool`, `get_connection`
 
-**O-DEAD-02: `db/queries/` contains three near-duplicate dead files**
-- `db/queries/critical_path.py`, `db/queries/dependencies.py`, `db/queries/scoring_queries.py`
-- Near-copies of the real implementations in `db/age/queries/`
-- `db/queries/__init__.py` already bypasses them — it imports directly from `db/age/queries/`
-- CLI files do not import from these files
-- Safe to delete all three; `db/utils.py` (shim over `db/age/utils.py`) is only imported by these three files and can also be deleted once they are removed
+**O-DEAD-02: `db/queries/` contains three near-duplicate dead files** ✅ FIXED
+- Deleted `db/queries/critical_path.py`, `db/queries/dependencies.py`, `db/queries/scoring_queries.py`, and the entire `db/queries/` directory
+- Deleted `db/utils.py` (was only imported by those three files)
+- Canonical implementations remain in `db/age/queries/` (critical_path.py, dependencies.py, scoring_queries.py, engine.py)
 
 **O-DEAD-03: `db/connection.py` is a live shim (keep for now)**
 - Re-exports `_setup_age`, `create_pool`, `get_connection` from `db/age/connection.py`
@@ -343,9 +341,9 @@ The `db/` directory contains a shim layer sitting on top of the real implementat
 
 ## 11. Main Orchestrator — Agent Intelligence Redesign
 
-> These are **design decisions** — not yet implemented. They address fundamental token efficiency, context, and domain knowledge gaps in `agent/loop.py`.
+> Status update: this section is now **implemented**. Rename migration in §11.7 is complete with backward-compatible aliases.
 
-### 11.1 System Prompt Header — Externalize to MinIO
+### 11.1 System Prompt Header — Externalize to MinIO ✅ FIXED
 
 **Problem:** `_SYSTEM_PROMPT_HEADER` at `loop.py:74` is a hardcoded Python string. Cannot be updated without a code deployment.
 
@@ -355,7 +353,12 @@ The `db/` directory contains a shim layer sitting on top of the real implementat
 - `system_prompt_header()` → `"system/prompts/system_header.md"`
 - `system_prompts_prefix()` → `"system/prompts/"`
 
-### 11.2 Tool Set Registry — Two-Tier Lazy Loading
+Implemented:
+- Added `StoragePaths.system_prompt_header()` and `StoragePaths.system_prompts_prefix()` in `src/graphclaw/infra/storage.py`
+- Added gateway startup seeding (`seed_system_content`) in `src/graphclaw/gateway/app.py` lifespan
+- `AgentLoop._build_system_prompt()` now loads header from storage via `_load_system_header()` with fallback to hardcoded default
+
+### 11.2 Tool Set Registry — Two-Tier Lazy Loading ✅ FIXED
 
 **Problem:** 16 tool schemas sent on every LLM call (~4,800 tokens). 4 tools return "not configured" silently when optional dependencies are `None`. The LLM may attempt to call them and waste a round-trip.
 
@@ -379,7 +382,13 @@ The `db/` directory contains a shim layer sitting on top of the real implementat
 - `ToolSetRegistry` tracks `_active_sets: set[str]` per session. Activating a set persists for the whole conversation turn
 - Compact manifest (~150 tokens) injected into system prompt tells the LLM what sets are available
 
-### 11.3 System Knowledge Base — Domain Rules as Documents
+Implemented:
+- Added `ToolSetRegistry` in `src/graphclaw/agent/tool_registry.py`
+- Integrated registry into `AgentLoop` (`load_tool_set`, active-tool fetch per turn, per-message reset)
+- Added/kept core tools: `list_tasks`, `get_task_details`, `update_task_state`, `load_tool_set`, `read_knowledge`, `list_available_agents`
+- Removed `check_inbox` tool path from orchestrator tool execution
+
+### 11.3 System Knowledge Base — Domain Rules as Documents ✅ FIXED
 
 **Problem:** The LLM has no access to graph construction rules, state machine rules, or node-type reasoning from the spec. It guesses node types and edges from conversation context alone.
 
@@ -410,7 +419,13 @@ description: Load domain rules before creating nodes/edges. Topics:
              goal_inference_rules | scoring_context | follow_up_timing
 ```
 
-### 11.4 Context Compression — `ContextManager`
+Implemented:
+- Added `KnowledgeBase` in `src/graphclaw/agent/knowledge.py` with in-session cache
+- Added `StoragePaths.system_knowledge()` and `system_knowledge_prefix()`
+- Added `read_knowledge` tool handler in `AgentLoop`
+- Added startup seeding for all 6 knowledge docs in `src/graphclaw/gateway/seeding.py`
+
+### 11.4 Context Compression — `ContextManager` ✅ FIXED
 
 **Problem:** `chat.py:send_chat_message` loads history from MinIO but does not pass it to `process_chat_message`. The agent is completely memoryless — each message is processed as if it's the first. Even when history is fixed (§11.6), long conversations will hit context limits.
 
@@ -424,13 +439,23 @@ description: Load domain rules before creating nodes/edges. Topics:
 
 `ContextManager` returns a `CompressedContext` dataclass with entity block, summary block, recent messages, compressed tool call summaries.
 
-### 11.5 max_tokens Fix
+Implemented:
+- Added `ContextManager` + `CompressedContext` in `src/graphclaw/agent/context.py`
+- Integrated compression in both `process_chat_message()` and `process_chat_message_stream()`
+- Includes entity extraction, sliding window, tool-call collapse, rolling summary, and token-budget pass
+
+### 11.5 max_tokens Fix ✅ FIXED
 
 **Problem:** `loop.py:493` hardcodes `max_tokens=1024`. Complex plan responses are being truncated.
 
 **Decision:** Increase to `max_tokens=4096` for all main agent calls. The `propose_plan` inner call at `loop.py:1514` uses `max_tokens=2048` — increase that to `4096` too.
 
-### 11.6 Chat Memoryless Bug Fix
+Implemented:
+- Main chat call uses `max_tokens=4096`
+- Streaming chat call uses `max_tokens=4096`
+- `propose_plan` inner LLM call updated to `max_tokens=4096`
+
+### 11.6 Chat Memoryless Bug Fix ✅ FIXED
 
 **Problem (critical):** In `api/chat.py:225`:
 ```python
@@ -450,9 +475,21 @@ agent_text = await agent_loop.process_chat_message(
 ```
 Schema note: history entries use `role="agent"`, `process_chat_message` already remaps this to `"assistant"` at line 477 — no further changes needed there.
 
-### 11.7 Rename `loop.py` → `main_orchestrator.py`
+Implemented:
+- `send_chat_message()` now passes `conversation_history` + `session_id` to `process_chat_message()`
+- Added explicit `session_id = f"ses-{msg_index:06d}"`
+- Current message is excluded from forwarded history (`history[:-1]`) to avoid duplicate prompt entries
+
+### 11.7 Rename `loop.py` → `main_orchestrator.py` ✅ FIXED
 
 **Decision:** Rename file and class (`AgentLoop` → `MainOrchestrator`) for clarity. It is the primary LLM-facing orchestrator, not an event loop. Import sites to update: `api/deps.py`, gateway lifespan, all tests.
+
+Implemented:
+- Added canonical module `src/graphclaw/agent/main_orchestrator.py` and renamed class to `MainOrchestrator`
+- Removed `src/graphclaw/agent/loop.py` compatibility shim after import-site migration
+- Updated runtime import sites (gateway/app, chat_streaming, event_consumer, CLI) to use `MainOrchestrator`
+- Updated package export in `src/graphclaw/agent/__init__.py` to expose `MainOrchestrator` with backward-compatible `AgentLoop` alias
+- Swept Python import sites and migrated legacy `from graphclaw.agent.loop import AgentLoop` imports
 
 ### 11.8 Files to Create / Modify (for §11)
 
@@ -465,6 +502,15 @@ Schema note: history entries use `role="agent"`, `process_chat_message` already 
 | 5 | `src/graphclaw/agent/loop.py` → `main_orchestrator.py` | MODIFY: integrate all, fix max_tokens, remove check_inbox, add list_available_agents |
 | 6 | `src/graphclaw/api/chat.py` | MODIFY: pass history + session_id to agent |
 | 7 | Gateway lifespan | MODIFY: call `seed_system_content()` on startup |
+
+Progress snapshot:
+- #1 ✅ done
+- #2 ✅ done
+- #3 ✅ done
+- #4 ✅ done
+- #5 ✅ done
+- #6 ✅ done
+- #7 ✅ done
 
 ---
 

@@ -433,7 +433,7 @@ class TestAgentLoopDelegation:
 
     @pytest.fixture
     def _loop_with_broker(self):
-        from graphclaw.agent.loop import AgentLoop
+        from graphclaw.agent.main_orchestrator import MainOrchestrator as AgentLoop
         from graphclaw.scoring.engine import ScoringEngine
 
         repo = AsyncMock()
@@ -657,3 +657,4 @@ class TestSubAgentPool:
         batch_1 = pool.batch_coordinator._batches["batch-S-t1"]
         assert batch_1.total_count == 1
         assert batch_1.is_final_tier
+

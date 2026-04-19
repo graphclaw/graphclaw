@@ -31,7 +31,7 @@ Public API
 
 Dependencies
 ------------
-- graphclaw.agent.loop: AgentLoop.
+- graphclaw.agent.main_orchestrator: MainOrchestrator.
 - graphclaw.agent.outbound: OutboundDispatcher.
 - graphclaw.infra.broker: MessageBroker, TRIGGER_EVENTS.
 - graphclaw.inbound.processor: InboundProcessor.
@@ -52,7 +52,7 @@ from graphclaw.triggers.models import TriggerEvent, TriggerType
 
 if TYPE_CHECKING:
     from graphclaw.agent.health_monitor import AgentHealthMonitor
-    from graphclaw.agent.loop import AgentLoop
+    from graphclaw.agent.main_orchestrator import MainOrchestrator
     from graphclaw.agent.outbound import OutboundDispatcher
     from graphclaw.agent.result_collector import ResultCollector
     from graphclaw.infra.storage import StorageClient
@@ -80,7 +80,7 @@ class AgentEventConsumer:
     def __init__(
         self,
         broker: MessageBroker,
-        agent_loop: AgentLoop,
+        agent_loop: MainOrchestrator,
         dispatcher: OutboundDispatcher,
         user_channels: dict[str, list[dict[str, Any]]] | None = None,
         default_user_id: str = "",
@@ -355,7 +355,9 @@ class AgentEventConsumer:
                     duration_ms=event.duration_ms or 0,
                 )
             except Exception as exc:
-                logger.warning("AgentEventConsumer: result_collector.process_agent_result failed: %s", exc)
+                logger.warning(
+                    "AgentEventConsumer: result_collector.process_agent_result failed: %s", exc
+                )
         else:
             # Fallback: update task state directly
             try:
@@ -378,7 +380,9 @@ class AgentEventConsumer:
 
         logger.info(
             "AgentEventConsumer: sub-agent %s completed task %s (status=%s)",
-            event.agent_id, event.task_id, event.status,
+            event.agent_id,
+            event.task_id,
+            event.status,
         )
 
     async def _handle_agent_blocked(self, event: AgentUpdateEvent) -> None:
@@ -395,7 +399,9 @@ class AgentEventConsumer:
 
         logger.warning(
             "AgentEventConsumer: sub-agent %s BLOCKED on task %s — reason: %s",
-            event.agent_id, event.task_id, event.message,
+            event.agent_id,
+            event.task_id,
+            event.message,
         )
 
     async def _process_raw_inbound(self, inbound: Any) -> None:

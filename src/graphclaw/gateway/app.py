@@ -159,7 +159,7 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
             if database_url:
                 try:
                     from graphclaw.agent.event_consumer import AgentEventConsumer  # noqa: PLC0415
-                    from graphclaw.agent.loop import AgentLoop  # noqa: PLC0415
+                    from graphclaw.agent.main_orchestrator import MainOrchestrator  # noqa: PLC0415
                     from graphclaw.agent.outbound import OutboundDispatcher  # noqa: PLC0415
                     from graphclaw.llm.factory import create_llm_client  # noqa: PLC0415
                     from graphclaw.state.machine import StateMachine  # noqa: PLC0415
@@ -290,7 +290,7 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
                     except Exception as exc:  # noqa: BLE001
                         logger.warning("GraphClaw: user event publisher init failed — %s", exc)
 
-                    agent_loop = AgentLoop(
+                    agent_loop = MainOrchestrator(
                         graph_repo=app.state.graph_store,
                         scoring_engine=app.state.scoring_engine,
                         state_machine=StateMachine(),

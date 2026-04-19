@@ -17,7 +17,7 @@ def verify_implementation():
     
     # Import the module
     try:
-        from graphclaw.agent.loop import AgentLoop
+        from graphclaw.agent.main_orchestrator import MainOrchestrator as AgentLoop
     except ImportError as e:
         errors.append(f"Failed to import AgentLoop: {e}")
         return errors
@@ -129,3 +129,4 @@ if __name__ == "__main__":
     else:
         print("SUCCESS: All WS-P45-F changes verified!")
     print("=" * 60)
+

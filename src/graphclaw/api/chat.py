@@ -187,7 +187,11 @@ async def send_chat_message(
     # Generate agent response — pass loaded history and session_id
     session_id = f"ses-{msg_index:06d}"
     agent_text = await _generate_agent_response(
-        request, user_id, body.content, history=history, session_id=session_id
+        request,
+        user_id,
+        body.content,
+        history=history[:-1],  # exclude the current user message; user_text carries it
+        session_id=session_id,
     )
     agent_message = ChatMessage(
         message_id=f"msg-{msg_index:06d}-a",
