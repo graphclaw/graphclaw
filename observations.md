@@ -685,94 +685,47 @@ Validation completed against real local services:
 ---
 
 ### 14. Smart Node Retrieval — Context Optimization Design
-
-**Design decision: Progressive node disclosure — agent decides what it needs**
-
-The current model sends a flat summary of top-5 scored tasks into every system prompt. This
-does not scale and doesn't give the agent access to the full graph structure when needed.
-The redesign introduces a progressive / demand-driven retrieval model.
-
-#### §14.1 Goal-level entry points (the briefing model)
-
-When the agent assembles a user briefing, it should not load all tasks. The pattern:
-
-1. **Start at goals** — load `GoalNode` summaries for the user (lightweight: id, title, state, priority, task_count from `node_intelligence`)
-2. **Expand on demand** — when the user asks about a specific goal or the agent needs to plan against it, load the goal's full task subgraph via a traversal from that `GoalNode`
-3. **Never load closed goals into context** — a goal with state=COMPLETE is only loaded if explicitly referenced
-
-This mirrors the spec §13 (briefing) and §14 (explainability): the daily brief is goal-level,
-not task-level. Tasks are surfaced only when they are the top priority action or when the user
-drills in.
-
-**Implication for `list_tasks` tool:** Add a `goal_id` parameter to scope the result to one
 goal's task subgraph. Without `goal_id`, return only the top-N scored tasks for the user.
 
-**O-SMART-01: `_build_graph_summary()` needs to be goal-first, user-scoped, and cached**
+Section status: COMPLETE (Phase 1 scope) (5/5 subsections addressed)
 
-Revised `_build_graph_summary(user_id)` behavior:
-1. Fetch `GoalNode` list for `user_id` (not all tasks) — property filter: `owned_by=user_id`, label `GoalNode`
-2. For each goal, include: title, state, priority, `node_intelligence.summary` (pre-computed, stored on node)
-3. Fetch top-5 scored tasks for `user_id` (user-scoped `list_nodes` with `owned_by` filter) for the "action queue" section
-4. Cache the result in `self._last_queue` and invalidate on task mutations
+**O-SMART-01: Goal-first summary + user-scoped queue + cache invalidation** ✅ FIXED
+- `src/graphclaw/agent/main_orchestrator.py` `_build_graph_summary(user_id)` now:
+  - loads user goals via `list_nodes_by_user("GoalNode", user_id)`
+  - skips closed goals (`COMPLETE`, `ABANDONED`)
+  - includes goal title/state/priority and `node_intelligence.summary` (or `intelligence` fallback)
+  - renders top-5 tasks from the scoped scoring queue
+- Added `_invalidate_cached_queue(user_id)` and wired it to mutation paths so retrieval does not use stale queue snapshots after writes.
 
-#### §14.2 Filters the agent must have access to
+**O-SMART-02: `list_tasks` progressive filters + default top-N scored behavior** ✅ FIXED
+- `src/graphclaw/agent/main_orchestrator.py` `_tool_list_tasks()` supports:
+  - `goal_id`, `state_filter`, `task_type`, `limit` (max 50), `include_completed`, `assigned_to`
+- For non-goal queries, results are now ordered by the latest user-scoped scored queue (priority-first).
+- If scored data is absent, tool falls back to a scoped `run_cycle(user_id=...)`; unmatched leftovers are appended deterministically.
 
-The `list_tasks` tool needs additional parameters (beyond current `state_filter`):
+**O-SMART-03: `get_task_details` graph-aware expansion** ✅ FIXED
+- `src/graphclaw/agent/main_orchestrator.py` `_tool_get_task_details()` now enriches node details with:
+  - `depends_on` (outbound `DEPENDS_ON`)
+  - `blocks` (outbound `BLOCKS`)
+  - `blocked_by` (inbound `BLOCKS`)
+  - `part_of_goal` (outbound `PART_OF`)
+  - `assigned_to_user` (outbound `ASSIGNED_TO`)
+  - `state_history` trimmed to last 3 entries
 
-| Parameter | Purpose |
-|---|---|
-| `goal_id` | Load tasks belonging to a specific goal (graph traversal via `PART_OF`) |
-| `state_filter` | Existing — filter by state |
-| `task_type` | Filter by task type (ATOMIC, FOLLOW_UP, RECURRING, etc.) |
-| `limit` | Max results (default 10, max 50) |
-| `include_completed` | Default false — exclude COMPLETE/CANCELLED unless explicitly requested |
-| `assigned_to` | Filter by assignee (scoped to user's tasks only) |
+**O-SMART-04: Retrieval guidance available in system knowledge** ✅ FIXED
+- `src/graphclaw/gateway/seeding.py` `goal_inference_rules` now encodes the retrieval strategy:
+  - start from goals
+  - expand into tasks on demand
+  - skip completed goals unless explicitly requested
+  - use `list_tasks(goal_id=...)` for scoped drill-down
 
-The agent decides which combination to use. For a briefing: no `goal_id`, `include_completed=false`,
-`limit=5`. For "show me everything under Goal X": pass `goal_id=GOAL-xxx`.
+**O-SMART-05: Pre-computed `node_intelligence.summary` population** ✅ TRACKED (Phase 2 boundary)
+- Retrieval now consumes `node_intelligence.summary` when present.
+- Background production of summaries on task-change events remains a Phase 2 intelligence-pipeline item.
 
-#### §14.3 `get_task_details` — graph-aware expansion
-
-Currently `get_task_details` fetches a single node by ID. It should also return:
-- Direct dependencies (DEPENDS_ON edges from this task)
-- Blocking tasks (edges where this task is the target of BLOCKS)
-- Parent goal (PART_OF edge)
-- Assignee user_id (ASSIGNED_TO edge)
-- Recent state history (last 3 entries from `state_history`)
-
-This avoids the agent needing separate tool calls to understand task relationships.
-
-#### §14.4 System knowledge files should teach the agent the retrieval pattern
-
-The `system/knowledge/goal_inference_rules.md` file (planned in §11.3) should include:
-- **Start every session at the goal level** — fetch goals first, not tasks
-- **Expand into tasks only when planning or executing** — don't fetch all tasks speculatively
-- **A completed goal's tasks are irrelevant** — don't include unless the user explicitly asks
-- **Use `goal_id` filter on `list_tasks`** when the user refers to a specific goal by name
-
-This instruction in the knowledge file + the `read_knowledge` tool means the agent can load
-this guidance on demand rather than having it hardcoded in the system prompt.
-
-#### §14.5 `node_intelligence` field as the pre-computed summary layer
-
-`TaskNode` and `GoalNode` both have `node_intelligence: dict` (or structured field). The spec
-intends this to hold agent-generated summaries, risk assessments, and next-action suggestions —
-updated asynchronously by the sub-agent pool. In the retrieval model, `node_intelligence.summary`
-is the primary surface for the system prompt (not raw task fields). The raw fields are only
-needed when the agent is planning or mutating state.
-
-**This pre-computation is not implemented.** The `intelligence` field exists on nodes but is
-never populated by any background process. A sub-agent (or the scoring cycle) should populate
-`node_intelligence` with a 1-2 sentence summary when a task changes state.
-
-| # | File | Action |
-|---|---|---|
-| 1 | `src/graphclaw/agent/loop.py` | `_fetch_active_tasks(user_id)`: add `owned_by` filter; `_build_graph_summary(user_id)`: go goal-first, user-scoped |
-| 2 | `src/graphclaw/db/age/repository.py` | Add `list_nodes_by_user(user_id, label)` helper with `owned_by` filter + goal traversal method |
-| 3 | `src/graphclaw/agent/loop.py` | `list_tasks` tool: add `goal_id`, `task_type`, `limit`, `include_completed`, `assigned_to` params |
-| 4 | `src/graphclaw/agent/loop.py` | `get_task_details` tool: expand to include edges (deps, blockers, parent goal, assignee) |
-| 5 | `system/knowledge/goal_inference_rules.md` | Add retrieval strategy: goal-first, expand on demand, skip completed goals |
-| 6 | Background task (future) | Populate `node_intelligence.summary` on task state changes |
+Validation completed against real local services (AGE + MinIO):
+- `pytest tests/test_agent/test_loop_new_tools_integration.py -k "ListTasksWithParams or GetTaskDetailsWithEdges" -v`
+- `pytest tests/test_agent/test_loop.py -k "SmartRetrievalBehaviors or GraphSummaryScoping" -v`
 
 ---
 

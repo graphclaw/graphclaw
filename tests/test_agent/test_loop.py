@@ -433,6 +433,49 @@ class TestGraphSummaryScoping:
         assert task.id in summary
 
 
+class TestSmartRetrievalBehaviors:
+    @pytest.mark.asyncio
+    async def test_list_tasks_uses_scored_queue_order_without_goal_scope(self):
+        user_id = "USER-smart"
+        task_a = _make_task(title="Task A")
+        task_b = _make_task(title="Task B")
+        task_a.owned_by = user_id
+        task_b.owned_by = user_id
+
+        entry_a = _make_queue_entry(task_a, rank=1, score=0.95)
+        entry_b = _make_queue_entry(task_b, rank=2, score=0.40)
+
+        loop, repo, _engine = _make_loop()
+        repo.list_nodes_by_user = AsyncMock(
+            return_value=[task_b.model_dump(mode="json"), task_a.model_dump(mode="json")]
+        )
+        loop._last_queue_by_scope[user_id] = [entry_a, entry_b]
+
+        result = await loop._tool_list_tasks(user_id, {"limit": 10})
+        ids = [t["id"] for t in result["tasks"]]
+
+        assert ids[:2] == [task_a.id, task_b.id]
+
+    @pytest.mark.asyncio
+    async def test_update_task_state_invalidates_scoped_queue_cache(self):
+        user_id = "USER-cache"
+        loop, repo, _engine = _make_loop()
+        repo.get_node = AsyncMock(return_value={"state": "ACTIVE", "state_history": []})
+        repo.update_node = AsyncMock()
+
+        seed_entry = _make_queue_entry(_make_task(title="Cached"), rank=1, score=0.8)
+        loop._last_queue_by_scope[user_id] = [seed_entry]
+        loop._last_queue_by_scope["__all__"] = [seed_entry]
+
+        await loop._tool_update_task_state(
+            user_id,
+            {"task_id": "TSK-CACHE-001", "new_state": "IN_PROGRESS", "reason": "test"},
+        )
+
+        assert user_id not in loop._last_queue_by_scope
+        assert "__all__" not in loop._last_queue_by_scope
+
+
 # ---------------------------------------------------------------------------
 # AgentLoop constructor / wiring
 # ---------------------------------------------------------------------------

@@ -204,6 +204,19 @@ class MainOrchestrator:
             self._agent_catalog = None
             self._context_manager = None
 
+    def _invalidate_cached_queue(self, user_id: str | None) -> None:
+        """Invalidate cached scoring queues after task/goal mutations.
+
+        User-scoped caches are preferred in chat flows, but any mutation can
+        also affect the global ("__all__") queue.
+        """
+        self._last_queue = []
+        if user_id is None:
+            self._last_queue_by_scope.clear()
+            return
+        self._last_queue_by_scope.pop(user_id, None)
+        self._last_queue_by_scope.pop("__all__", None)
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -1252,6 +1265,32 @@ class MainOrchestrator:
         if assigned_to:
             tasks = [t for t in tasks if t.get("assigned_to") == assigned_to]
 
+        # Default (non-goal) retrieval is priority-first: order by the latest
+        # scored queue for this user, then append any unmatched tasks.
+        if not goal_id:
+            scored_queue = self._last_queue_by_scope.get(user_id, [])
+            if not scored_queue:
+                try:
+                    scored_queue = await self.run_cycle(user_id=user_id)
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("AgentLoop: list_tasks scoring fallback failed: %s", exc)
+                    scored_queue = []
+
+            if scored_queue:
+                tasks_by_id = {str(t.get("id", "")): t for t in tasks}
+                ordered: list[dict[str, Any]] = []
+                for entry in scored_queue:
+                    hit = tasks_by_id.pop(entry.node_id, None)
+                    if hit is not None:
+                        ordered.append(hit)
+                # Keep deterministic order for non-scored leftovers (e.g.
+                # include_completed=true items that are intentionally not scored).
+                if tasks_by_id:
+                    ordered.extend(sorted(tasks_by_id.values(), key=lambda t: str(t.get("id", ""))))
+                tasks = ordered
+            else:
+                tasks = sorted(tasks, key=lambda t: str(t.get("id", "")))
+
         tasks = tasks[:limit]
 
         return {
@@ -1305,6 +1344,7 @@ class MainOrchestrator:
             updated_at=now,
         )
         await self._repo.create_node(goal)
+        self._invalidate_cached_queue(user_id)
         return {"goal_id": goal_id, "title": args["title"], "status": "created"}
 
     async def _tool_create_task(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
@@ -1433,6 +1473,8 @@ class MainOrchestrator:
             except Exception as exc:
                 logger.warning("AgentLoop: could not auto-spawn follow-up for %s: %s", task_id, exc)
 
+        self._invalidate_cached_queue(user_id)
+
         return {
             "task_id": task_id,
             "title": args["title"],
@@ -1461,6 +1503,7 @@ class MainOrchestrator:
             }
         )
         await self._repo.update_node(task_id, {"state": new_state, "state_history": history})
+        self._invalidate_cached_queue(user_id)
         return {
             "task_id": task_id,
             "old_state": current_state,
@@ -1522,6 +1565,7 @@ class MainOrchestrator:
             }
 
         await self._repo.update_node(task_id, updates)
+        self._invalidate_cached_queue(user_id)
         changed = [k for k in updates if k != "updated_at"]
         return {"task_id": task_id, "status": "updated", "fields_updated": changed}
 
@@ -1578,6 +1622,7 @@ class MainOrchestrator:
             }
 
         await self._repo.update_node(goal_id, updates)
+        self._invalidate_cached_queue(user_id)
         changed = [k for k in updates if k != "updated_at"]
         return {"goal_id": goal_id, "status": "updated", "fields_updated": changed}
 
@@ -1925,6 +1970,7 @@ class MainOrchestrator:
                         "state": "IN_PROGRESS",
                     },
                 )
+                self._invalidate_cached_queue(user_id)
             except Exception as exc:
                 logger.debug("AgentLoop: could not update task with skill result: %s", exc)
 
@@ -2192,6 +2238,7 @@ class MainOrchestrator:
                 "state_history": history,
             },
         )
+        self._invalidate_cached_queue(user_id)
 
         # Resolve batch_id from pre-planned dispatch tiers (if available)
         batch_id = next(
