@@ -177,11 +177,22 @@ class StoragePaths:
 
     @staticmethod
     def agent_memory_working(user_id: str, agent_id: str) -> str:
-        """Current-session scratchpad (overwritten each cycle).
+        """Current-session working context stream.
+
+        Inbound intelligence notes are appended as timestamped entries.
 
         Example: ``usr-abc123/agents/main/memory/working/context.md``
         """
         return f"{user_id}/agents/{agent_id}/memory/working/context.md"
+
+    @staticmethod
+    def agent_intelligence_archive(user_id: str, agent_id: str, task_id: str, date: str) -> str:
+        """Archive path for trimmed task intelligence spillover.
+
+        Example:
+        ``usr-abc123/agents/main/intelligence/archive/TSK-XYZ/2026-04-19.md``
+        """
+        return f"{user_id}/agents/{agent_id}/intelligence/archive/{task_id}/{date}.md"
 
     @staticmethod
     def agent_memory_episodic_prefix(user_id: str, agent_id: str) -> str:

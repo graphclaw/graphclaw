@@ -749,30 +749,35 @@ Validation completed against real local services (AGE + MinIO):
 
 ## 15. Context Intelligence — Observations Blob Must Be Append-Only with Timestamps
 
-### Current State
-- Working context path: `{user_id}/agents/{agent_id}/memory/working/context.md`
-  (`StoragePaths.agent_memory_working()` in `src/graphclaw/infra/storage.py`)
-- Written **atomically (overwrite)** each cycle in `inbound/intelligence_agent.py` lines 318–351
-- Task-level `TaskNode.intelligence`: prepend-only, trimmed at `MAX_INTELLIGENCE_WORDS = 500` with "… N older entries archived" text marker — not queryable
-- Episodic memory at `episodic/{date}-{session_id}.md` is correctly append-only
+Section status: COMPLETE (Phase 1 scope) (5/5 subsections addressed)
 
-### Gaps
-1. Working context is **overwritten** each cycle. A decision recorded mid-cycle is destroyed on the next write before episodic flush. In-flight rationale is lost.
-2. No **per-entry timestamps** on working context entries. The orchestrating agent cannot distinguish a fresh observation from one made three cycles ago.
-3. The 500-word `intelligence` cap **silently discards** older entries. "… N older entries archived" is not machine-parseable; the discarded entries are stored nowhere.
-4. The `## Recent Context` heading used as an append marker is a fragile string sentinel — absent or duplicated headings cause malformed output.
+**O-CTX-01: Working context writes must be append-only** ✅ FIXED
+- `src/graphclaw/inbound/intelligence_agent.py` no longer rewrites heading blocks in-place.
+- Memory notes now append to existing working context stream instead of structural insertion under a sentinel heading.
 
-### Recommendation
-- Change working context writes to **append-only** with an ISO-8601 timestamp per entry:
-  ```
-  --- 2026-04-19T10:05:00Z ---
-  Decided to escalate TSK-042 to NEEDS_REVIEW: child research node confidence=LOW.
-  ```
-- Episodic flush should **clear** working context (reset to empty/seeded template) and archive the full content to `episodic/{date}-{session_id}.md`. Working context stays small; episodic stays durable.
-- Trimmed `TaskNode.intelligence` entries should be written to:
-  `{user_id}/agents/{agent_id}/intelligence/archive/{task_id}/{YYYY-MM-DD}.md`
-  Add `StoragePaths.agent_intelligence_archive(user_id, agent_id, task_id, date)`.
-- Replace fragile heading marker with structured front-matter or JSON-lines so the parser is deterministic.
+**O-CTX-02: Every working-context entry needs an explicit timestamp** ✅ FIXED
+- Added `_utc_now_iso_z()` and `_append_working_note()` helpers in `src/graphclaw/inbound/intelligence_agent.py`.
+- Working context now stores one JSON line per note with fields:
+  - `timestamp`
+  - `source` (`inbound_intelligence`)
+  - `note`
+
+**O-CTX-03: Intelligence trim spillover must be persisted (not dropped)** ✅ FIXED
+- `src/graphclaw/inbound/intelligence_agent.py` now archives spillover text when `MAX_INTELLIGENCE_WORDS` is exceeded.
+- Added `StoragePaths.agent_intelligence_archive(user_id, agent_id, task_id, date)` in `src/graphclaw/infra/storage.py` and used it for archived overflow blocks.
+- Removed opaque inline marker (`... N older entries archived`) from the node field; overflow is written to durable object storage.
+
+**O-CTX-04: Remove fragile `## Recent Context` heading dependency** ✅ FIXED
+- Memory appends are now format-driven (JSON lines), not heading-driven.
+- Existing arbitrary content is preserved and new structured entries are appended safely.
+
+**O-CTX-05: Episodic flush lifecycle (auto-archive + clear trigger policy)** ✅ TRACKED (Phase 2 boundary)
+- Current API already supports explicit archival flow via `/intelligence/agents/{agent_id}/memory/compact`.
+- Automated flush policy (when to archive/clear working context without manual compact call) remains a Phase 2 memory-lifecycle item.
+
+Validation completed against real local services (AGE + MinIO):
+- `pytest tests/test_inbound/test_intelligence_agent_integration.py -v` (real AGE + MinIO path validation)
+- `pytest tests/test_inbound/test_intelligence_agent.py tests/test_infra/test_storage_paths.py -v` (unit and path contract coverage)
 
 ---
 

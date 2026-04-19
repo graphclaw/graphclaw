@@ -47,8 +47,8 @@ Notes
 The LLM system prompt enforces a strict 60-word limit on task entries and
 requires one-line memory notes to keep intelligence concise and scannable.
 Intelligence entries are prepended (newest first) and auto-trimmed if they
-exceed MAX_INTELLIGENCE_WORDS. Memory notes are appended under the
-"## Recent Context" heading in working/context.md.
+exceed MAX_INTELLIGENCE_WORDS; trimmed spillover is archived to object storage.
+Memory notes are appended as timestamped JSON lines in working/context.md.
 """
 
 from __future__ import annotations
@@ -112,6 +112,26 @@ def _scrub_pii(text: str) -> str:
     for pattern, replacement in _PII_PATTERNS:
         text = pattern.sub(replacement, text)
     return text
+
+
+def _utc_now_iso_z() -> str:
+    """Return current UTC timestamp in ISO-8601 ``Z`` form without micros."""
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _append_working_note(context_text: str, note: str, timestamp: str) -> str:
+    """Append one structured memory note line to working context text."""
+    entry = json.dumps(
+        {
+            "timestamp": timestamp,
+            "source": "inbound_intelligence",
+            "note": note,
+        },
+        ensure_ascii=True,
+    )
+    if context_text and not context_text.endswith("\n"):
+        context_text += "\n"
+    return f"{context_text}{entry}\n"
 
 
 # ---------------------------------------------------------------------------
@@ -288,6 +308,7 @@ class InboundIntelligenceAgent:
         # 5. Update node intelligence if task_entry is set and task_id is available
         node_updated = False
         if task_entry and task_id:
+            ts_iso = _utc_now_iso_z()
             # Build the full log line
             date_str = datetime.now(timezone.utc).date().isoformat()
             # Strip any existing brackets from task_entry since we add them
@@ -299,53 +320,58 @@ class InboundIntelligenceAgent:
 
             # Trim if over word limit
             words = new_text.split()
+            spillover_text = ""
             if len(words) > MAX_INTELLIGENCE_WORDS:
                 # Keep first MAX_INTELLIGENCE_WORDS words
                 trimmed_words = words[:MAX_INTELLIGENCE_WORDS]
+                spillover_words = words[MAX_INTELLIGENCE_WORDS:]
                 trimmed_text = " ".join(trimmed_words)
-                # Count how many lines we dropped
-                dropped_count = len(words) - MAX_INTELLIGENCE_WORDS
-                trimmed_text += f"\n... {dropped_count} older entries archived"
+                spillover_text = " ".join(spillover_words)
             else:
                 trimmed_text = new_text
 
             await self._graph_repo.update_node_intelligence(task_id, trimmed_text)
+
+            # Persist trimmed spillover so older context remains queryable.
+            if spillover_text:
+                archive_path = StoragePaths.agent_intelligence_archive(
+                    user_id=user_id,
+                    agent_id=agent_id,
+                    task_id=task_id,
+                    date=date_str,
+                )
+                try:
+                    existing_archive = (await self._storage.read(archive_path)).decode(
+                        "utf-8", errors="replace"
+                    )
+                except Exception:  # noqa: BLE001
+                    existing_archive = ""
+
+                archive_block = f"--- {ts_iso} ---\n{spillover_text}\n"
+                if existing_archive and not existing_archive.endswith("\n"):
+                    existing_archive += "\n"
+                await self._storage.write(
+                    archive_path,
+                    f"{existing_archive}{archive_block}".encode(),
+                    content_type="text/markdown",
+                )
+
             node_updated = True
 
         # 6. Update agent working memory if memory_note is set
         memory_updated = False
         if memory_note:
+            ts_iso = _utc_now_iso_z()
             async with self._memory_lock:
                 path = StoragePaths.agent_memory_working(user_id, agent_id)
                 try:
                     existing_context = await self._storage.read(path)
                     context_text = existing_context.decode("utf-8")
                 except Exception:
-                    # File doesn't exist or read failed; start fresh
-                    context_text = "# Working Context\n"
+                    # File doesn't exist or read failed; start with an empty stream.
+                    context_text = ""
 
-                # Append note under "## Recent Context" heading
-                if "## Recent Context" in context_text:
-                    # Find the heading and append on the next line
-                    lines = context_text.split("\n")
-                    inserted = False
-                    for i, line in enumerate(lines):
-                        if line.strip() == "## Recent Context":
-                            # Insert after this line (or after any existing first line under it)
-                            if i + 1 < len(lines):
-                                lines.insert(i + 1, memory_note)
-                            else:
-                                lines.append(memory_note)
-                            inserted = True
-                            break
-                    if inserted:
-                        context_text = "\n".join(lines)
-                    else:
-                        # Fallback: append at end
-                        context_text += f"\n\n## Recent Context\n{memory_note}"
-                else:
-                    # No "## Recent Context" heading; append at end
-                    context_text += f"\n\n## Recent Context\n{memory_note}"
+                context_text = _append_working_note(context_text, memory_note, ts_iso)
 
                 await self._storage.write(path, context_text.encode("utf-8"))
                 memory_updated = True

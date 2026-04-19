@@ -39,6 +39,7 @@ from graphclaw.inbound.intelligence_agent import (
     _scrub_pii,
 )
 from graphclaw.inbound.models import InboundResult, StatusExtraction, TaskResolution
+from graphclaw.infra.storage import StoragePaths
 from graphclaw.models.enums import ConfidenceLevel, MatchedBy, TaskState
 
 # ---------------------------------------------------------------------------
@@ -105,7 +106,7 @@ def _make_llm_response(task_entry: str | None, memory_note: str | None) -> Magic
 def _make_agent(
     llm_response: object | None = None,
     existing_intelligence: str | None = None,
-    existing_context: bytes = b"# Working Context\n## Recent Context\n",
+    existing_context: bytes = b"",
 ) -> tuple[InboundIntelligenceAgent, AsyncMock, AsyncMock, AsyncMock]:
     """Create an agent with all dependencies mocked."""
     mock_llm = AsyncMock()
@@ -210,7 +211,11 @@ async def test_process_trims_intelligence_over_word_limit() -> None:
     # Create existing intelligence that is already near the limit
     long_existing = " ".join(["word"] * (MAX_INTELLIGENCE_WORDS - 5))
     llm_resp = _make_llm_response("long update with many words that pushes over limit", None)
-    agent, _, mock_repo, _ = _make_agent(llm_response=llm_resp, existing_intelligence=long_existing)
+    agent, _, mock_repo, mock_storage = _make_agent(
+        llm_response=llm_resp,
+        existing_intelligence=long_existing,
+        existing_context=b"",
+    )
 
     await agent.process(
         inbound=_make_inbound(),
@@ -220,7 +225,14 @@ async def test_process_trims_intelligence_over_word_limit() -> None:
     )
 
     updated_text: str = mock_repo.update_node_intelligence.call_args[0][1]
-    assert "older entries archived" in updated_text
+    assert "older entries archived" not in updated_text
+    assert len(updated_text.split()) <= MAX_INTELLIGENCE_WORDS
+
+    # Spillover must be persisted to archive storage.
+    mock_storage.write.assert_called_once()
+    archive_path = mock_storage.write.call_args[0][0]
+    assert archive_path.startswith("usr-001/agents/main/intelligence/archive/TSK-AB-0003-ATM/")
+    assert archive_path.endswith(".md")
 
 
 async def test_process_no_update_when_no_task_match() -> None:
@@ -261,9 +273,11 @@ async def test_process_updates_working_memory() -> None:
     mock_storage.write.assert_called_once()
 
 
-async def test_process_appends_under_recent_context_heading() -> None:
-    """Memory note is inserted after '## Recent Context' heading."""
-    existing = b"# Working Context\n\n## Recent Context\nOld note\n"
+async def test_process_appends_timestamped_json_line_to_working_context() -> None:
+    """Memory note is appended as one JSONL-style line with timestamp metadata."""
+    existing = (
+        b'{"timestamp":"2026-04-19T10:00:00Z","source":"inbound_intelligence","note":"Old note"}\n'
+    )
     llm_resp = _make_llm_response(None, "New observation about user")
     agent, _, _, mock_storage = _make_agent(llm_response=llm_resp, existing_context=existing)
 
@@ -276,13 +290,15 @@ async def test_process_appends_under_recent_context_heading() -> None:
 
     written: bytes = mock_storage.write.call_args[0][1]
     context = written.decode("utf-8")
-    heading_pos = context.find("## Recent Context")
-    new_note_pos = context.find("New observation about user")
-    assert heading_pos < new_note_pos
+    last_line = [line for line in context.splitlines() if line][-1]
+    payload = json.loads(last_line)
+    assert payload["note"] == "New observation about user"
+    assert payload["source"] == "inbound_intelligence"
+    assert "timestamp" in payload
 
 
-async def test_process_creates_recent_context_heading_if_absent() -> None:
-    """If '## Recent Context' absent, memory note is appended at end."""
+async def test_process_appends_json_line_when_existing_file_is_not_structured() -> None:
+    """Arbitrary pre-existing content is preserved and new JSON line is appended."""
     existing = b"# Working Context\nSome other content\n"
     llm_resp = _make_llm_response(None, "Learned preference")
     agent, _, _, mock_storage = _make_agent(llm_response=llm_resp, existing_context=existing)
@@ -295,8 +311,9 @@ async def test_process_creates_recent_context_heading_if_absent() -> None:
     )
 
     written: bytes = mock_storage.write.call_args[0][1]
-    assert b"## Recent Context" in written
-    assert b"Learned preference" in written
+    lines = [line for line in written.decode("utf-8").splitlines() if line]
+    payload = json.loads(lines[-1])
+    assert payload["note"] == "Learned preference"
 
 
 async def test_process_handles_missing_context_file() -> None:
@@ -314,6 +331,31 @@ async def test_process_handles_missing_context_file() -> None:
 
     assert result.action_taken == "memory_updated"
     mock_storage.write.assert_called_once()
+
+
+async def test_process_uses_archive_path_helper_for_spillover() -> None:
+    """Trim spillover is written to StoragePaths.agent_intelligence_archive()."""
+    task_id = "TSK-AB-0010-ATM"
+    long_existing = " ".join(["word"] * (MAX_INTELLIGENCE_WORDS + 25))
+    llm_resp = _make_llm_response("new short update", None)
+    agent, _, _mock_repo, mock_storage = _make_agent(
+        llm_response=llm_resp,
+        existing_intelligence=long_existing,
+        existing_context=b"",
+    )
+
+    await agent.process(
+        inbound=_make_inbound(),
+        resolution=_make_resolution_with_task(task_id),
+        agent_id="main",
+        user_id="usr-001",
+    )
+
+    archive_path = mock_storage.write.call_args[0][0]
+    expected_prefix = StoragePaths.agent_intelligence_archive(
+        "usr-001", "main", task_id, datetime.now(timezone.utc).date().isoformat()
+    ).rsplit("/", 1)[0]
+    assert archive_path.startswith(expected_prefix)
 
 
 # ---------------------------------------------------------------------------

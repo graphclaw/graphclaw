@@ -54,6 +54,7 @@ def test_user_root_is_prefix_of_all_user_paths() -> None:
         StoragePaths.agent_profile(user_id, "main"),
         StoragePaths.agent_config(user_id, "main"),
         StoragePaths.agent_memory_working(user_id, "main"),
+        StoragePaths.agent_intelligence_archive(user_id, "main", "TSK-abc", "2026-04-19"),
         StoragePaths.agent_memory_episodic_prefix(user_id, "main"),
         StoragePaths.agent_memory_episodic_entry(user_id, "main", "2026-01-01-session.md"),
         StoragePaths.agent_memory_semantic_prefix(user_id, "main"),
@@ -123,6 +124,11 @@ def test_agent_root_path() -> None:
 def test_agent_memory_working_path() -> None:
     path = StoragePaths.agent_memory_working(_USER, _AGENT)
     assert path == f"{_USER}/agents/{_AGENT}/memory/working/context.md"
+
+
+def test_agent_intelligence_archive_path() -> None:
+    path = StoragePaths.agent_intelligence_archive(_USER, _AGENT, "TSK-123", "2026-04-19")
+    assert path == f"{_USER}/agents/{_AGENT}/intelligence/archive/TSK-123/2026-04-19.md"
 
 
 def test_agent_memory_episodic_prefix() -> None:
