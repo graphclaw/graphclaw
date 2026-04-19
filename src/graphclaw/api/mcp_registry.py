@@ -3,8 +3,9 @@
 Description
 -----------
 Provides REST endpoints for registering and managing MCP servers in the user's
-personal MCP Registry.  Server metadata is persisted as ``MCPServerNode``
-vertices in the graph database.
+personal MCP Registry. Server metadata is persisted as JSON in object storage
+at ``{user_id}/mcp/servers/{server_id}.json`` and validated using
+``MCPServerNode``.
 
 Endpoints
 ---------
@@ -19,18 +20,20 @@ All endpoints require a valid Bearer access token.
 
 Design Patterns
 ---------------
-- MCPRegistry delegation: All node CRUD is routed through ``MCPRegistry``,
-  which manages ``MCPServerNode`` vertices and ``GRANTS_ACCESS_TO_MCP`` edges.
+- MCPRegistry delegation: All MCP server CRUD is routed through ``MCPRegistry``,
+    which persists ``MCPServerNode`` JSON documents in object storage.
 - OfficialMCPRegistry search: The ``/search`` endpoint queries the live
   registry at ``registry.modelcontextprotocol.io`` via ``OfficialMCPRegistry``.
   It degrades gracefully to an empty list if the upstream is unreachable.
 - Ownership validation: ``get_mcp_server``, ``update_mcp_server``, and
-  ``delete_mcp_server`` verify ownership via the MCPRegistry's per-user edge
-  before allowing modifications.
+    ``delete_mcp_server`` verify ownership by listing the authenticated user's
+    registered server documents before allowing modifications.
 - TrustTier guard: ``MCPRegistry.update_trust`` enforces the BLOCKED → AUTO
   escalation guard (must go through GATED first).
 - MCP-prefixed IDs: Server IDs follow ``MCP-[\w-]+`` matching the
   ``MCPServerNode`` validator.
+- Approvals query: ``/mcp-approvals`` uses ``GraphStoreDep`` via
+    ``GatedApprovalService`` to list pending APPROVAL tasks for the user.
 
 Public API
 ----------
@@ -38,7 +41,7 @@ Public API
 
 Dependencies
 ------------
-- graphclaw.api.deps: CurrentUserDep, MCPRegistryDep.
+- graphclaw.api.deps: CurrentUserDep, MCPRegistryDep, GraphStoreDep.
 - graphclaw.mcp.official_registry: OfficialMCPRegistry.
 - graphclaw.models.enums: MCPTransport, TrustTier.
 - graphclaw.models.nodes: MCPServerNode.

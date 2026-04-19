@@ -122,12 +122,14 @@ MIGRATIONS: list[Migration] = [
     ),
     Migration(
         version="0003",
-        name="add_mcp_server_node",
-        description="Add MCPServerNode vlabel and GRANTS_ACCESS_TO_MCP elabel",
+        name="mcp_graph_labels_removed_from_baseline",
+        description=(
+            "Historical placeholder: MCP graph labels are no longer created in new "
+            "environments; MCP configs are persisted in object storage."
+        ),
         sql_up="""
-            SELECT * FROM ag_catalog.create_vlabel('graphclaw', 'MCPServerNode');
-            SELECT * FROM ag_catalog.create_elabel('graphclaw', 'GRANTS_ACCESS_TO_MCP');
-        """,
+        SELECT 1;
+      """,
     ),
     Migration(
         version="0004",
@@ -160,26 +162,26 @@ MIGRATIONS: list[Migration] = [
     ),
     Migration(
         version="0006",
-        name="drop_mcp_graph_labels",
+        name="cleanup_legacy_mcp_graph_labels",
         description=(
-            "Remove MCPServerNode vlabel and GRANTS_ACCESS_TO_MCP elabel. "
-            "MCP server configs are now stored as JSON files in MinIO under "
-            "{user_id}/mcp/servers/{server_id}.json — no graph storage required."
+            "Drop legacy MCPServerNode and GRANTS_ACCESS_TO_MCP labels if present. "
+            "MCP server configs are stored as JSON in object storage under "
+            "{user_id}/mcp/servers/{server_id}.json."
         ),
         sql_up="""
             DO $$ BEGIN
               -- Drop any remaining MCPServerNode vertices and their edges first
-              PERFORM * FROM cypher('graphclaw', $$
+              PERFORM * FROM ag_catalog.cypher('graphclaw', $$
                 MATCH (n:MCPServerNode) DETACH DELETE n RETURN count(n)
               $$) as (c agtype);
             EXCEPTION WHEN others THEN NULL;
             END $$;
             DO $$ BEGIN
-              PERFORM ag_catalog.drop_elabel('graphclaw', 'GRANTS_ACCESS_TO_MCP', true);
+              PERFORM ag_catalog.drop_label('graphclaw', 'GRANTS_ACCESS_TO_MCP', false);
             EXCEPTION WHEN others THEN NULL;
             END $$;
             DO $$ BEGIN
-              PERFORM ag_catalog.drop_vlabel('graphclaw', 'MCPServerNode', true);
+              PERFORM ag_catalog.drop_label('graphclaw', 'MCPServerNode', false);
             EXCEPTION WHEN others THEN NULL;
             END $$;
         """,

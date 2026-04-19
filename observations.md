@@ -322,20 +322,31 @@ The `db/` directory contains a shim layer sitting on top of the real implementat
 
 ### Observations / Gaps
 
-**O-MCP-01: MCPServerNode Pydantic model must be kept — it is the MinIO JSON schema**
+**O-MCP-01: MCPServerNode Pydantic model must be kept — it is the MinIO JSON schema** ✅ FIXED
 - `MCPRegistry` (`mcp/registry.py`) stores server configs as JSON files in MinIO at `{user_id}/mcp/servers/{server_id}.json`
 - `MCPServerNode` Pydantic model in `models/nodes.py` is the schema for that JSON — required and correct
 - The docstring in `api/mcp_registry.py` incorrectly says "persisted as MCPServerNode vertices in the graph database" — MinIO is the actual store
+- Updated `api/mcp_registry.py` module docs to describe object-storage JSON persistence and ownership checks against per-user stored documents
 
-**O-MCP-02: MCPServerNode AGE vertex label and `GRANTS_ACCESS_TO_MCP` edge label are dead schema**
+**O-MCP-02: MCPServerNode AGE vertex label and `GRANTS_ACCESS_TO_MCP` edge label are dead schema** ✅ FIXED
 - The AGE vertex label `MCPServerNode` and edge label `GRANTS_ACCESS_TO_MCP` are initialized in `scripts/init-db.sql` and created by a migration in `migrations/catalogue.py`
 - No code writes to either — the graph schema is orphaned
 - Should be removed from `scripts/init-db.sql` and reversed/removed from `migrations/catalogue.py`
+- Removed MCP label creation from `scripts/init-db.sql` (new environments no longer create dead MCP labels)
+- Replaced migration `0003` with a no-op historical placeholder so sequential migration numbering remains intact
+- Kept `0006` as cleanup migration and corrected it to use AGE-supported APIs (`ag_catalog.cypher`, `ag_catalog.drop_label(..., false)`) for legacy databases
 
-**O-MCP-03: `GraphStoreDep` in `api/mcp_registry.py` is only used for approval service, not MCP nodes**
+**O-MCP-03: `GraphStoreDep` in `api/mcp_registry.py` is only used for approval service, not MCP nodes** ✅ FIXED
 - `GraphStoreDep` is imported and used in `list_mcp_approvals` for `GatedApprovalService` (trust tier escalation)
 - All MCP CRUD routes use `MCPRegistryDep` (MinIO) — the graph store is not involved in MCP persistence
 - Docstring correction needed in `api/mcp_registry.py`
+- Updated route-module documentation to explicitly state: MCP CRUD is storage-backed via `MCPRegistryDep`, while `GraphStoreDep` is scoped to `/mcp-approvals` only
+
+Validation completed against real local services:
+- Added integration test `tests/test_mcp/test_mcp_design_split_integration.py`
+- Verified live MinIO JSON persistence through `MCPRegistry.register/get`
+- Verified live graph-backed approvals through `GatedApprovalService.get_pending_approvals`
+- Verified legacy MCP labels absent in local AGE catalog query
 
 ---
 
