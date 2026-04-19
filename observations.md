@@ -112,9 +112,12 @@
 - Sequential-chain dependents (INACTIVE_PENDING tasks with DEPENDS_ON edge) are activated and persisted
 - Also fixed `_deserialize_node_props` helper added to `cascade.py` so raw AGE data parses correctly
 
-**O-SM-03: `state_history` never written**
-- Every task in the DB has `state_history: []`
-- The state machine appends to `state_history` but those mutations are never persisted back to AGE
+**O-SM-03: `state_history` never written** ✅ FIXED
+- `transition_task()` already persisted state via `model_dump(mode="json")` — history WAS being written to AGE as a list of JSON strings
+- Root cause: `get_state_history` endpoint returned the raw list of JSON strings without deserializing them
+- Fix: added `task = _deserialize_task_fields(task)` in `get_state_history` before reading `state_history`
+- cascade paths (`activate_next_in_chain`, `check_composite_completion`) already used `_sm.transition()` so they append history entries correctly
+- 4 integration tests: single transition, multiple transitions, GET endpoint returns dicts, cascade-activated task history
 
 **O-SM-04: Autonomy rules not checked before state updates**
 - Spec (§14): before applying an inbound state change, check `autonomy.auto_update_allowed` and `UserNode.preferences.autonomy_defaults`

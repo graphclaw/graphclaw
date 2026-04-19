@@ -147,6 +147,8 @@ async def get_state_history(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"Task '{task_id}' not found"
         )
 
+    # Deserialise so state_history is a list of dicts, not JSON strings.
+    task = _deserialize_task_fields(task)
     history: list[dict[str, Any]] = task.get("state_history") or []
     start = int(cursor) if cursor and cursor.isdigit() else 0
     page = history[start : start + limit]
