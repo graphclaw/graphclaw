@@ -33,6 +33,7 @@ Dependencies
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import TYPE_CHECKING
 
@@ -53,6 +54,53 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _sm = StateMachine()
+
+# Fields that AGE stores as JSON strings inside a node property dict.
+# They must be decoded back to dicts before TaskNode.model_validate().
+_NODE_JSON_STR_FIELDS = (
+    "scoring",
+    "timeline",
+    "progress",
+    "override",
+    "autonomy",
+    "type_metadata",
+)
+_NODE_JSON_LIST_FIELDS = ("state_history", "update_log", "tags")
+
+
+def _deserialize_node_props(raw: dict) -> dict:
+    """Parse JSON-string fields in a raw AGE node property dict.
+
+    AGE stores nested Pydantic objects as JSON strings (via ``_to_cypher_value``).
+    This helper converts them back to Python dicts/lists so that
+    ``TaskNode.model_validate`` succeeds.
+    """
+    result = dict(raw)
+    for field in _NODE_JSON_STR_FIELDS:
+        if isinstance(result.get(field), str):
+            try:
+                result[field] = json.loads(result[field])
+            except (json.JSONDecodeError, ValueError):
+                result[field] = None
+    for field in _NODE_JSON_LIST_FIELDS:
+        val = result.get(field)
+        if isinstance(val, str):
+            try:
+                result[field] = json.loads(val)
+            except (json.JSONDecodeError, ValueError):
+                result[field] = []
+        elif isinstance(val, list):
+            parsed: list = []
+            for item in val:
+                if isinstance(item, str):
+                    try:
+                        parsed.append(json.loads(item))
+                    except (json.JSONDecodeError, ValueError):
+                        parsed.append(item)
+                else:
+                    parsed.append(item)
+            result[field] = parsed
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -213,7 +261,7 @@ async def activate_next_in_chain(
         if node_props is None:
             continue
         try:
-            dep_task = TN.model_validate(node_props)
+            dep_task = TN.model_validate(_deserialize_node_props(node_props))
         except Exception:
             logger.warning("activate_next_in_chain: could not parse node %s", dep_id)
             continue

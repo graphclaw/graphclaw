@@ -48,6 +48,7 @@ from pydantic import BaseModel
 from graphclaw.api.deps import CurrentUserDep, GraphStoreDep, StateMachineDep
 from graphclaw.models.enums import ChangedBy, TaskState
 from graphclaw.models.nodes import TaskNode
+from graphclaw.state.cascade import activate_next_in_chain, check_composite_completion
 from graphclaw.state.transitions import VALID_TRANSITIONS, InvalidTransitionError
 
 logger = logging.getLogger(__name__)
@@ -55,7 +56,7 @@ logger = logging.getLogger(__name__)
 # The state endpoints live at /tasks/... (no /graph prefix) per the API contract.
 router = APIRouter(prefix="/tasks", tags=["state"])
 
-_JSON_STR_FIELDS = ("scoring", "timeline", "progress", "override", "autonomy")
+_JSON_STR_FIELDS = ("scoring", "timeline", "progress", "override", "autonomy", "type_metadata")
 _JSON_LIST_FIELDS = ("state_history", "update_log", "tags")
 
 
@@ -88,6 +89,7 @@ def _deserialize_task_fields(raw: dict) -> dict:
                     parsed_items.append(item)
             result[field] = parsed_items
     return result
+
 
 # ---------------------------------------------------------------------------
 # Request / response models
@@ -264,4 +266,56 @@ async def transition_task(
         user_id,
         body.reason,
     )
+
+    # Wire cascade effects when the task reaches COMPLETE.
+    if target_state == TaskState.COMPLETE:
+        # 1. Activate sequential-chain dependents (INACTIVE_PENDING tasks that
+        #    were waiting on this task via DEPENDS_ON edges).
+        activated = await activate_next_in_chain(task_node, graph_store)
+        for act_node in activated:
+            await graph_store.update_node(act_node.id, act_node.model_dump(mode="json"))
+            logger.info("state: cascade-activated %s after %s completed", act_node.id, task_id)
+
+        # 2. Propagate completion upward through composite/milestone parents.
+        part_of_edges = await graph_store.get_edges(task_id, direction="out", edge_type="PART_OF")
+        for edge in part_of_edges:
+            parent_id = edge.get("_end_id")
+            if not parent_id:
+                continue
+            raw_parent = await graph_store.get_node(parent_id)
+            if raw_parent is None:
+                continue
+            try:
+                parent_node = TaskNode.model_validate(_deserialize_task_fields(raw_parent))
+            except Exception as exc:
+                logger.warning("state: could not parse parent %s: %s", parent_id, exc)
+                continue
+
+            # Collect all sibling children of this parent.
+            child_edges = await graph_store.get_edges(
+                parent_id, direction="in", edge_type="PART_OF"
+            )
+            children: list[TaskNode] = []
+            for child_edge in child_edges:
+                child_id = child_edge.get("_start_id")
+                if not child_id:
+                    continue
+                raw_child = await graph_store.get_node(child_id)
+                if raw_child is None:
+                    continue
+                try:
+                    children.append(TaskNode.model_validate(_deserialize_task_fields(raw_child)))
+                except Exception:
+                    continue
+
+            prev_state = parent_node.state
+            check_composite_completion(parent_node, children)
+            if parent_node.state != prev_state:
+                await graph_store.update_node(parent_node.id, parent_node.model_dump(mode="json"))
+                logger.info(
+                    "state: cascade updated parent %s → %s",
+                    parent_node.id,
+                    parent_node.state.value,
+                )
+
     return persisted
