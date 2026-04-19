@@ -89,6 +89,7 @@ class StateMachine:
         self._guard_approval_auto_resolve(task, new_state, changed_by)
         self._guard_inactive_pending_activation(task, from_state, new_state, changed_by)
         self._guard_blocked_activation(task, from_state, new_state, changed_by)
+        self._guard_autonomy(task, new_state, changed_by)
 
         # 3. Apply the transition.
         task.state = new_state
@@ -195,6 +196,33 @@ class StateMachine:
                 new_state,
                 "BLOCKED → ACTIVE requires CASCADE, HUMAN, or SYSTEM as changed_by "
                 "(blocker must have been resolved)",
+            )
+
+    @staticmethod
+    def _guard_autonomy(
+        task: TaskNode,
+        new_state: TaskState,
+        changed_by: ChangedBy,
+    ) -> None:
+        """Block AI-initiated state changes when task autonomy is not granted.
+
+        PRD §14 / O-SM-04:
+        If ``changed_by == AGENT`` and ``task.autonomy.auto_update_allowed`` is
+        ``False``, the agent is not permitted to update the task state directly —
+        it must surface the change for human review instead.
+
+        CASCADE and SYSTEM updates bypass this guard (they are structural /
+        internal and not AI-driven user-facing mutations).
+        """
+        if changed_by != ChangedBy.AGENT:
+            return  # HUMAN, CASCADE, SYSTEM are always allowed
+        if not task.autonomy.auto_update_allowed:
+            raise InvalidTransitionError(
+                task.state,
+                new_state,
+                f"Task {task.id} does not permit autonomous AI state updates "
+                f"(autonomy.auto_update_allowed=False). "
+                f"Request human approval or set auto_update_allowed=True.",
             )
 
 

@@ -119,10 +119,12 @@
 - cascade paths (`activate_next_in_chain`, `check_composite_completion`) already used `_sm.transition()` so they append history entries correctly
 - 4 integration tests: single transition, multiple transitions, GET endpoint returns dicts, cascade-activated task history
 
-**O-SM-04: Autonomy rules not checked before state updates**
-- Spec (§14): before applying an inbound state change, check `autonomy.auto_update_allowed` and `UserNode.preferences.autonomy_defaults`
-- Current code updates task state directly without consulting autonomy permissions
-- Trust gradient (§14.4) — AI vs human resource distinction — not enforced
+**O-SM-04: Autonomy rules not checked before state updates** ✅ FIXED
+- `state/machine.py` `StateMachine.transition()`: added `_guard_autonomy()` guard — blocks `ChangedBy.AGENT` when `task.autonomy.auto_update_allowed=False` (the default)
+- HUMAN, CASCADE, and SYSTEM transitions always bypass the guard
+- Default `AutonomyBlock` has `auto_update_allowed=False` — so all AGENT transitions require explicit opt-in per task
+- Existing tests that used `ChangedBy.AGENT` for generic transition tests updated to use `ChangedBy.HUMAN`
+- 9 new unit tests: blocked/allowed AGENT cases, no history on block, CASCADE/SYSTEM bypass, default blocks AGENT
 
 ---
 

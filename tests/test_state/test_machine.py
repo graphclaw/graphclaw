@@ -59,7 +59,7 @@ class TestValidTransitions:
     def test_pending_to_active(self):
         sm = StateMachine()
         task = _make_task(state=TaskState.PENDING)
-        sm.transition(task, TaskState.ACTIVE, ChangedBy.AGENT, "Starting task")
+        sm.transition(task, TaskState.ACTIVE, ChangedBy.HUMAN, "Starting task")
         assert task.state == TaskState.ACTIVE
 
     def test_active_to_in_progress(self):
@@ -115,7 +115,7 @@ class TestStateHistoryRecording:
         sm = StateMachine()
         task = _make_task(state=TaskState.PENDING)
         assert len(task.state_history) == 0
-        sm.transition(task, TaskState.ACTIVE, ChangedBy.AGENT, "test")
+        sm.transition(task, TaskState.ACTIVE, ChangedBy.HUMAN, "test")
         assert len(task.state_history) == 1
 
     def test_history_entry_fields(self):
@@ -133,7 +133,7 @@ class TestStateHistoryRecording:
     def test_multiple_transitions_accumulate(self):
         sm = StateMachine()
         task = _make_task(state=TaskState.PENDING)
-        sm.transition(task, TaskState.ACTIVE, ChangedBy.AGENT)
+        sm.transition(task, TaskState.ACTIVE, ChangedBy.HUMAN)
         sm.transition(task, TaskState.IN_PROGRESS, ChangedBy.HUMAN)
         sm.transition(task, TaskState.COMPLETE, ChangedBy.HUMAN)
         assert len(task.state_history) == 3
@@ -143,7 +143,7 @@ class TestStateHistoryRecording:
     def test_history_reason_none_when_empty(self):
         sm = StateMachine()
         task = _make_task(state=TaskState.PENDING)
-        sm.transition(task, TaskState.ACTIVE, ChangedBy.AGENT)
+        sm.transition(task, TaskState.ACTIVE, ChangedBy.HUMAN)
         assert task.state_history[0].reason is None
 
 
@@ -201,7 +201,7 @@ class TestTerminalStateGuards:
         task = _make_task(state=TaskState.COMPLETE)
         task.progress.confidence = ConfidenceLevel.LOW
         # Should not raise
-        sm.transition(task, TaskState.NEEDS_REVIEW, ChangedBy.AGENT, "Low confidence reopen")
+        sm.transition(task, TaskState.NEEDS_REVIEW, ChangedBy.HUMAN, "Low confidence reopen")
         assert task.state == TaskState.NEEDS_REVIEW
 
     def test_complete_to_needs_review_blocked_for_high_confidence(self):
