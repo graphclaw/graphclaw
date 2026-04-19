@@ -23,13 +23,11 @@
 - Spec (§3.1) requires each task type to be a distinct node type with its own `type_metadata` block
 - Files to investigate: `db/age/repository.py`, `api/graph.py` (`create_task`)
 
-**O-DB-02: Relationship edges never created**
-- `ASSIGNED_TO`: 0 edges — task assignment is stored as a flat property (`assigned_to: "USER-dev-001"`) not a graph edge
-- `OWNED_BY`: 0 edges — same issue; ownership is a string property only
-- `BLOCKS`, `BATCHED_IN`, `BRANCHED_FROM`, `SPAWNED_FROM`, `INFORMS`, `PART_OF`: all 0
-- Only `DEPENDS_ON` (22 edges) has been written
-- The graph is effectively a flat task list with dependency links — not a property graph as designed
-- Files to investigate: `api/graph.py` (`create_task`, `create_edge`), `db/age/repository.py`
+**O-DB-02: Relationship edges never created** ✅ FIXED
+- `api/graph.py` `create_task()`: now creates `OWNED_BY` (task → user) and `ASSIGNED_TO` (task → assignee) edges after node creation
+- `agent/loop.py` `_tool_create_task()`: now creates `ASSIGNED_TO` edge when `assigned_to` arg provided; also sets `assigned_to` field on the `TaskNode`
+- Both edge creations are guarded with `try/except` to prevent task creation failure if the target node doesn't exist
+- 6 integration tests: 3 via REST API, 3 via AgentLoop direct call, all against real AGE
 
 **O-DB-03: No UserNode records despite provisioning code existing**
 - `UserNode` table has 0 rows

@@ -48,17 +48,25 @@ import time
 import uuid
 from typing import TYPE_CHECKING, Any
 
+from graphclaw.agent.catalog import AgentCatalog
+from graphclaw.agent.context import ContextManager
+from graphclaw.agent.knowledge import KnowledgeBase
+from graphclaw.agent.tool_registry import ToolSetRegistry
 from graphclaw.models.nodes import TaskNode
 from graphclaw.models.scoring import ActionQueueEntry
 from graphclaw.scoring.engine import ScoringContext, ScoringEngine
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
     from graphclaw.agent.dispatch_planner import AgentDispatchPlanner
+    from graphclaw.agent.run_events import AgentRunEvent
     from graphclaw.agent.sub_agent_pool import SubAgentPool
     from graphclaw.db.base import GraphStore
     from graphclaw.infra.broker import MessageBroker
     from graphclaw.infra.logger import AsyncLogger
     from graphclaw.infra.storage import StorageClient
+    from graphclaw.infra.user_events import UserEventPublisher
     from graphclaw.llm.base import LLMClient
     from graphclaw.mcp.registry import MCPRegistry
     from graphclaw.skills.registry import SkillRegistryService
@@ -151,6 +159,7 @@ class AgentLoop:
         broker: MessageBroker | None = None,
         dispatch_planner: AgentDispatchPlanner | None = None,
         sub_agent_pool: SubAgentPool | None = None,
+        event_publisher: UserEventPublisher | None = None,
     ) -> None:
         self._repo = graph_repo
         self._engine = scoring_engine
@@ -165,12 +174,29 @@ class AgentLoop:
         self._broker = broker
         self._dispatch_planner = dispatch_planner
         self._sub_agent_pool = sub_agent_pool
+        self._event_publisher: UserEventPublisher | None = event_publisher
         # Cache last action queue so system prompt can include current priorities
         self._last_queue: list[ActionQueueEntry] = []
         # Track current session_id for structured logging
         self._current_session_id: str | None = None
         # Buffer for delegation calls within a single LLM turn (batch dispatch)
         self._turn_delegation_calls: list[dict[str, Any]] = []
+
+        # --- New intelligence components ---
+        self._tool_registry = ToolSetRegistry(
+            has_skill_registry=skill_registry is not None,
+            has_mcp_registry=mcp_registry is not None,
+        )
+        if storage_client is not None:
+            self._knowledge_base: KnowledgeBase | None = KnowledgeBase(storage_client)
+            self._agent_catalog: AgentCatalog | None = AgentCatalog(storage_client)
+            self._context_manager: ContextManager | None = (
+                ContextManager(llm_client) if llm_client is not None else None
+            )
+        else:
+            self._knowledge_base = None
+            self._agent_catalog = None
+            self._context_manager = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -466,29 +492,47 @@ class AgentLoop:
 
         from graphclaw.llm.base import LLMMessage
 
-        # Build system prompt
+        # Reset tool registry to core-only for this message
+        self._tool_registry.reset_session()
+
+        # Build system prompt (goal-first, user-scoped)
         system_prompt = await self._build_system_prompt(user_id)
 
-        # Translate prior history to LLMMessage list
-        messages: list[LLMMessage] = [LLMMessage(role="system", content=system_prompt)]
-        for entry in conversation_history or []:
-            role = entry.get("role", "user")
-            # history may have "agent" role — map to "assistant"
-            if role == "agent":
-                role = "assistant"
-            messages.append(LLMMessage(role=role, content=entry.get("content", "")))
-        messages.append(LLMMessage(role="user", content=text))
+        # Compress conversation history if context manager is available
+        current_user_msg = LLMMessage(role="user", content=text)
+        if self._context_manager is not None and conversation_history:
+            compressed = await self._context_manager.compress(
+                conversation_history,
+                current_messages=[current_user_msg],
+            )
+            history_messages = self._context_manager.build_messages(compressed)
+        else:
+            # Simple role remap: "agent" → "assistant"
+            history_messages = []
+            for entry in conversation_history or []:
+                role = entry.get("role", "user")
+                if role == "agent":
+                    role = "assistant"
+                content = entry.get("content", "")
+                if content:
+                    history_messages.append(LLMMessage(role=role, content=content))
 
-        # Tool definitions for graph mutations
-        tools = self._build_tool_definitions()
+        messages: list[LLMMessage] = (
+            [LLMMessage(role="system", content=system_prompt)]
+            + history_messages
+            + [current_user_msg]
+        )
 
         # Agentic loop: call LLM → execute tools → call LLM again until no more tool calls
         for _iteration in range(15):  # safety cap on tool-call rounds
+            # Get current active tools from registry (updated as sets are loaded)
+            tools = self._tool_registry.get_active_tools()
+
             t0 = time.monotonic()
             response = await self._llm.complete(
                 messages,
                 model=None,  # use client default
-                max_tokens=1024,
+                max_tokens=4096,
                 temperature=0.7,
                 tools=tools,
             )
@@ -543,6 +587,313 @@ class AgentLoop:
         # Fallback if loop exhausted
         return "(agent tool-call loop limit reached — please try again)"
 
+    def process_chat_message_stream(
+        self,
+        user_id: str,
+        text: str,
+        conversation_history: list[dict[str, Any]] | None = None,
+        session_id: str | None = None,
+        publisher: UserEventPublisher | None = None,
+    ) -> AsyncIterator[AgentRunEvent]:
+        """Return an async iterator that streams agent run-trace events.
+
+        Yields ``AgentRunEvent`` objects in chronological order.  The run
+        always terminates with either ``run.completed`` or ``run.failed``.
+
+        The caller is responsible for consuming the iterator to completion;
+        otherwise the underlying LLM stream is not closed cleanly.
+
+        Usage::
+
+            async for event in loop.process_chat_message_stream(user_id, text):
+                ...
+
+        Parameters
+        ----------
+        user_id:
+            The authenticated user's ID.
+        text:
+            Incoming user message text.
+        conversation_history:
+            Optional prior messages as ``{"role": str, "content": str}`` dicts.
+        session_id:
+            Optional session ID for structured logging.
+        publisher:
+            Optional ``UserEventPublisher`` to push events to in parallel
+            (e.g. for Redis-backed cockpit delivery).  If ``None``, the
+            instance-level ``self._event_publisher`` is used instead.
+        """
+        return self._process_chat_message_stream_impl(
+            user_id=user_id,
+            text=text,
+            conversation_history=conversation_history,
+            session_id=session_id,
+            publisher=publisher or self._event_publisher,
+        )
+
+    async def _process_chat_message_stream_impl(
+        self,
+        user_id: str,
+        text: str,
+        conversation_history: list[dict[str, Any]] | None,
+        session_id: str | None,
+        publisher: UserEventPublisher | None,
+    ) -> None:
+        """Async generator implementing process_chat_message_stream — yields AgentRunEvent."""
+        import time as _time
+
+        from graphclaw.agent.run_events import (
+            AssistantDeltaPayload,
+            AssistantFinalPayload,
+            RunCompletedPayload,
+            RunFailedPayload,
+            RunStartedPayload,
+            ToolCompletedPayload,
+            ToolFailedPayload,
+            ToolStartedPayload,
+            make_event,
+            new_run_id,
+            sanitize_args,
+            sanitize_text,
+        )
+        from graphclaw.agent.run_events import RunEventType as ET
+        from graphclaw.llm.base import LLMMessage
+
+        run_id = new_run_id()
+        sid = session_id or ""
+        seq = 0
+        run_start_ms = _time.monotonic()
+        tool_call_count = 0
+        total_input_tokens = 0
+        total_output_tokens = 0
+
+        async def _emit(event: AgentRunEvent) -> None:
+            nonlocal seq
+            if publisher is not None:
+                await publisher.publish(user_id, event)
+
+        # ── run.started ──────────────────────────────────────────────────────
+        started_event = make_event(
+            ET.RUN_STARTED, run_id, sid, user_id, seq,
+            RunStartedPayload(message_preview=text[:100]),
+        )
+        seq += 1
+        await _emit(started_event)
+        yield started_event
+
+        if self._llm is None:
+            failed_event = make_event(
+                ET.RUN_FAILED, run_id, sid, user_id, seq,
+                RunFailedPayload(
+                    error_class="NotInitialised",
+                    error_message="LLM client is not connected.",
+                    duration_ms=int((_time.monotonic() - run_start_ms) * 1000),
+                ),
+            )
+            await _emit(failed_event)
+            yield failed_event
+            return
+
+        try:
+            # Reset tool registry
+            self._tool_registry.reset_session()
+            self._current_session_id = session_id
+
+            system_prompt = await self._build_system_prompt(user_id)
+
+            current_user_msg = LLMMessage(role="user", content=text)
+            if self._context_manager is not None and conversation_history:
+                compressed = await self._context_manager.compress(
+                    conversation_history,
+                    current_messages=[current_user_msg],
+                )
+                history_messages = self._context_manager.build_messages(compressed)
+            else:
+                history_messages = []
+                for entry in conversation_history or []:
+                    role = entry.get("role", "user")
+                    if role == "agent":
+                        role = "assistant"
+                    content = entry.get("content", "")
+                    if content:
+                        history_messages.append(LLMMessage(role=role, content=content))
+
+            messages: list[LLMMessage] = (
+                [LLMMessage(role="system", content=system_prompt)]
+                + history_messages
+                + [current_user_msg]
+            )
+
+            # ── Agentic loop ─────────────────────────────────────────────────
+            for _iteration in range(15):
+                tools = self._tool_registry.get_active_tools()
+
+                # --- Stream LLM response ---
+                accumulated_text = ""
+                final_response = None
+                t0 = _time.monotonic()
+
+                async for chunk in self._llm.stream(
+                    messages,
+                    model=None,
+                    max_tokens=4096,
+                    temperature=0.7,
+                    tools=tools,
+                ):
+                    if chunk.is_final:
+                        final_response = chunk.accumulated
+                    elif chunk.content_delta:
+                        accumulated_text += chunk.content_delta
+                        delta_event = make_event(
+                            ET.ASSISTANT_DELTA, run_id, sid, user_id, seq,
+                            AssistantDeltaPayload(delta=chunk.content_delta),
+                        )
+                        seq += 1
+                        await _emit(delta_event)
+                        yield delta_event
+
+                if final_response is None:
+                    # Stream did not produce a final chunk — no token counts available
+                    pass
+
+                elapsed_ms = int((_time.monotonic() - t0) * 1000)
+
+                if final_response is not None:
+                    total_input_tokens += final_response.prompt_tokens
+                    total_output_tokens += final_response.completion_tokens
+
+                # ── Tool-use branch ──────────────────────────────────────────
+                tool_calls = final_response.tool_calls if final_response else []
+
+                if tool_calls:
+                    # Pre-plan delegation if needed
+                    self._turn_delegation_calls = []
+                    await self._pre_plan_delegation_turn(
+                        user_id, sid or str(uuid.uuid4()), tool_calls
+                    )
+
+                    messages.append(
+                        LLMMessage(
+                            role="assistant",
+                            content=accumulated_text,
+                            tool_calls=list(tool_calls),
+                        )
+                    )
+
+                    for tc in tool_calls:
+                        tool_call_count += 1
+                        t_start = make_event(
+                            ET.TOOL_STARTED, run_id, sid, user_id, seq,
+                            ToolStartedPayload(
+                                tool_name=tc.name,
+                                args_summary=sanitize_args(tc.arguments),
+                            ),
+                        )
+                        seq += 1
+                        await _emit(t_start)
+                        yield t_start
+
+                        t0_tool = _time.monotonic()
+                        try:
+                            tool_result = await self._execute_tool(
+                                user_id, tc.name, tc.arguments
+                            )
+                            latency = int((_time.monotonic() - t0_tool) * 1000)
+                            t_done = make_event(
+                                ET.TOOL_COMPLETED, run_id, sid, user_id, seq,
+                                ToolCompletedPayload(
+                                    tool_name=tc.name,
+                                    latency_ms=latency,
+                                    result_summary=sanitize_text(
+                                        str(tool_result), 300
+                                    ),
+                                ),
+                            )
+                            seq += 1
+                            await _emit(t_done)
+                            yield t_done
+                            messages.append(
+                                LLMMessage(
+                                    role="tool",
+                                    content=json.dumps(tool_result),
+                                    tool_call_id=tc.id,
+                                )
+                            )
+                        except Exception as tc_exc:  # noqa: BLE001
+                            latency = int((_time.monotonic() - t0_tool) * 1000)
+                            t_fail = make_event(
+                                ET.TOOL_FAILED, run_id, sid, user_id, seq,
+                                ToolFailedPayload(
+                                    tool_name=tc.name,
+                                    error_class=type(tc_exc).__name__,
+                                    error_message=sanitize_text(str(tc_exc), 200),
+                                ),
+                            )
+                            seq += 1
+                            await _emit(t_fail)
+                            yield t_fail
+                            messages.append(
+                                LLMMessage(
+                                    role="tool",
+                                    content=json.dumps({"error": str(tc_exc)}),
+                                    tool_call_id=tc.id,
+                                )
+                            )
+
+                    self._turn_delegation_calls = []
+                    continue  # next iteration — get response after tool results
+
+                # ── Text-only branch — emit assistant.final then run.completed ─
+                final_event = make_event(
+                    ET.ASSISTANT_FINAL, run_id, sid, user_id, seq,
+                    AssistantFinalPayload(
+                        content_length=len(accumulated_text),
+                        input_tokens=total_input_tokens,
+                        output_tokens=total_output_tokens,
+                    ),
+                )
+                seq += 1
+                await _emit(final_event)
+                yield final_event
+
+                completed_event = make_event(
+                    ET.RUN_COMPLETED, run_id, sid, user_id, seq,
+                    RunCompletedPayload(
+                        input_tokens=total_input_tokens,
+                        output_tokens=total_output_tokens,
+                        tool_call_count=tool_call_count,
+                        duration_ms=int((_time.monotonic() - run_start_ms) * 1000),
+                    ),
+                )
+                await _emit(completed_event)
+                yield completed_event
+                return
+
+            # Safety cap reached
+            cap_event = make_event(
+                ET.RUN_FAILED, run_id, sid, user_id, seq,
+                RunFailedPayload(
+                    error_class="ToolLoopCapReached",
+                    error_message="Agent tool-call loop limit (15) reached.",
+                    duration_ms=int((_time.monotonic() - run_start_ms) * 1000),
+                ),
+            )
+            await _emit(cap_event)
+            yield cap_event
+
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("AgentLoop.stream: unhandled error for user_id=%s", user_id)
+            err_event = make_event(
+                ET.RUN_FAILED, run_id, sid, user_id, seq,
+                RunFailedPayload(
+                    error_class=type(exc).__name__,
+                    error_message=sanitize_text(str(exc), 200),
+                    duration_ms=int((_time.monotonic() - run_start_ms) * 1000),
+                ),
+            )
+            await _emit(err_event)
+            yield err_event
+
     # ------------------------------------------------------------------
     # System prompt construction
     # ------------------------------------------------------------------
@@ -553,24 +904,54 @@ class AgentLoop:
 
         today = _dt.date.today().isoformat()
         date_line = f"\nToday's date is {today}. Use this as the reference for all scheduling and deadline reasoning."
-        parts: list[str] = [_SYSTEM_PROMPT_HEADER + date_line]
 
-        # Load agent profile.md from storage if available
+        # 1. Load system header from storage (fallback to hardcoded default)
+        header = await self._load_system_header()
+        parts: list[str] = [header + date_line]
+
+        # 2. Load user agent persona from profile.md
         persona = await self._load_agent_profile(user_id)
         if persona:
             parts.append(f"\n## Your Persona\n{persona}")
 
-        # Add available skills and MCP context
+        # 3. Tool set manifest (compact ~150 tokens, replaces sending all schemas)
+        parts.append(f"\n{self._tool_registry.get_manifest()}")
+
+        # 4. Knowledge base index (available topics)
+        if self._knowledge_base is not None:
+            kb_index = await self._knowledge_base.get_index()
+            if kb_index:
+                parts.append(f"\n{kb_index}")
+
+        # 5. Agent catalog (system + user agents available for delegation)
+        if self._agent_catalog is not None:
+            agent_catalog = await self._agent_catalog.get_compact_catalog(user_id)
+            if agent_catalog:
+                parts.append(f"\n{agent_catalog}")
+
+        # 6. Add available skills and MCP context
         exec_ctx = await self._build_execution_context(user_id)
         if exec_ctx:
             parts.append(f"\n{exec_ctx}")
 
-        # Add a brief Task Graph summary (top priorities from last scoring cycle)
-        graph_summary = await self._build_graph_summary()
+        # 7. Goal-first task graph summary (user-scoped)
+        graph_summary = await self._build_graph_summary(user_id)
         if graph_summary:
             parts.append(f"\n## Current Task Graph Summary\n{graph_summary}")
 
         return "\n".join(parts)
+
+    async def _load_system_header(self) -> str:
+        """Load the system prompt header from MinIO; fallback to hardcoded default."""
+        if self._storage is None:
+            return _SYSTEM_PROMPT_HEADER
+        try:
+            from graphclaw.infra.storage import StoragePaths
+
+            raw = await self._storage.read(StoragePaths.system_prompt_header())
+            return raw.decode(errors="replace")
+        except Exception:  # noqa: BLE001
+            return _SYSTEM_PROMPT_HEADER
 
     async def _load_agent_profile(self, user_id: str) -> str:
         """Load profile.md from MinIO; return empty string on any failure."""
@@ -586,474 +967,81 @@ class AgentLoop:
             logger.debug("AgentLoop: could not load agent profile: %s", exc)
             return ""
 
-    async def _build_graph_summary(self) -> str:
-        """Build a brief plain-text task graph snapshot from the last queue."""
+    async def _build_graph_summary(self, user_id: str) -> str:
+        """Build a goal-first, user-scoped task graph snapshot.
+
+        Strategy (§14.1):
+        1. Load active GoalNode summaries for the user.
+        2. Load top-5 scored tasks for the user from the last scoring queue.
+        3. Omit COMPLETE/CANCELLED goals entirely.
+        """
+        from graphclaw.models.enums import GoalState
+
+        parts: list[str] = []
+
+        # --- Goals section ---
+        try:
+            goal_props = await self._repo.list_nodes_by_user("GoalNode", user_id)
+            active_goals = []
+            for gp in goal_props:
+                state = gp.get("state", "")
+                if state in (GoalState.COMPLETE.value, "ABANDONED"):
+                    continue
+                active_goals.append(gp)
+
+            if active_goals:
+                goal_lines = ["### Active Goals"]
+                for gp in active_goals[:5]:
+                    title = gp.get("title", gp.get("id", "?"))
+                    priority = gp.get("priority", "")
+                    state = gp.get("state", "")
+                    gid = gp.get("id", "")
+                    # Include node_intelligence summary if available
+                    intel = gp.get("node_intelligence") or gp.get("intelligence", "")
+                    if isinstance(intel, dict):
+                        intel = intel.get("summary", "")
+                    line = f"- {title} [{gid}] | {priority} | {state}"
+                    goal_lines.append(line)
+                    if intel:
+                        goal_lines.append(f"    {intel[:150]}")
+                parts.append("\n".join(goal_lines))
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("AgentLoop: goal summary failed: %s", exc)
+
+        # --- Top priority tasks section ---
         if not self._last_queue:
-            # Try a fresh cycle but don't fail if DB is unavailable
             try:
                 self._last_queue = await self.run_cycle()
             except Exception as exc:  # noqa: BLE001
-                logger.debug("AgentLoop: graph summary cycle failed: %s", exc)
-                return ""
+                logger.debug("AgentLoop: scoring cycle for graph summary failed: %s", exc)
 
-        if not self._last_queue:
-            return "No active tasks found."
+        if self._last_queue:
+            try:
+                tasks = await self._fetch_active_tasks(user_id)
+                task_index = {t.id: t for t in tasks}
+            except Exception:  # noqa: BLE001
+                task_index = {}
 
-        # Build a node_id → task index from the last run_cycle result
-        task_index: dict[str, Any] = {}
-        try:
-            tasks = await self._fetch_active_tasks()
-            task_index = {t.id: t for t in tasks}
-        except Exception:  # noqa: BLE001
-            pass
+            task_lines = ["### Top Priority Tasks"]
+            for entry in self._last_queue[:5]:
+                task = task_index.get(entry.node_id)
+                if task is None:
+                    continue  # skip tasks from other users
+                deadline = ""
+                if task.timeline and task.timeline.deadline:
+                    deadline = f" (due {task.timeline.deadline.date()})"
+                task_lines.append(
+                    f"- [{entry.rank}] {task.title} [{task.id}]"
+                    f" | {task.state} | score={entry.final_score:.2f}{deadline}"
+                )
+            if len(task_lines) > 1:
+                parts.append("\n".join(task_lines))
 
-        lines = ["Top priorities:"]
-        total_chars = 0
-        max_chars = 2500
-
-        for entry in self._last_queue[:5]:
-            task = task_index.get(entry.node_id)
-            if task is None:
-                line = f"- [{entry.rank}] {entry.node_id} | score={entry.final_score:.2f}"
-                lines.append(line)
-                total_chars += len(line) + 1
-                continue
-
-            deadline = ""
-            if task.timeline and task.timeline.deadline:
-                deadline = f" (due {task.timeline.deadline.date()})"
-
-            main_line = (
-                f"- [{entry.rank}] {task.title} | state={task.state}"
-                f" | score={entry.final_score:.2f}{deadline}"
-            )
-
-            # Add intelligence snippet if available and space permits
-            ctx_line = ""
-            if task.intelligence and total_chars + len(main_line) + 200 < max_chars:
-                snippet = task.intelligence[:180]
-                if len(task.intelligence) > 180:
-                    snippet += "…"
-                ctx_line = f"    [ctx: {snippet}]"
-
-            lines.append(main_line)
-            total_chars += len(main_line) + 1
-
-            if ctx_line:
-                lines.append(ctx_line)
-                total_chars += len(ctx_line) + 1
-
-        return "\n".join(lines)
+        return "\n\n".join(parts) if parts else "No active goals or tasks found."
 
     # ------------------------------------------------------------------
     # Tool definitions and execution
     # ------------------------------------------------------------------
-
-    @staticmethod
-    def _build_tool_definitions() -> list[Any]:
-        """Return the ToolDefinition list exposed to the LLM."""
-        from graphclaw.llm.base import ToolDefinition
-
-        return [
-            # --- Graph read/write tools (original 6) ---
-            ToolDefinition(
-                name="list_tasks",
-                description="List all active tasks in the user's task graph.",
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "state_filter": {
-                            "type": "string",
-                            "description": "Optional task state to filter by (e.g. 'open', 'in_progress', 'blocked').",
-                        }
-                    },
-                    "required": [],
-                },
-            ),
-            ToolDefinition(
-                name="create_goal",
-                description="Create a new top-level goal in the task graph.",
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "title": {"type": "string", "description": "Goal title."},
-                        "description": {"type": "string", "description": "Goal description."},
-                        "priority": {
-                            "type": "string",
-                            "enum": ["P1", "P2", "P3", "P4"],
-                            "description": "Goal priority (P1=highest).",
-                        },
-                        "deadline": {
-                            "type": "string",
-                            "description": "ISO 8601 deadline date string (e.g. '2026-05-01').",
-                        },
-                    },
-                    "required": ["title"],
-                },
-            ),
-            ToolDefinition(
-                name="create_task",
-                description=(
-                    "Create a new task in the user's task graph. Use task_type='follow_up' "
-                    "for follow-up tasks with external contacts."
-                ),
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "title": {"type": "string", "description": "Task title."},
-                        "description": {"type": "string", "description": "Task description."},
-                        "task_type": {
-                            "type": "string",
-                            "enum": [
-                                "atomic",
-                                "composite",
-                                "follow_up",
-                                "research",
-                                "approval",
-                                "milestone",
-                                "review",
-                                "recurring",
-                                "decision",
-                                "checkin",
-                                "delegated",
-                            ],
-                            "description": "Type of task node to create.",
-                        },
-                        "goal_id": {
-                            "type": "string",
-                            "description": "Optional goal node ID to link this task to via PART_OF.",
-                        },
-                        "parent_task_id": {
-                            "type": "string",
-                            "description": "Optional parent task ID for sub-tasks.",
-                        },
-                        "depends_on": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "List of task IDs this task depends on.",
-                        },
-                        "assigned_to_contact": {
-                            "type": "string",
-                            "description": "Email or contact name for follow_up tasks with external parties.",
-                        },
-                        "deadline": {
-                            "type": "string",
-                            "description": "ISO 8601 deadline date string.",
-                        },
-                    },
-                    "required": ["title", "task_type"],
-                },
-            ),
-            ToolDefinition(
-                name="update_task_state",
-                description="Update the state of an existing task.",
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "task_id": {"type": "string", "description": "Task node ID."},
-                        "new_state": {
-                            "type": "string",
-                            "enum": [
-                                "PENDING",
-                                "ACTIVE",
-                                "IN_PROGRESS",
-                                "BLOCKED",
-                                "DELAYED",
-                                "NEEDS_REVIEW",
-                                "COMPLETE",
-                                "CANCELLED",
-                                "SNOOZED",
-                                "INACTIVE_PENDING",
-                            ],
-                            "description": "New state for the task.",
-                        },
-                        "reason": {"type": "string", "description": "Reason for the state change."},
-                    },
-                    "required": ["task_id", "new_state"],
-                },
-            ),
-            ToolDefinition(
-                name="update_task",
-                description=(
-                    "Edit the properties of an existing task — title, description, deadline, "
-                    "or assignee. Use this to reschedule deadlines, rename tasks, or reassign "
-                    "ownership. To change task *state* use update_task_state instead."
-                ),
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "task_id": {"type": "string", "description": "Task node ID."},
-                        "title": {"type": "string", "description": "New task title."},
-                        "description": {"type": "string", "description": "New task description."},
-                        "deadline": {
-                            "type": "string",
-                            "description": "New deadline as an ISO 8601 date string (e.g. '2026-04-23' or '2026-04-23T00:00:00Z').",
-                        },
-                        "assigned_to": {
-                            "type": "string",
-                            "description": "User ID or contact reference to assign the task to.",
-                        },
-                    },
-                    "required": ["task_id"],
-                },
-            ),
-            ToolDefinition(
-                name="update_goal",
-                description=(
-                    "Edit the properties of an existing goal — title, description, deadline, "
-                    "or priority. Use this to reschedule goal target dates or change priority."
-                ),
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "goal_id": {"type": "string", "description": "Goal node ID."},
-                        "title": {"type": "string", "description": "New goal title."},
-                        "description": {"type": "string", "description": "New goal description."},
-                        "deadline": {
-                            "type": "string",
-                            "description": "New target date as an ISO 8601 date string (e.g. '2026-04-23').",
-                        },
-                        "priority": {
-                            "type": "string",
-                            "enum": ["P1", "P2", "P3", "P4"],
-                            "description": "New priority (P1=highest).",
-                        },
-                    },
-                    "required": ["goal_id"],
-                },
-            ),
-            ToolDefinition(
-                name="get_task_details",
-                description="Get full details of a specific task by ID.",
-                parameters={
-                    "type": "object",
-                    "properties": {"task_id": {"type": "string", "description": "Task node ID."}},
-                    "required": ["task_id"],
-                },
-            ),
-            ToolDefinition(
-                name="check_inbox",
-                description=(
-                    "Check recent inbound messages received from external contacts across all channels "
-                    "(email, Telegram, etc.). Returns compact summaries of recent messages. "
-                    "Use when the user asks about messages, replies, or communications from other people."
-                ),
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "limit": {
-                            "type": "integer",
-                            "description": "Maximum number of recent messages to return (default 5, max 20).",
-                            "default": 5,
-                        },
-                        "from_sender": {
-                            "type": "string",
-                            "description": "Filter by sender email or Telegram username. Leave empty for all senders.",
-                            "default": "",
-                        },
-                        "channel": {
-                            "type": "string",
-                            "description": "Filter by channel: 'email', 'telegram', 'api', or empty for all channels.",
-                            "default": "",
-                        },
-                    },
-                    "required": [],
-                },
-            ),
-            # --- Planning tools (Phase 1) ---
-            ToolDefinition(
-                name="propose_plan",
-                description=(
-                    "Decompose a goal or complex task into a structured execution plan with subtasks, "
-                    "dependencies, skill/agent assignments, and effort estimates. Returns a proposed plan "
-                    "for user review — does NOT commit anything to the graph until execute_plan is called. "
-                    "Use this whenever the user asks you to plan, execute, or automate something."
-                ),
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "description": {
-                            "type": "string",
-                            "description": "Full description of what needs to be accomplished.",
-                        },
-                        "constraints": {
-                            "type": "string",
-                            "description": "Optional constraints (budget, timeline, compliance, technology, etc.).",
-                        },
-                        "deadline": {
-                            "type": "string",
-                            "description": "Optional ISO 8601 deadline for the overall goal.",
-                        },
-                    },
-                    "required": ["description"],
-                },
-            ),
-            ToolDefinition(
-                name="execute_plan",
-                description=(
-                    "Execute an approved plan by creating all proposed tasks, goals, and edges "
-                    "in the task graph. Call this ONLY after the user has reviewed and approved "
-                    "the plan returned by propose_plan."
-                ),
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "plan_id": {
-                            "type": "string",
-                            "description": "The plan_id returned by propose_plan.",
-                        },
-                    },
-                    "required": ["plan_id"],
-                },
-            ),
-            # --- Skill dispatch tools (Phase 2) ---
-            ToolDefinition(
-                name="list_available_skills",
-                description=(
-                    "List skills available to the user (built-in + installed). "
-                    "Use to discover what AI capabilities exist before invoking or delegating."
-                ),
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "query": {
-                            "type": "string",
-                            "description": "Optional search query to filter skills by name, description, or tags.",
-                        },
-                    },
-                    "required": [],
-                },
-            ),
-            ToolDefinition(
-                name="invoke_skill",
-                description=(
-                    "Execute a skill agent to perform a specific task. The skill runs an LLM call "
-                    "with a specialised system prompt and returns the output. Use for short AI tasks "
-                    "like drafting emails, research summaries, report generation, etc."
-                ),
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "skill_name": {
-                            "type": "string",
-                            "description": "Name of the skill to invoke (from list_available_skills).",
-                        },
-                        "task_id": {
-                            "type": "string",
-                            "description": "Task node ID this skill execution is associated with.",
-                        },
-                        "input_data": {
-                            "type": "object",
-                            "description": "Key-value input data for the skill (context, instructions, etc.).",
-                        },
-                    },
-                    "required": ["skill_name", "task_id", "input_data"],
-                },
-            ),
-            # --- MCP tools (Phase 2) ---
-            ToolDefinition(
-                name="list_mcp_tools",
-                description=(
-                    "List MCP servers and their available tools for the user. "
-                    "MCP tools provide external integrations (GitHub, Calendar, Slack, etc.)."
-                ),
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "server_id": {
-                            "type": "string",
-                            "description": "Optional server ID to list tools for a specific server only.",
-                        },
-                    },
-                    "required": [],
-                },
-            ),
-            ToolDefinition(
-                name="call_mcp_tool",
-                description=(
-                    "Execute a tool on an MCP server. Respects trust tiers: AUTO tools run immediately, "
-                    "GATED tools require user approval, BLOCKED tools are rejected. "
-                    "Use for external integrations like creating GitHub issues, scheduling calendar events, etc."
-                ),
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "server_id": {
-                            "type": "string",
-                            "description": "MCP server ID hosting the tool.",
-                        },
-                        "tool_name": {
-                            "type": "string",
-                            "description": "Name of the MCP tool to call.",
-                        },
-                        "arguments": {
-                            "type": "object",
-                            "description": "Arguments to pass to the MCP tool (matching its input schema).",
-                        },
-                    },
-                    "required": ["server_id", "tool_name", "arguments"],
-                },
-            ),
-            # --- Agent delegation tools (Phase 3) ---
-            ToolDefinition(
-                name="delegate_to_agent",
-                description=(
-                    "Delegate a task to an existing skill agent or A2A agent. "
-                    "The agent executes the task asynchronously and reports back. "
-                    "Updates the task state to IN_PROGRESS."
-                ),
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "task_id": {
-                            "type": "string",
-                            "description": "Task node ID to delegate.",
-                        },
-                        "agent_id": {
-                            "type": "string",
-                            "description": "Target agent ID (from the user's agents folder).",
-                        },
-                        "instructions": {
-                            "type": "string",
-                            "description": "Additional instructions or context for the agent.",
-                        },
-                    },
-                    "required": ["task_id", "agent_id"],
-                },
-            ),
-            ToolDefinition(
-                name="create_agent",
-                description=(
-                    "Create a new specialised agent in the user's agent folder. "
-                    "Use when no existing agent or skill can handle the task. "
-                    "The agent is created with a profile, config, and assigned skills/MCP servers."
-                ),
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "name": {
-                            "type": "string",
-                            "description": "Human-readable name for the agent.",
-                        },
-                        "purpose": {
-                            "type": "string",
-                            "description": "What this agent specialises in.",
-                        },
-                        "skills": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "List of skill names this agent should use.",
-                        },
-                        "mcp_servers": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "Optional list of MCP server IDs this agent can access.",
-                        },
-                    },
-                    "required": ["name", "purpose"],
-                },
-            ),
-        ]
 
     async def _execute_tool(
         self, user_id: str, name: str, arguments: dict[str, Any]
@@ -1062,38 +1050,44 @@ class AgentLoop:
         t0 = time.monotonic()
         try:
             result: dict[str, Any]
+            # --- Core tools (always active) ---
             if name == "list_tasks":
-                result = await self._tool_list_tasks(arguments)
+                result = await self._tool_list_tasks(user_id, arguments)
+            elif name == "get_task_details":
+                result = await self._tool_get_task_details(user_id, arguments)
+            elif name == "update_task_state":
+                result = await self._tool_update_task_state(user_id, arguments)
+            elif name == "list_available_agents":
+                result = await self._tool_list_available_agents(user_id, arguments)
+            elif name == "load_tool_set":
+                result = await self._tool_load_tool_set(arguments)
+            elif name == "read_knowledge":
+                result = await self._tool_read_knowledge(arguments)
+            # --- task_management set ---
             elif name == "create_goal":
                 result = await self._tool_create_goal(user_id, arguments)
             elif name == "create_task":
                 result = await self._tool_create_task(user_id, arguments)
-            elif name == "update_task_state":
-                result = await self._tool_update_task_state(user_id, arguments)
             elif name == "update_task":
                 result = await self._tool_update_task(user_id, arguments)
             elif name == "update_goal":
                 result = await self._tool_update_goal(user_id, arguments)
-            elif name == "get_task_details":
-                result = await self._tool_get_task_details(arguments)
-            elif name == "check_inbox":
-                result = await self._tool_check_inbox(user_id, arguments)
-            # --- Planning tools ---
+            # --- planning set ---
             elif name == "propose_plan":
                 result = await self._tool_propose_plan(user_id, arguments)
             elif name == "execute_plan":
                 result = await self._tool_execute_plan(user_id, arguments)
-            # --- Skill tools ---
+            # --- skills set ---
             elif name == "list_available_skills":
                 result = await self._tool_list_available_skills(user_id, arguments)
             elif name == "invoke_skill":
                 result = await self._tool_invoke_skill(user_id, arguments)
-            # --- MCP tools ---
+            # --- mcp set ---
             elif name == "list_mcp_tools":
                 result = await self._tool_list_mcp_tools(user_id, arguments)
             elif name == "call_mcp_tool":
                 result = await self._tool_call_mcp_tool(user_id, arguments)
-            # --- Agent delegation tools ---
+            # --- delegation set ---
             elif name == "delegate_to_agent":
                 result = await self._tool_delegate_to_agent(user_id, arguments)
             elif name == "create_agent":
@@ -1117,11 +1111,79 @@ class AgentLoop:
             logger.warning("AgentLoop: tool %s raised %s", name, exc)
             return {"error": str(exc)}
 
-    async def _tool_list_tasks(self, args: dict[str, Any]) -> dict[str, Any]:
-        tasks = await self._fetch_active_tasks()
+    async def _tool_load_tool_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Activate a named tool set for the current session."""
+        set_name = args.get("name", "")
+        tools = self._tool_registry.activate(set_name)
+        if not tools:
+            return {
+                "error": f"Tool set '{set_name}' is not available. "
+                f"Available sets: {', '.join(['task_management', 'planning', 'skills', 'mcp', 'delegation'])}",
+            }
+        return {
+            "activated": set_name,
+            "tools_available": [t.name for t in tools],
+            "message": f"Tool set '{set_name}' activated — {len(tools)} tool(s) now available.",
+        }
+
+    async def _tool_read_knowledge(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Load a domain knowledge document from the system knowledge base."""
+        topic = args.get("topic", "")
+        if self._knowledge_base is None:
+            return {"error": "Knowledge base not available (storage not configured)."}
+        content = await self._knowledge_base.read(topic)
+        return {"topic": topic, "content": content}
+
+    async def _tool_list_available_agents(
+        self, user_id: str, args: dict[str, Any]
+    ) -> dict[str, Any]:
+        """List all agents available for delegation (system + user-created)."""
+        if self._agent_catalog is None:
+            return {"agents": [], "note": "Agent catalog not available (storage not configured)."}
+        capability_filter = args.get("capability_filter")
+        agents = await self._agent_catalog.list_all(user_id, capability_filter=capability_filter)
+        return {"agents": agents, "count": len(agents)}
+
+    async def _tool_list_tasks(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
+        """List tasks for the user, with progressive filtering support."""
+        from graphclaw.models.enums import TaskState
+
+        _TERMINAL = {TaskState.COMPLETE.value, TaskState.CANCELLED.value, TaskState.SNOOZED.value}
+
+        goal_id = args.get("goal_id")
         state_filter = args.get("state_filter")
+        task_type_filter = args.get("task_type")
+        limit = min(int(args.get("limit", 10)), 50)
+        include_completed = bool(args.get("include_completed", False))
+        assigned_to = args.get("assigned_to")
+
+        # Fetch by goal subgraph or full user task list
+        if goal_id:
+            try:
+                raw_nodes = await self._repo.list_nodes_for_goal(goal_id)
+                tasks = []
+                for props in raw_nodes:
+                    try:
+                        tasks.append(TaskNode.model_validate(_deserialise_graph_props(props)))
+                    except Exception:
+                        pass
+            except Exception as exc:
+                return {"error": f"Failed to load tasks for goal {goal_id}: {exc}"}
+        else:
+            tasks = await self._fetch_active_tasks(user_id)
+
+        # Apply filters
+        if not include_completed:
+            tasks = [t for t in tasks if t.state not in _TERMINAL]
         if state_filter:
             tasks = [t for t in tasks if t.state == state_filter]
+        if task_type_filter:
+            tasks = [t for t in tasks if t.task_type == task_type_filter]
+        if assigned_to:
+            tasks = [t for t in tasks if t.assigned_to == assigned_to]
+
+        tasks = tasks[:limit]
+
         return {
             "tasks": [
                 {
@@ -1129,6 +1191,7 @@ class AgentLoop:
                     "title": t.title,
                     "state": t.state,
                     "task_type": t.task_type,
+                    "assigned_to": t.assigned_to,
                     "deadline": str(t.timeline.deadline)
                     if t.timeline and t.timeline.deadline
                     else None,
@@ -1224,6 +1287,7 @@ class AgentLoop:
             description=args.get("description", ""),
             created_by=user_id,
             owned_by=user_id,
+            assigned_to=args.get("assigned_to"),
             state=TaskState.PENDING,
             timeline=Timeline(deadline=deadline) if deadline else Timeline(),
             created_at=now_task,
@@ -1251,6 +1315,11 @@ class AgentLoop:
             await self._repo.create_edge(task_id, user_id, "OWNED_BY", {})
         except Exception as exc:
             logger.warning("AgentLoop: could not wire OWNED_BY edge: %s", exc)
+        if args.get("assigned_to"):
+            try:
+                await self._repo.create_edge(task_id, args["assigned_to"], "ASSIGNED_TO", {})
+            except Exception as exc:
+                logger.warning("AgentLoop: could not wire ASSIGNED_TO edge: %s", exc)
 
         return {
             "task_id": task_id,
@@ -1400,65 +1469,65 @@ class AgentLoop:
         changed = [k for k in updates if k != "updated_at"]
         return {"goal_id": goal_id, "status": "updated", "fields_updated": changed}
 
-    async def _tool_get_task_details(self, args: dict[str, Any]) -> dict[str, Any]:
-        task_id = args["task_id"]
-        props = await self._repo.get_node(task_id)
+    async def _tool_get_task_details(self, _user_id: str, args: dict[str, Any]) -> dict[str, Any]:
+        """Return full node details plus graph relationships for one task or goal."""
+        node_id = args.get("node_id") or args.get("task_id", "")
+        if not node_id:
+            return {"error": "node_id is required"}
+
+        props = await self._repo.get_node(node_id)
         if not props:
-            return {"error": f"Task {task_id} not found"}
-        return props
+            return {"error": f"Node {node_id} not found"}
 
-    async def _tool_check_inbox(self, user_id: str, args: dict) -> str:
-        """Read recent compact inbox entries from MinIO inbox/recent/ prefix."""
-        if self._storage is None:
-            return json.dumps({"messages": [], "note": "Inbox storage not configured."})
+        result: dict[str, Any] = dict(_deserialise_graph_props(props))
 
-        limit = min(int(args.get("limit", 5)), 20)
-        from_sender = args.get("from_sender", "").lower().strip()
-        channel_filter = args.get("channel", "").lower().strip()
-
-        from graphclaw.infra.storage import StoragePaths
-
-        prefix = StoragePaths.agent_inbox_recent_prefix(user_id, self._agent_id)
-
+        # Enrich with edges
         try:
-            keys = await self._storage.list_objects(prefix)  # returns list of object keys
-        except Exception as exc:
-            logger.warning("AgentLoop: check_inbox list failed: %s", exc)
-            return json.dumps({"messages": [], "note": "Inbox unavailable."})
+            out_edges = await self._repo.get_edges(node_id, direction="out")
+            in_edges = await self._repo.get_edges(node_id, direction="in")
 
-        # Sort keys (ISO-prefixed, so alphabetical = chronological)
-        keys = sorted(keys, reverse=True)  # newest first
-
-        results = []
-        for key in keys:
-            if len(results) >= limit:
-                break
-            try:
-                raw = await self._storage.read(key)
-                entry = json.loads(raw.decode())
-            except Exception:
-                continue
-
-            # Apply filters
-            if from_sender and from_sender not in entry.get("sender", "").lower():
-                continue
-            if channel_filter and entry.get("channel", "") != channel_filter:
-                continue
-
-            results.append(
-                {
-                    "sender": entry.get("sender"),
-                    "subject": entry.get("subject"),
-                    "body_summary": entry.get("body_summary"),
-                    "channel": entry.get("channel"),
-                    "received_at": entry.get("received_at"),
-                    "task_id_matched": entry.get("task_id_matched"),
-                }
+            result["depends_on"] = [
+                e.get("target_id") or e.get("target", {}).get("id")
+                for e in out_edges
+                if e.get("type") == "DEPENDS_ON"
+            ]
+            result["blocks"] = [
+                e.get("target_id") or e.get("target", {}).get("id")
+                for e in out_edges
+                if e.get("type") == "BLOCKS"
+            ]
+            result["part_of_goal"] = next(
+                (
+                    e.get("target_id") or e.get("target", {}).get("id")
+                    for e in out_edges
+                    if e.get("type") == "PART_OF"
+                ),
+                None,
             )
+            result["assigned_to_user"] = next(
+                (
+                    e.get("target_id") or e.get("target", {}).get("id")
+                    for e in out_edges
+                    if e.get("type") == "ASSIGNED_TO"
+                ),
+                None,
+            )
+            result["blocked_by"] = [
+                e.get("source_id") or e.get("source", {}).get("id")
+                for e in in_edges
+                if e.get("type") == "BLOCKS"
+            ]
+        except Exception as exc:
+            logger.debug("AgentLoop: get_task_details edge enrichment failed: %s", exc)
 
-        if not results:
-            return json.dumps({"message": "No recent inbox messages found.", "count": 0})
-        return json.dumps({"messages": results, "count": len(results)})
+        # Trim state_history to last 3 entries
+        if isinstance(result.get("state_history"), list):
+            result["state_history"] = result["state_history"][-3:]
+
+        return result
+
+    # _tool_check_inbox removed — inbox reading is now handled by the comms sub-agent.
+    # Delegate to the comms agent via delegate_to_agent(task_id, "comms", instructions).
 
     # ------------------------------------------------------------------
     # Planning tools
@@ -1908,6 +1977,8 @@ class AgentLoop:
                 agent_id=tc.arguments.get("agent_id", ""),
                 task_id=tc.arguments.get("task_id", ""),
                 session_id=session_id,
+                user_id=user_id,
+                agent_source="user",  # batch dispatch stubs default to user; resolved later
                 parent_task_id=None,
                 batch_id="",
                 instructions=tc.arguments.get("instructions", ""),
@@ -1951,17 +2022,21 @@ class AgentLoop:
         if not task_props:
             return {"error": f"Task {task_id} not found."}
 
-        # Verify the agent exists in storage
-        if self._storage:
+        # Resolve whether this is a system or user agent
+        agent_source = "user"
+        if self._agent_catalog is not None:
+            agent_source = await self._agent_catalog.resolve_source(user_id, agent_id)
+        elif self._storage:
+            # Fallback: check system manifest directly
             from graphclaw.infra.storage import StoragePaths
 
-            agent_profile_path = StoragePaths.agent_profile(user_id, agent_id)
             try:
-                exists = await self._storage.exists(agent_profile_path)
-                if not exists:
-                    return {"error": f"Agent '{agent_id}' not found in user's agent folder."}
+                await self._storage.read(StoragePaths.system_agent_manifest(agent_id))
+                agent_source = "system"
+            except FileNotFoundError:
+                agent_source = "user"
             except Exception:
-                pass  # Proceed even if check fails
+                pass
 
         # Update task state to IN_PROGRESS and assign to agent
         import datetime as _dt
@@ -2027,6 +2102,8 @@ class AgentLoop:
                 agent_id=agent_id,
                 task_id=task_id,
                 session_id=session_id,
+                user_id=user_id,
+                agent_source=agent_source,
                 parent_task_id=task_props.get("parent_task_id"),
                 batch_id=batch_id,
                 instructions=instructions,
@@ -2198,8 +2275,16 @@ class AgentLoop:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    async def _fetch_active_tasks(self) -> list[TaskNode]:
-        """Retrieve all non-terminal TaskNode records from the graph."""
+    async def _fetch_active_tasks(self, user_id: str | None = None) -> list[TaskNode]:
+        """Retrieve non-terminal TaskNode records, scoped to *user_id* when provided.
+
+        Parameters
+        ----------
+        user_id:
+            When given, only tasks with ``owned_by == user_id`` are returned.
+            When ``None``, all tasks are returned (used for internal scoring cycles
+            where user context is not yet available).
+        """
         from graphclaw.models.enums import TaskState
 
         _TERMINAL = {
@@ -2209,7 +2294,10 @@ class AgentLoop:
         }
 
         try:
-            raw_nodes = await self._repo.list_nodes("TaskNode")
+            if user_id:
+                raw_nodes = await self._repo.list_nodes_by_user("TaskNode", user_id)
+            else:
+                raw_nodes = await self._repo.list_nodes("TaskNode")
         except Exception as exc:
             logger.warning("AgentLoop: failed to list TaskNode vertices: %s", exc)
             return []

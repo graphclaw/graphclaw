@@ -76,6 +76,7 @@ def _normalize_edge(e: dict) -> dict:
     result.setdefault("edge_id", result["id"])
     return result
 
+
 router = APIRouter(prefix="/graph", tags=["graph"])
 
 # ---------------------------------------------------------------------------
@@ -366,6 +367,19 @@ async def create_task(
     )
 
     created = await graph_store.create_node(node)
+
+    # Wire relationship edges: task → owner, task → assignee
+    try:
+        await graph_store.create_edge(task_id, user_id, "OWNED_BY", {})
+    except Exception as exc:
+        logger.warning("graph: could not wire OWNED_BY edge for task %s: %s", task_id, exc)
+
+    if body.assignee_id:
+        try:
+            await graph_store.create_edge(task_id, body.assignee_id, "ASSIGNED_TO", {})
+        except Exception as exc:
+            logger.warning("graph: could not wire ASSIGNED_TO edge for task %s: %s", task_id, exc)
+
     logger.info("graph: created task %s for user_id=%s", task_id, user_id)
     return created
 
@@ -541,13 +555,15 @@ async def create_edge(
 
     edge_id = f"EDGE-{uuid4().hex[:12]}"
     metadata = dict(body.metadata or {})
-    metadata.update({
-        "id": edge_id,
-        "edge_id": edge_id,
-        "source_id": body.source_id,
-        "target_id": body.target_id,
-        "edge_type": body.edge_type,
-    })
+    metadata.update(
+        {
+            "id": edge_id,
+            "edge_id": edge_id,
+            "source_id": body.source_id,
+            "target_id": body.target_id,
+            "edge_type": body.edge_type,
+        }
+    )
 
     edge = await graph_store.create_edge(
         body.source_id,
