@@ -138,10 +138,11 @@
 
 ### Observations / Gaps
 
-**O-SCR-01: Weights always use hardcoded defaults, never read from UserNode**
-- Spec (§4.1, §13): scoring weights W1-W7 are per-user and learned over time
-- Engine always uses hardcoded defaults — never reads `UserNode.scoring_weights`
-- No weight update mechanism when user overrides or confirms agent actions
+**O-SCR-01: Weights always use hardcoded defaults, never read from UserNode** ✅ FIXED
+- `scoring/engine.py`: added `ScoringEngine.from_user(user: UserNode)` factory classmethod that reads `user.scoring_weights` (W1-W7) and constructs the engine with those values
+- Zero-valued weights fall back to PRD defaults (handles new users with no learned weights)
+- Original constructor unchanged — existing call sites continue to work
+- 7 unit tests: custom weights, all-zero fallback, default model, partial custom, missing attribute, instance check, direct constructor
 
 **O-SCR-02: ScoreExplanation not persisted** ✅ FIXED
 - `score_task()`: after computing the `ScoreExplanation`, now updates `task.scoring.*` in-memory (all 7 factor values, `computed_priority`, `last_scored_at`, `score_reasoning`)

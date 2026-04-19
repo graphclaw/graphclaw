@@ -157,6 +157,49 @@ class ScoringEngine:
         self.w7 = w7
         self.cache = cache or ScoreCache()
 
+    @classmethod
+    def from_user(cls, user: TaskNode, cache: ScoreCache | None = None) -> "ScoringEngine":
+        """Construct a ``ScoringEngine`` using a ``UserNode``'s learned weights.
+
+        Reads ``user.scoring_weights`` (a ``ScoringWeights`` model on
+        ``UserNode``) and passes each W1-W7 value to the constructor so that
+        every user gets a personalised scoring pass (PRD §4.1, §13, O-SCR-01).
+
+        Falls back to the class-level defaults if a weight value is zero or
+        missing (e.g. a new user who hasn't accumulated any feedback yet).
+
+        Parameters
+        ----------
+        user:
+            A ``UserNode`` instance.  The ``scoring_weights`` attribute must be
+            present (it is optional-with-default on ``UserNode``).
+        cache:
+            Optional ScoreCache to pass through.
+
+        Returns
+        -------
+        ScoringEngine
+            Engine initialised with the user's learned weights.
+        """
+        sw = getattr(user, "scoring_weights", None)
+        if sw is None:
+            return cls(cache=cache)
+
+        def _w(value: float, default: float) -> float:
+            """Use learned weight unless it is zero (unlearned)."""
+            return value if value > 0.0 else default
+
+        return cls(
+            w1=_w(sw.W1_timeline, 0.25),
+            w2=_w(sw.W2_dependencies, 0.20),
+            w3=_w(sw.W3_critical_path, 0.20),
+            w4=_w(sw.W4_blocker, 0.15),
+            w5=_w(sw.W5_override, 0.10),
+            w6=_w(sw.W6_resource_risk, 0.05),
+            w7=_w(sw.W7_constraint, 0.05),
+            cache=cache,
+        )
+
     # ------------------------------------------------------------------
     # Single-task scoring
     # ------------------------------------------------------------------
