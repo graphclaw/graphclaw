@@ -238,6 +238,45 @@ class AgeGraphStore(GraphStore):
 
         return [_extract_properties(row[0]) for row in rows]
 
+    async def list_nodes_by_user(self, label: str, user_id: str) -> list[dict]:
+        """Return all vertices with *label* that are owned by *user_id*.
+
+        Filters on the ``owned_by`` property — the same field written by
+        ``create_task`` and ``create_goal`` in the agent loop.  This is the
+        primary mechanism for user-level multi-tenancy isolation in Phase 1.
+
+        Parameters
+        ----------
+        label:
+            AGE vertex label to match (e.g. ``"TaskNode"``, ``"GoalNode"``).
+        user_id:
+            The ``USER-{id}`` to filter by.
+        """
+        return await self.list_nodes(label, filters={"owned_by": user_id})
+
+    async def list_nodes_for_goal(self, goal_id: str) -> list[dict]:
+        """Return all TaskNode vertices linked to *goal_id* via a PART_OF edge.
+
+        Traverses the graph: ``(task)-[:PART_OF]->(goal {id: goal_id})``.
+
+        Parameters
+        ----------
+        goal_id:
+            The ``GOAL-{id}`` of the parent goal node.
+        """
+        eid = _escape(goal_id)
+        async with get_connection(self._pool) as conn:
+            result = await conn.execute(
+                f"""
+                SELECT * FROM cypher('{self._graph}', $$
+                    MATCH (t:TaskNode)-[:PART_OF]->(g {{id: '{eid}'}})
+                    RETURN t
+                $$) as (v agtype)
+                """
+            )
+            rows = await result.fetchall()
+        return [_extract_properties(row[0]) for row in rows]
+
     # ------------------------------------------------------------------
     # Edge CRUD
     # ------------------------------------------------------------------
@@ -670,10 +709,37 @@ def _to_cypher_map(props: dict) -> str:
 def _resolve_label(node: Any) -> str:
     """Derive the AGE vertex label from a node model instance.
 
-    Checks in order:
+    For ``TaskNode`` instances, returns the type-specific label derived from
+    ``node.task_type`` (e.g. ``TaskAtomic``, ``TaskDelegated``, etc.) so that
+    each task variant is stored under its own AGE vertex label (PRD §3.1,
+    O-DB-01).
+
+    For all other nodes, checks in order:
     1. ``node.node_type`` attribute (string or enum with a ``.value``)
     2. ``node.__class__.__name__``
     """
+    # Explicit mapping from TaskType enum value → AGE vertex label.
+    # Overrides are needed where simple .capitalize() produces the wrong casing.
+    _TASK_TYPE_LABEL: dict[str, str] = {
+        "ATOMIC": "TaskAtomic",
+        "COMPOSITE": "TaskComposite",
+        "DELEGATED": "TaskDelegated",
+        "FOLLOWUP": "TaskFollowUp",  # init-db.sql uses TaskFollowUp not TaskFollowup
+        "APPROVAL": "TaskApproval",
+        "MILESTONE": "TaskMilestone",
+        "REVIEW": "TaskReview",
+        "RECURRING": "TaskRecurring",
+        "DECISION": "TaskDecision",
+        "CHECKIN": "TaskCheckin",
+        "RESEARCH": "TaskResearch",
+    }
+
+    # TaskNode: use type-specific label.
+    task_type = getattr(node, "task_type", None)
+    if task_type is not None:
+        type_str = getattr(task_type, "value", str(task_type)).upper()
+        return _TASK_TYPE_LABEL.get(type_str, f"Task{type_str.capitalize()}")
+
     label = getattr(node, "node_type", None)
     if label is None:
         return node.__class__.__name__

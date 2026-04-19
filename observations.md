@@ -16,12 +16,11 @@
 
 ### Observations / Gaps
 
-**O-DB-01: Tasks stored in generic `TaskNode`, not type-specific labels**
-- The 11 type-specific vertex labels (`TaskAtomic`, `TaskComposite`, `TaskDelegated`, etc.) are all empty
-- All 26 tasks in the DB are written to the generic `TaskNode` label
-- This breaks graph queries that target type-specific labels (e.g. `MATCH (n:TaskDelegated)`)
-- Spec (§3.1) requires each task type to be a distinct node type with its own `type_metadata` block
-- Files to investigate: `db/age/repository.py`, `api/graph.py` (`create_task`)
+**O-DB-01: Tasks stored in generic `TaskNode`, not type-specific labels** ✅ FIXED
+- `db/age/repository.py` `_resolve_label()`: now detects `task_type` attribute and routes to the correct type-specific AGE vertex label (`TaskAtomic`, `TaskComposite`, `TaskDelegated`, `TaskFollowUp`, etc.) via explicit mapping table
+- `TaskFollowUp` uses the exact casing from `init-db.sql` (not `TaskFollowup`)
+- All other nodes unchanged — fallback to `node_type` attribute or class name
+- 12 integration tests: 11 parametrized (one per TaskType) + 1 confirming generic `TaskNode` label not used
 
 **O-DB-02: Relationship edges never created** ✅ FIXED
 - `api/graph.py` `create_task()`: now creates `OWNED_BY` (task → user) and `ASSIGNED_TO` (task → assignee) edges after node creation
