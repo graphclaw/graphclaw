@@ -214,7 +214,10 @@ class AgentEventConsumer:
             return
 
         try:
-            queue = await self._loop.run_cycle()
+            trigger_source = "heartbeat"
+            if event.trigger_type == TriggerType.ON_DEMAND:
+                trigger_source = "on_demand"
+            queue = await self._loop.run_cycle(user_id=user_id, trigger_source=trigger_source)
             briefing_text = await self._loop.generate_briefing(queue, top_n=5)
         except Exception as exc:  # noqa: BLE001
             logger.error("AgentEventConsumer: briefing generation failed: %s", exc)
@@ -260,7 +263,8 @@ class AgentEventConsumer:
     async def _handle_event_based_trigger(self, event: TriggerEvent) -> None:
         """React to a graph event — run a scoring cycle to refresh priorities."""
         try:
-            await self._loop.run_cycle()
+            trigger_source = str(event.payload.get("trigger_source") or "property_change")
+            await self._loop.run_cycle(user_id=event.user_id or None, trigger_source=trigger_source)
             logger.debug("AgentEventConsumer: event-based scoring cycle complete")
         except Exception as exc:  # noqa: BLE001
             logger.warning("AgentEventConsumer: event-based cycle failed: %s", exc)

@@ -140,7 +140,7 @@ async def test_handle_event_routes_time_based_to_briefing() -> None:
     )
     event = _make_trigger(TriggerType.TIME_BASED)
     await consumer._handle_event(event)
-    mock_loop.run_cycle.assert_called_once()
+    mock_loop.run_cycle.assert_called_once_with(user_id="usr-001", trigger_source="heartbeat")
     mock_dispatcher.broadcast.assert_called_once()
 
 
@@ -151,7 +151,7 @@ async def test_handle_event_routes_on_demand_to_briefing() -> None:
     )
     event = _make_trigger(TriggerType.ON_DEMAND)
     await consumer._handle_event(event)
-    mock_loop.run_cycle.assert_called_once()
+    mock_loop.run_cycle.assert_called_once_with(user_id="usr-001", trigger_source="on_demand")
 
 
 async def test_handle_event_routes_event_based_to_scoring() -> None:
@@ -161,7 +161,9 @@ async def test_handle_event_routes_event_based_to_scoring() -> None:
     )
     event = _make_trigger(TriggerType.EVENT_BASED)
     await consumer._handle_event(event)
-    mock_loop.run_cycle.assert_called_once()
+    mock_loop.run_cycle.assert_called_once_with(
+        user_id="usr-001", trigger_source="property_change"
+    )
     mock_dispatcher.broadcast.assert_not_called()
 
 
@@ -178,7 +180,7 @@ async def test_briefing_trigger_dispatches_to_registered_channels() -> None:
     event = _make_trigger(TriggerType.TIME_BASED)
     await consumer._handle_briefing_trigger(event)
 
-    mock_loop.run_cycle.assert_called_once()
+    mock_loop.run_cycle.assert_called_once_with(user_id="usr-001", trigger_source="heartbeat")
     mock_loop.generate_briefing.assert_called_once()
     mock_dispatcher.broadcast.assert_called_once()
     call_kwargs = mock_dispatcher.broadcast.call_args[1]
@@ -227,7 +229,9 @@ async def test_event_based_trigger_runs_scoring_cycle() -> None:
     consumer, _, mock_loop, _ = _make_consumer()
     event = _make_trigger(TriggerType.EVENT_BASED)
     await consumer._handle_event_based_trigger(event)
-    mock_loop.run_cycle.assert_called_once()
+    mock_loop.run_cycle.assert_called_once_with(
+        user_id="usr-001", trigger_source="property_change"
+    )
 
 
 async def test_event_based_trigger_cycle_exception_does_not_propagate() -> None:

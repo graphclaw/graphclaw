@@ -183,6 +183,9 @@ class MainOrchestrator:
         # Cache last action queue so system prompt can include current priorities.
         self._last_queue: list[ActionQueueEntry] = []
         self._last_queue_by_scope: dict[str, list[ActionQueueEntry]] = {}
+        # Track whether task mutations since the last cycle require rescoring.
+        self._score_cache_dirty: bool = True
+        self._dirty_task_ids: set[str] = set()
         # Track current session_id for structured logging
         self._current_session_id: str | None = None
         # Buffer for delegation calls within a single LLM turn (batch dispatch)
@@ -204,12 +207,19 @@ class MainOrchestrator:
             self._agent_catalog = None
             self._context_manager = None
 
-    def _invalidate_cached_queue(self, user_id: str | None) -> None:
+    def _invalidate_cached_queue(
+        self,
+        user_id: str | None,
+        dirty_task_ids: set[str] | None = None,
+    ) -> None:
         """Invalidate cached scoring queues after task/goal mutations.
 
         User-scoped caches are preferred in chat flows, but any mutation can
         also affect the global ("__all__") queue.
         """
+        self._score_cache_dirty = True
+        if dirty_task_ids:
+            self._dirty_task_ids.update(dirty_task_ids)
         self._last_queue = []
         if user_id is None:
             self._last_queue_by_scope.clear()
@@ -217,11 +227,85 @@ class MainOrchestrator:
         self._last_queue_by_scope.pop(user_id, None)
         self._last_queue_by_scope.pop("__all__", None)
 
+    async def _invalidate_score_cache_for_task(
+        self,
+        task_id: str,
+        *,
+        include_related: bool,
+    ) -> None:
+        """Invalidate score cache entries affected by a task mutation."""
+        cache = getattr(self._engine, "cache", None)
+        if cache is None:
+            return
+
+        cache.invalidate(task_id)
+        if not include_related:
+            return
+
+        related_ids: set[str] = set()
+
+        try:
+            dependent_edges = await self._repo.get_edges(task_id, direction="in", edge_type="DEPENDS_ON")
+            dependent_ids = {
+                start_id
+                for edge in dependent_edges
+                for start_id in [edge.get("_start_id")]
+                if isinstance(start_id, str) and start_id
+            }
+            if dependent_ids:
+                cache.invalidate_upstream(task_id, list(dependent_ids))
+                related_ids.update(dependent_ids)
+        except Exception as exc:
+            logger.debug("AgentLoop: could not invalidate dependent scores for %s: %s", task_id, exc)
+
+        try:
+            parent_edges = await self._repo.get_edges(task_id, direction="out", edge_type="PART_OF")
+            for edge in parent_edges:
+                parent_id = edge.get("_end_id")
+                if not parent_id:
+                    continue
+                cache.invalidate(parent_id)
+                related_ids.add(parent_id)
+        except Exception as exc:
+            logger.debug("AgentLoop: could not invalidate parent scores for %s: %s", task_id, exc)
+
+        if related_ids:
+            self._dirty_task_ids.update(related_ids)
+
+    async def _invalidate_score_cache_for_goal(self, goal_id: str) -> None:
+        """Invalidate all task scores under a goal after priority/timeline mutations."""
+        cache = getattr(self._engine, "cache", None)
+        if cache is None:
+            return
+
+        try:
+            goal_tasks = await self._repo.list_nodes_for_goal(goal_id)
+        except Exception as exc:
+            logger.debug("AgentLoop: could not list goal tasks for %s: %s", goal_id, exc)
+            cache.invalidate_all()
+            self._score_cache_dirty = True
+            return
+
+        affected_ids: set[str] = set()
+        for task in goal_tasks:
+            task_id = task.get("id")
+            if not task_id:
+                continue
+            cache.invalidate(task_id)
+            affected_ids.add(task_id)
+
+        if affected_ids:
+            self._dirty_task_ids.update(affected_ids)
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
-    async def run_cycle(self, user_id: str | None = None) -> list[ActionQueueEntry]:
+    async def run_cycle(
+        self,
+        user_id: str | None = None,
+        trigger_source: str = "heartbeat",
+    ) -> list[ActionQueueEntry]:
         """Execute one full agent reasoning cycle.
 
         Steps
@@ -238,7 +322,23 @@ class MainOrchestrator:
             Sorted descending by final_score with rank assigned.
         """
         scope = user_id or "all"
-        logger.info("AgentLoop: starting scoring cycle (scope=%s)", scope)
+        scope_key = user_id or "__all__"
+        logger.info(
+            "AgentLoop: starting scoring cycle (scope=%s, trigger_source=%s)",
+            scope,
+            trigger_source,
+        )
+
+        # Heartbeat runs skip work when no mutations have invalidated scores.
+        if trigger_source == "heartbeat" and not self._score_cache_dirty:
+            cached_queue = self._last_queue_by_scope.get(scope_key)
+            if cached_queue:
+                logger.debug(
+                    "AgentLoop: using cached queue for heartbeat (scope=%s, items=%d)",
+                    scope,
+                    len(cached_queue),
+                )
+                return cached_queue
 
         # 1. Fetch active tasks.
         tasks = await self._fetch_active_tasks(user_id=user_id)
@@ -253,7 +353,9 @@ class MainOrchestrator:
         # 3. Score all tasks and return.
         queue = await self._engine.score_all(tasks, context)
         self._last_queue = queue
-        self._last_queue_by_scope[user_id or "__all__"] = queue
+        self._last_queue_by_scope[scope_key] = queue
+        self._score_cache_dirty = False
+        self._dirty_task_ids.clear()
         logger.info("AgentLoop: scoring cycle complete — %d items in queue", len(queue))
 
         # Log scoring cycle completion
@@ -266,6 +368,7 @@ class MainOrchestrator:
                 tasks_scored=len(tasks),
                 top_task_id=queue[0].node_id if queue else None,
                 queue_depth=len(queue),
+                trigger_source=trigger_source,
             )
 
         return queue
@@ -1070,7 +1173,7 @@ class MainOrchestrator:
         scoped_queue = self._last_queue_by_scope.get(user_id, [])
         if not scoped_queue:
             try:
-                scoped_queue = await self.run_cycle(user_id=user_id)
+                scoped_queue = await self.run_cycle(user_id=user_id, trigger_source="on_demand")
             except Exception as exc:  # noqa: BLE001
                 logger.debug("AgentLoop: scoring cycle for graph summary failed: %s", exc)
 
@@ -1271,7 +1374,7 @@ class MainOrchestrator:
             scored_queue = self._last_queue_by_scope.get(user_id, [])
             if not scored_queue:
                 try:
-                    scored_queue = await self.run_cycle(user_id=user_id)
+                    scored_queue = await self.run_cycle(user_id=user_id, trigger_source="on_demand")
                 except Exception as exc:  # noqa: BLE001
                     logger.debug("AgentLoop: list_tasks scoring fallback failed: %s", exc)
                     scored_queue = []
@@ -1516,7 +1619,8 @@ class MainOrchestrator:
         except InvalidTransitionError as exc:
             return {"error": str(exc)}
 
-        self._invalidate_cached_queue(user_id)
+        await self._invalidate_score_cache_for_task(task_id, include_related=True)
+        self._invalidate_cached_queue(user_id, dirty_task_ids={task_id})
         return {
             "task_id": task_id,
             "old_state": current_state,
@@ -1578,7 +1682,8 @@ class MainOrchestrator:
             }
 
         await self._repo.update_node(task_id, updates)
-        self._invalidate_cached_queue(user_id)
+        await self._invalidate_score_cache_for_task(task_id, include_related=False)
+        self._invalidate_cached_queue(user_id, dirty_task_ids={task_id})
         changed = [k for k in updates if k != "updated_at"]
         return {"task_id": task_id, "status": "updated", "fields_updated": changed}
 
@@ -1635,6 +1740,8 @@ class MainOrchestrator:
             }
 
         await self._repo.update_node(goal_id, updates)
+        if "priority" in args or "deadline" in args:
+            await self._invalidate_score_cache_for_goal(goal_id)
         self._invalidate_cached_queue(user_id)
         changed = [k for k in updates if k != "updated_at"]
         return {"goal_id": goal_id, "status": "updated", "fields_updated": changed}
@@ -1983,7 +2090,8 @@ class MainOrchestrator:
                         "state": "IN_PROGRESS",
                     },
                 )
-                self._invalidate_cached_queue(user_id)
+                await self._invalidate_score_cache_for_task(task_id, include_related=False)
+                self._invalidate_cached_queue(user_id, dirty_task_ids={task_id})
             except Exception as exc:
                 logger.debug("AgentLoop: could not update task with skill result: %s", exc)
 
@@ -2251,7 +2359,8 @@ class MainOrchestrator:
                 "state_history": history,
             },
         )
-        self._invalidate_cached_queue(user_id)
+        await self._invalidate_score_cache_for_task(task_id, include_related=False)
+        self._invalidate_cached_queue(user_id, dirty_task_ids={task_id})
 
         # Resolve batch_id from pre-planned dispatch tiers (if available)
         batch_id = next(

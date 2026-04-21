@@ -193,6 +193,40 @@ class TestRunCycle:
         repo.list_nodes_by_user.assert_called_once_with("TaskNode", "USER-test")
         repo.list_nodes.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_run_cycle_heartbeat_uses_cached_queue_when_clean(self):
+        task = _make_task(title="Cached Task")
+        cached_entry = _make_queue_entry(task, rank=1, score=0.93)
+
+        loop, repo, engine = _make_loop()
+        loop._score_cache_dirty = False
+        loop._last_queue_by_scope["__all__"] = [cached_entry]
+        repo.list_nodes = AsyncMock(side_effect=AssertionError("list_nodes should not be called"))
+
+        queue = await loop.run_cycle(trigger_source="heartbeat")
+
+        assert queue == [cached_entry]
+        repo.list_nodes.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_run_cycle_logs_trigger_source(self):
+        task = _make_task(title="Triggered Task")
+        entry = _make_queue_entry(task, rank=1, score=0.84)
+
+        loop, repo, engine = _make_loop()
+        repo.list_nodes = AsyncMock(return_value=[task.model_dump(mode="json")])
+        repo.get_edges = AsyncMock(return_value=[])
+        repo.get_node = AsyncMock(return_value=None)
+        engine.score_all = AsyncMock(return_value=[entry])
+
+        loop._logger = MagicMock()
+
+        await loop.run_cycle(trigger_source="on_demand")
+
+        assert loop._logger.log.call_count == 1
+        kwargs = loop._logger.log.call_args.kwargs
+        assert kwargs["trigger_source"] == "on_demand"
+
 
 # ---------------------------------------------------------------------------
 # AgentLoop.build_scoring_context
@@ -430,7 +464,7 @@ class TestGraphSummaryScoping:
 
         summary = await loop._build_graph_summary("USER-summary")
 
-        loop.run_cycle.assert_called_once_with(user_id="USER-summary")
+        loop.run_cycle.assert_called_once_with(user_id="USER-summary", trigger_source="on_demand")
         assert "Top Priority Tasks" in summary
         assert task.id in summary
 

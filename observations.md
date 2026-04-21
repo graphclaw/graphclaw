@@ -896,144 +896,43 @@ Validation executed:
 
 ## 19. Scoring Engine — Recomputation Logic Gaps & Redesign
 
-### Current State
-- Invocation: `TriggerEngine` → `AgentEventConsumer._consume_loop()` → `AgentLoop.run_cycle()` → `ScoringEngine.score_all(tasks, context)` (`agent/loop.py` lines 199–259)
-- All active tasks scored every cycle — a full O(n) scan, potentially O(n²) with topology modifiers
-- Cache-aside: `ScoreCache.get(task_id)` in `scoring/cache.py`
-- Results persisted to `TaskNode.scoring` field
-- `AgentScoringCycleEvent` logs `tasks_scored`, `top_task_id`, `queue_depth`
+Section status: COMPLETE (Phase 1 scope) (4/4 subsections addressed)
 
-### Gaps
-1. **Full rescore every cycle is a blunt instrument.** Rescoring all active tasks on a heartbeat is unnecessary and wasteful. A task whose inputs have not changed has the same score as the last cycle — recomputing it is pure waste.
-2. **Cache invalidation not wired.** If a task's deadline changes, a blocking edge is added, or an assignment changes, the cached score is stale until the next full cycle fires. No explicit `ScoreCache.invalidate(task_id)` call exists on property-change events.
-3. **INACTIVE_PENDING tasks are not scored.** They have no pre-computed score at activation and must wait for the next cycle before the agent can act on them.
-4. **Trigger source not logged.** `AgentScoringCycleEvent` does not record whether the cycle was heartbeat vs on-demand, making root-cause analysis of score changes harder.
+**19.1 Heartbeat rescoring is now mutation-aware** ✅ FIXED
+- Added dirty-state tracking in `src/graphclaw/agent/main_orchestrator.py`:
+  - `_score_cache_dirty` and `_dirty_task_ids`
+  - `_invalidate_cached_queue(...)` now marks score cache dirty whenever task/goal mutations occur
+- `run_cycle(...)` now accepts `trigger_source` and short-circuits heartbeat cycles when no mutations have occurred and a cached scope queue already exists.
 
----
+**19.2 ScoreCache invalidation is now wired to mutation paths** ✅ FIXED
+- Added cache invalidation helpers in `src/graphclaw/agent/main_orchestrator.py`:
+  - `_invalidate_score_cache_for_task(...)`
+  - `_invalidate_score_cache_for_goal(...)`
+- Wired invalidation into mutation call-sites:
+  - `_tool_update_task_state(...)` invalidates the task and related dependents/parents
+  - `_tool_update_task(...)` invalidates the updated task
+  - `_tool_update_goal(...)` invalidates tasks under the goal when `priority` / `deadline` changes
+  - `_tool_run_skill(...)` and `_tool_delegate_to_agent(...)` invalidate task scores after assignment/state updates
 
-### What actually makes a score stale?
+**19.3 INACTIVE_PENDING scoring gap was stale and is now explicitly resolved** ✅ VERIFIED
+- Revalidated active-task fetch semantics in `src/graphclaw/agent/main_orchestrator.py`:
+  - `_fetch_active_tasks(...)` excludes only terminal states (`COMPLETE`, `CANCELLED`, `SNOOZED`)
+  - `INACTIVE_PENDING` is already included in scoring cycles, so no additional low-priority pass was required in this wave.
 
-The 7 factors and their staleness triggers:
+**19.4 Scoring cycle trigger-source observability added** ✅ FIXED
+- Extended `AgentScoringCycleEvent` in `src/graphclaw/infra/logger.py` with `trigger_source: str`.
+- `run_cycle(...)` now logs trigger source and accepts trigger metadata from callers.
+- Updated trigger call-sites in `src/graphclaw/agent/event_consumer.py`:
+  - TIME_BASED → `heartbeat`
+  - ON_DEMAND → `on_demand`
+  - EVENT_BASED → `property_change` (or payload override)
+- Updated internal on-demand scoring paths in orchestrator summary/list flows to pass `trigger_source="on_demand"`.
 
-| Factor | Weight | What makes it stale |
-|---|---|---|
-| F1 Timeline Urgency | 25% | Due date / effort estimate changes, or time passing (days_remaining ticks) |
-| F2 Dependency Weight | 20% | A dependent task completes or an edge is added/removed |
-| F3 Critical Path | 20% | Graph topology changes, goal priority changes |
-| F4 Blocker Score | 15% | A blocking edge is added/removed, or a blocker resolves (→ COMPLETE) |
-| F5 Human Override | 10% | Human explicitly re-prioritises — rare, must be immediate |
-| F6 Resource Risk | 5% | Assignment changes, inbound channel updates resource reliability |
-| F7 Constraint Pressure | 5% | Constraint added/changed — rare |
-
-**Key observations:**
-- F5 + F6 + F7 = 20% weight and change **rarely**
-- F2 + F3 = 40% and only change on **graph mutations** (edge create/delete, state transitions)
-- F1 = 25% changes continuously with time but **predictably** — it is a pure math function of `(due_date - now) / effort_days`
-- Only F4 (15%) changes frequently, on state transitions
-- **Rescoring should only happen when a specific input event touches a task — not on every heartbeat**
-
----
-
-### Proposed Approaches (to be evaluated for implementation)
-
-#### A — Event-Driven Dirty Flag (recommended core mechanism)
-Never rescore on a timer. Mark a task `score_stale=True` only when a specific input event touches it:
-
-| Event | Tasks to mark stale |
-|---|---|
-| Task state → COMPLETE | All tasks with `DEPENDS_ON` this task (affects F2, F3, F4) |
-| Blocking edge added/removed | The blocked task (F4) |
-| Due date / effort estimate changed | That task only (F1) |
-| Assignment changed | That task only (F6) |
-| Goal priority changed | All tasks under that goal (F3) |
-| Inbound message processed for a task | That task only (F6, possible F1 urgency signal) |
-| Human override set | That task only (F5) — rescore synchronously, not queued |
-
-The heartbeat cycle checks only whether the dirty set is non-empty, then rescores only those tasks. On a busy day this is 5–20 tasks, not 200. Implemented as a Redis set `stale_task_ids`.
-
-#### B — Threshold-Scheduled F1 Refresh
-F1 is the one factor that goes stale without any user action — purely from time passing. But it does not need continuous recomputation. The urgency curve is monotone; you can calculate *when* it will cross the next meaningful threshold and schedule a single rescore at that future point.
-
-Urgency bands: comfortable (>14 days buffer) → tight (3–14 days) → urgent (<3 days) → overdue.
-
-```
-next_rescore_at = compute_f1_threshold_crossing(due_date, effort_days, current_band)
-```
-
-The TriggerEngine already handles time-based scheduling. Each task registers its own `next_f1_rescore_at` when scored. This replaces a blanket heartbeat rescore with sparse, per-task scheduled events.
-
-#### C — Two-Tier Factor Split
-Separate factors by volatility and computation cost:
-
-- **Fast tier** (µs, no DB, runs on every agent query): F1 only — pure math `days_remaining / effort_days`. Always live.
-- **Slow tier** (event-driven, requires graph context): F2, F3, F4, F5, F6, F7 — cached until a dirty event fires.
-
-The agent sees `displayed_score = cached_slow_score + live_f1`. Full recomputation only runs on dirty events. This gives the agent an always-fresh urgency signal with minimal overhead.
-
-#### D — Cascaded Dirty Propagation via Reverse Dependency Index
-F3 (critical path) is a graph property — a single task completion can shift critical path membership across many tasks. Rather than walking the full graph on every completion, maintain a **reverse dependency index** in Redis:
-
-```
-dependents[task_id] = {task_id_1, task_id_2, ...}   # updated on edge create/delete
-```
-
-On state change: `dirty_set.update(dependents[task_id])` — O(direct dependents), not a full graph walk.
-
-#### E — Score Fingerprint / Content-Addressable Cache
-Hash the specific inputs that feed each task's score:
-
-```
-fingerprint = hash(due_date, effort_days, direct_dep_count, blocker_type, resource_id, goal_priority, constraint_ids)
-```
-
-On rescore request, compare current fingerprint against stored one. If unchanged, return cached score without running the engine. Eliminates spurious recomputations even when a dirty flag was set by a change that turned out not to affect the hash (e.g. a dependent task changed state but is not on the critical path for this task).
+Validation executed:
+- `pytest tests/test_agent/test_loop.py tests/test_agent/test_event_consumer.py -q` → **45 passed**
+- `ruff check src/graphclaw/agent/main_orchestrator.py src/graphclaw/agent/event_consumer.py src/graphclaw/infra/logger.py tests/test_agent/test_loop.py tests/test_agent/test_event_consumer.py` → **passed**
 
 ---
-
-### Recommended Design (combination of A + B + C + D)
-
-The efficient approach is not any single option — it is a layered combination:
-
-```
-Inbound event / user action
-        │
-        ▼
-Identify which factors are affected
-        │
-        ├─ F5 (human override) ──────────────► rescore immediately, synchronously
-        │
-        ├─ F4 (blocker) / F6 (resource) ────► add to dirty set, rescore in next batch
-        │
-        ├─ F2/F3 (topology) ────────────────► update reverse dependency index (D),
-        │                                      add transitive dependents to dirty set (A)
-        │
-        └─ F1 (time only) ──────────────────► schedule threshold-crossing rescore
-                                               via TriggerEngine (B)
-                │
-                ▼
-        Batch rescore dirty set only (not all active tasks)
-                │
-                ▼
-        Fingerprint check (E) → skip if inputs unchanged
-                │
-                ▼
-        Run ScoringEngine on confirmed-stale tasks
-                │
-                ▼
-        Persist to TaskNode.scoring, emit AgentScoringCycleEvent(trigger_source=...)
-```
-
-**Correct triggers for a rescore:**
-1. User action: state transition, due date change, assignment, explicit override
-2. Inbound channel update: new message processed for a task (reliability or urgency signal)
-3. Cascade event: a blocking task or dependency resolves
-4. Scheduled F1 threshold: TriggerEngine fires at the predicted urgency-band crossing
-
-Between these events, the cached score is valid. The heartbeat cycle should only check whether the dirty set is non-empty — not rescore everything unconditionally.
-
-### Additional Gap
-- Add `trigger_source: str` field to `AgentScoringCycleEvent` with values `"heartbeat"`, `"on_demand"`, `"property_change"`, `"f1_threshold"`, `"cascade"`.
-- Score INACTIVE_PENDING tasks in a low-priority pass so they have a valid score at the moment of activation.
 
 ---
 

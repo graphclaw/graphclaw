@@ -109,6 +109,7 @@ class AgentScoringCycleEvent(BaseModel):
     tasks_scored: int
     top_task_id: str | None
     queue_depth: int
+    trigger_source: str
 
 
 class InboundProcessedEvent(BaseModel):
