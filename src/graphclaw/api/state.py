@@ -16,11 +16,9 @@ Design Patterns
 ---------------
 - State machine as service: ``StateMachine`` is injected per-request (it holds
   no mutable state between calls) so endpoints are safe to call concurrently.
-- Persist after transition: The endpoint is responsible for persisting the
-  updated node dict back to the ``GraphStore`` after ``StateMachine.transition()``
-  mutates the in-memory ``TaskNode``.
-- History from node: ``StateHistoryEntry`` records live on the ``TaskNode``
-  itself (``task.state_history``), keeping the history co-located with the node.
+- Persist after transition: The endpoint persists the updated node dict back to
+  the ``GraphStore`` after ``StateMachine.transition()`` mutates ``TaskNode``.
+- History from node: ``StateHistoryEntry`` records live on ``TaskNode`` itself.
 
 Public API
 ----------
@@ -30,7 +28,8 @@ Dependencies
 ------------
 - graphclaw.api.deps: CurrentUserDep, GraphStoreDep, StateMachineDep.
 - graphclaw.models.enums: ChangedBy, TaskState.
-- graphclaw.models.nodes: TaskNode, StateHistoryEntry.
+- graphclaw.models.nodes: TaskNode.
+- graphclaw.state.cascade: persist_transition_and_cascade.
 - graphclaw.state.transitions: VALID_TRANSITIONS, InvalidTransitionError.
 - fastapi: APIRouter, HTTPException, Query, status (third-party).
 - pydantic: BaseModel (third-party).
@@ -48,12 +47,11 @@ from pydantic import BaseModel
 from graphclaw.api.deps import CurrentUserDep, GraphStoreDep, StateMachineDep
 from graphclaw.models.enums import ChangedBy, TaskState
 from graphclaw.models.nodes import TaskNode
-from graphclaw.state.cascade import activate_next_in_chain, check_composite_completion
+from graphclaw.state.cascade import persist_transition_and_cascade
 from graphclaw.state.transitions import VALID_TRANSITIONS, InvalidTransitionError
 
 logger = logging.getLogger(__name__)
 
-# The state endpoints live at /tasks/... (no /graph prefix) per the API contract.
 router = APIRouter(prefix="/tasks", tags=["state"])
 
 _JSON_STR_FIELDS = ("scoring", "timeline", "progress", "override", "autonomy", "type_metadata")
@@ -77,7 +75,6 @@ def _deserialize_task_fields(raw: dict) -> dict:
             except (json.JSONDecodeError, ValueError):
                 result[field] = []
         elif isinstance(val, list):
-            # AGE stores list-of-dict as list-of-JSON-strings; parse each element
             parsed_items = []
             for item in val:
                 if isinstance(item, str):
@@ -89,11 +86,6 @@ def _deserialize_task_fields(raw: dict) -> dict:
                     parsed_items.append(item)
             result[field] = parsed_items
     return result
-
-
-# ---------------------------------------------------------------------------
-# Request / response models
-# ---------------------------------------------------------------------------
 
 
 class StateHistoryResponse(BaseModel):
@@ -117,11 +109,6 @@ class TransitionRequest(BaseModel):
     reason: str | None = None
 
 
-# ---------------------------------------------------------------------------
-# Routes
-# ---------------------------------------------------------------------------
-
-
 @router.get(
     "/{task_id}/state-history",
     response_model=StateHistoryResponse,
@@ -129,7 +116,7 @@ class TransitionRequest(BaseModel):
     summary="Get task state history",
     description=(
         "Return the full audit trail of state transitions for the given task, "
-        "ordered oldest-first.  Each entry records from/to states, timestamp, "
+        "ordered oldest-first. Each entry records from/to states, timestamp, "
         "who changed it, and an optional reason."
     ),
 )
@@ -147,7 +134,6 @@ async def get_state_history(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"Task '{task_id}' not found"
         )
 
-    # Deserialise so state_history is a list of dicts, not JSON strings.
     task = _deserialize_task_fields(task)
     history: list[dict[str, Any]] = task.get("state_history") or []
     start = int(cursor) if cursor and cursor.isdigit() else 0
@@ -198,7 +184,7 @@ async def get_valid_transitions(
     status_code=status.HTTP_200_OK,
     summary="Transition task state",
     description=(
-        "Apply a human-initiated state transition to the task.  "
+        "Apply a human-initiated state transition to the task. "
         "The transition is validated against the state machine rules; "
         "invalid transitions return HTTP 422."
     ),
@@ -217,7 +203,6 @@ async def transition_task(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"Task '{task_id}' not found"
         )
 
-    # Validate target state string.
     try:
         target_state = TaskState(body.target_state)
     except ValueError:
@@ -227,8 +212,6 @@ async def transition_task(
             detail=f"Invalid target_state '{body.target_state}'. Valid values: {valid_values}",
         )
 
-    # Deserialise the dict back to a TaskNode so the state machine can operate.
-    # AGE stores nested objects as JSON strings; parse them before model_validate.
     try:
         task_node = TaskNode.model_validate(_deserialize_task_fields(raw_task))
     except Exception as exc:
@@ -238,86 +221,31 @@ async def transition_task(
             detail=f"Failed to load task '{task_id}': {exc}",
         )
 
-    # Apply the transition via the StateMachine (mutates task_node in place).
+    old_state = task_node.state.value
     try:
-        state_machine.transition(
+        await persist_transition_and_cascade(
             task_node,
             target_state,
             ChangedBy.HUMAN,
             body.reason or "",
+            graph_store,
+            state_machine,
         )
     except InvalidTransitionError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=str(exc),
-        )
-
-    # Persist the updated node back to the graph store.
-    updated_dict = task_node.model_dump(mode="json")
-    persisted = await graph_store.update_node(task_id, updated_dict)
-    if persisted is None:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Transition applied but failed to persist task '{task_id}'",
-        )
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
 
     logger.info(
-        "state: task %s transitioned to %s by user_id=%s reason=%r",
+        "state: task %s transitioned %s -> %s by user_id=%s reason=%r",
         task_id,
-        target_state.value,
+        old_state,
+        task_node.state.value,
         user_id,
         body.reason,
     )
 
-    # Wire cascade effects when the task reaches COMPLETE.
-    if target_state == TaskState.COMPLETE:
-        # 1. Activate sequential-chain dependents (INACTIVE_PENDING tasks that
-        #    were waiting on this task via DEPENDS_ON edges).
-        activated = await activate_next_in_chain(task_node, graph_store)
-        for act_node in activated:
-            await graph_store.update_node(act_node.id, act_node.model_dump(mode="json"))
-            logger.info("state: cascade-activated %s after %s completed", act_node.id, task_id)
-
-        # 2. Propagate completion upward through composite/milestone parents.
-        part_of_edges = await graph_store.get_edges(task_id, direction="out", edge_type="PART_OF")
-        for edge in part_of_edges:
-            parent_id = edge.get("_end_id")
-            if not parent_id:
-                continue
-            raw_parent = await graph_store.get_node(parent_id)
-            if raw_parent is None:
-                continue
-            try:
-                parent_node = TaskNode.model_validate(_deserialize_task_fields(raw_parent))
-            except Exception as exc:
-                logger.warning("state: could not parse parent %s: %s", parent_id, exc)
-                continue
-
-            # Collect all sibling children of this parent.
-            child_edges = await graph_store.get_edges(
-                parent_id, direction="in", edge_type="PART_OF"
-            )
-            children: list[TaskNode] = []
-            for child_edge in child_edges:
-                child_id = child_edge.get("_start_id")
-                if not child_id:
-                    continue
-                raw_child = await graph_store.get_node(child_id)
-                if raw_child is None:
-                    continue
-                try:
-                    children.append(TaskNode.model_validate(_deserialize_task_fields(raw_child)))
-                except Exception:
-                    continue
-
-            prev_state = parent_node.state
-            check_composite_completion(parent_node, children)
-            if parent_node.state != prev_state:
-                await graph_store.update_node(parent_node.id, parent_node.model_dump(mode="json"))
-                logger.info(
-                    "state: cascade updated parent %s → %s",
-                    parent_node.id,
-                    parent_node.state.value,
-                )
-
-    return persisted
+    return {
+        "task_id": task_node.id,
+        "old_state": old_state,
+        "new_state": task_node.state.value,
+        "status": "transitioned",
+    }

@@ -50,6 +50,7 @@ from pydantic import BaseModel
 from graphclaw.api.deps import CurrentUserDep, GraphStoreDep, StateMachineDep
 from graphclaw.models.enums import ChangedBy, TaskState, TaskType
 from graphclaw.models.nodes import TaskNode
+from graphclaw.state.cascade import persist_transition, run_post_transition_cascade
 from graphclaw.state.transitions import InvalidTransitionError
 
 logger = logging.getLogger(__name__)
@@ -160,8 +161,8 @@ async def approve_task(
     except InvalidTransitionError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
 
-    updated_dict = task_node.model_dump(mode="json")
-    await graph_store.update_node(task_id, updated_dict)
+    await graph_store.update_node(task_id, task_node.model_dump(mode="json"))
+    await run_post_transition_cascade(task_node, graph_store)
     logger.info("approvals: task %s approved by user_id=%s", task_id, user_id)
     return ApprovalActionResponse(task_id=task_id, status="COMPLETE")
 
@@ -201,12 +202,16 @@ async def deny_task(
         )
 
     try:
-        state_machine.transition(task_node, TaskState.CANCELLED, ChangedBy.HUMAN, "Denied by user")
+        await persist_transition(
+            task_node,
+            TaskState.CANCELLED,
+            ChangedBy.HUMAN,
+            "Denied by user",
+            graph_store,
+            state_machine,
+        )
     except InvalidTransitionError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
-
-    updated_dict = task_node.model_dump(mode="json")
-    await graph_store.update_node(task_id, updated_dict)
     logger.info("approvals: task %s denied by user_id=%s", task_id, user_id)
     return ApprovalActionResponse(task_id=task_id, status="CANCELLED")
 

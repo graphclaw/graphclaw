@@ -14,6 +14,7 @@ import pytest
 from graphclaw.agent.main_orchestrator import MainOrchestrator as AgentLoop
 from graphclaw.models.base import generate_task_id
 from graphclaw.models.enums import (
+    GateType,
     GoalPriority,
     TaskState,
     TaskType,
@@ -24,6 +25,7 @@ from graphclaw.models.scoring import (
     ScoreExplanation,
     ScoreFactor,
 )
+from graphclaw.models.type_metadata import CompositeMetadata
 from graphclaw.scoring.engine import ScoringContext, ScoringEngine
 from graphclaw.state.machine import StateMachine
 
@@ -460,7 +462,8 @@ class TestSmartRetrievalBehaviors:
     async def test_update_task_state_invalidates_scoped_queue_cache(self):
         user_id = "USER-cache"
         loop, repo, _engine = _make_loop()
-        repo.get_node = AsyncMock(return_value={"state": "ACTIVE", "state_history": []})
+        existing = _make_task(state=TaskState.ACTIVE, title="Cached")
+        repo.get_node = AsyncMock(return_value=existing.model_dump(mode="json"))
         repo.update_node = AsyncMock()
 
         seed_entry = _make_queue_entry(_make_task(title="Cached"), rank=1, score=0.8)
@@ -474,6 +477,72 @@ class TestSmartRetrievalBehaviors:
 
         assert user_id not in loop._last_queue_by_scope
         assert "__all__" not in loop._last_queue_by_scope
+
+    @pytest.mark.asyncio
+    async def test_update_task_state_runs_completion_cascade(self):
+        parent = TaskNode(
+            id=generate_task_id("TS", TaskType.COMPOSITE),
+            task_type=TaskType.COMPOSITE,
+            title="Parent",
+            description="Composite parent",
+            state=TaskState.ACTIVE,
+            created_at=_now(),
+            updated_at=_now(),
+            type_metadata=CompositeMetadata(
+                completion_gate=GateType.AND,
+                auto_complete_on_children=True,
+            ),
+        )
+        child = _make_task(state=TaskState.IN_PROGRESS, title="Child")
+        dependent = _make_task(state=TaskState.INACTIVE_PENDING, title="Dependent")
+
+        nodes = {
+            parent.id: parent.model_dump(mode="json"),
+            child.id: child.model_dump(mode="json"),
+            dependent.id: dependent.model_dump(mode="json"),
+        }
+
+        async def _get_node(node_id: str):
+            return nodes.get(node_id)
+
+        async def _get_edges(node_id: str, direction: str, edge_type: str):
+            if node_id == child.id and direction == "in" and edge_type == "DEPENDS_ON":
+                return [{"_start_id": dependent.id}]
+            if node_id == child.id and direction == "out" and edge_type == "PART_OF":
+                return [{"_end_id": parent.id}]
+            if node_id == parent.id and direction == "in" and edge_type == "PART_OF":
+                return [{"_start_id": child.id}]
+            return []
+
+        async def _update_node(node_id: str, payload: dict[str, Any]):
+            existing = dict(nodes.get(node_id, {}))
+            existing.update(payload)
+            nodes[node_id] = existing
+            return True
+
+        loop, repo, _engine = _make_loop()
+        repo.get_node = AsyncMock(side_effect=_get_node)
+        repo.get_edges = AsyncMock(side_effect=_get_edges)
+        repo.update_node = AsyncMock(side_effect=_update_node)
+
+        result = await loop._tool_update_task_state(
+            "USER-123",
+            {"task_id": child.id, "new_state": "COMPLETE", "reason": "finished"},
+        )
+
+        assert result["status"] == "updated"
+
+        persisted = [(call.args[0], call.args[1]) for call in repo.update_node.await_args_list]
+        updated_ids = [node_id for node_id, _ in persisted]
+        assert child.id in updated_ids
+        assert dependent.id in updated_ids
+        assert parent.id in updated_ids
+
+        dependent_payload = next(payload for node_id, payload in persisted if node_id == dependent.id)
+        assert dependent_payload["state"] == TaskState.ACTIVE.value
+
+        parent_payload = next(payload for node_id, payload in persisted if node_id == parent.id)
+        assert parent_payload["state"] == TaskState.COMPLETE.value
 
 
 # ---------------------------------------------------------------------------

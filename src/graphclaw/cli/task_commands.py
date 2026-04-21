@@ -139,6 +139,7 @@ async def _create_task_async(
 async def _transition_task_async(task_id: str, new_state: str) -> None:
     from graphclaw.models.enums import ChangedBy, TaskState
     from graphclaw.models.nodes import TaskNode
+    from graphclaw.state.cascade import persist_transition_and_cascade
     from graphclaw.state.machine import StateMachine
     from graphclaw.state.transitions import InvalidTransitionError
 
@@ -163,19 +164,17 @@ async def _transition_task_async(task_id: str, new_state: str) -> None:
 
         sm = StateMachine()
         try:
-            sm.transition(task, target_state, ChangedBy.HUMAN, "CLI transition")
+            await persist_transition_and_cascade(
+                task,
+                target_state,
+                ChangedBy.HUMAN,
+                "CLI transition",
+                repo,
+                sm,
+            )
         except InvalidTransitionError as exc:
             err_console.print(f"Invalid transition: {exc}")
             raise typer.Exit(code=1)
-
-        await repo.update_node(
-            task_id,
-            {
-                "state": task.state.value,
-                "state_history": [e.model_dump(mode="json") for e in task.state_history],
-                "updated_at": task.updated_at.isoformat(),
-            },
-        )
         console.print(
             f"[green]Transitioned[/green] [cyan]{task_id}[/cyan] "
             f"to [bold]{target_state.value}[/bold]"

@@ -857,23 +857,40 @@ Validation completed against real local services:
 
 ## 18. State Machine Cascade — Invocation Wiring Gap
 
-### Current State
-- `StateMachine.transition()` in `state/machine.py` lines 55–104
-- `check_composite_completion()` in `state/cascade.py` lines 63–169: evaluates AND/OR gate, auto-completes parent or routes to NEEDS_REVIEW
-- `activate_next_in_chain()` in `state/cascade.py` lines 177–242: activates INACTIVE_PENDING successors
-- Manual transition API: `POST /app/v1/tasks/{task_id}/transition` in `api/state.py`
+Section status: COMPLETE (Phase 1 scope) (3/3 subsections addressed)
 
-### Gaps
-1. **Cascade not wired to the API endpoint.** After `StateMachine.transition()` succeeds in `api/state.py`, neither `activate_next_in_chain()` nor `check_composite_completion()` is called. Completing a child task will not auto-complete its composite parent. Completing a blocker will not activate its dependents. (See also O-SM-01, O-SM-02.)
-2. **Agent loop does not trigger cascade.** `AgentLoop.run_cycle()` calls scoring and action dispatch but does not call cascade as a post-action step.
-3. **No post-transition hook pattern.** `StateMachine` has no callback mechanism — every call site must remember to invoke cascade manually. As call sites grow, this will be missed.
+**18.1 Shared post-transition cascade pipeline** ✅ FIXED
+- Added centralized helpers in `src/graphclaw/state/cascade.py`:
+  - `persist_transition(...)`
+  - `run_post_transition_cascade(...)`
+  - `persist_transition_and_cascade(...)`
+- `run_post_transition_cascade(...)` now owns the COMPLETE cascade sequence end-to-end:
+  1. activate `INACTIVE_PENDING` dependents via `activate_next_in_chain(...)`
+  2. evaluate PART_OF parents via `check_composite_completion(...)`
+  3. persist cascade mutations and recurse upward if parent also reaches COMPLETE
 
-### Recommendation
-- In `api/state.py`, after a successful `StateMachine.transition()` to COMPLETE or ACTIVE, call:
-  1. `activate_next_in_chain(task, graph_repo)` — unblock dependents
-  2. `check_composite_completion(parent, children, grandparent, siblings)` — bubble completion upward
-- Alternatively, add `post_transition_hooks: list[Callable]` to `StateMachine.transition()` so cascade calls are registered once and invoked automatically. Prevents call-site drift.
-- Log both calls via `StateHistoryEntry` with `changed_by=CASCADE` for a complete audit trail.
+**18.2 API / agent / CLI invocation wiring aligned** ✅ FIXED
+- Manual transition endpoint now uses shared pipeline:
+  - `src/graphclaw/api/state.py` `transition_task(...)` calls `persist_transition_and_cascade(...)`
+- Agent tool transition now validates with the real state machine instead of raw dict writes:
+  - `src/graphclaw/agent/main_orchestrator.py` `_tool_update_task_state(...)`
+- CLI transitions now use the same shared path:
+  - `src/graphclaw/cli/task_commands.py` `_transition_task_async(...)`
+- Approvals path aligned for persisted transition + cascade side effects:
+  - `src/graphclaw/api/approvals.py`
+
+**18.3 Regression coverage for call-site drift** ✅ FIXED
+- Added/updated tests in `tests/test_agent/test_loop.py`:
+  - validates scoped queue invalidation still works with state-machine-backed transition
+  - validates COMPLETE transition in agent tool path activates dependents and auto-completes composite parent
+- Existing integration coverage in `tests/test_state/test_cascade_integration.py` remains green.
+
+Validation executed:
+- `pytest tests/test_agent/test_loop.py tests/test_state/test_cascade_integration.py -q` → **30 passed**
+- `ruff check src/graphclaw/state/cascade.py src/graphclaw/api/state.py src/graphclaw/api/approvals.py src/graphclaw/cli/task_commands.py src/graphclaw/agent/main_orchestrator.py tests/test_agent/test_loop.py` → **passed**
+- Attempted MinIO+DB integration probe:
+  - `pytest tests/test_agent/test_loop_new_tools_integration.py::TestToolReadKnowledge::test_custom_knowledge_topic -q`
+  - current local object storage credentials are not accepted (`InvalidAccessKeyId`), so this backend validation is presently blocked by environment configuration rather than code.
 
 ---
 
@@ -1047,38 +1064,30 @@ Between these events, the cached score is valid. The heartbeat cycle should only
 ```
 
 ### Gaps
-1. **`_system/logs/` vs `system/logs/`**: System log path uses `_system/` (underscore), inconsistent with the `system/` prefix used for all other system objects.
-2. **No working context archive path**: When working context is cleared on episodic flush, the cleared content has no landing path (see §15).
-3. **No intelligence archive path**: Trimmed `TaskNode.intelligence` entries described as "archived" have no storage path.
-4. **No per-session path**: Multi-turn agent conversations have no dedicated `{user_id}/sessions/{session_id}/` path to group session artifacts.
-5. **`StoragePaths` factory incomplete**: Three paths assembled inline rather than via factory methods:
-   - System log path (inline in `logger.py`)
-   - Intelligence archive path (not defined)
-   - Session path (not defined)
+Section status: PARTIALLY COMPLETE (Phase 1 scope) (3/5 subsections addressed)
 
-### Recommendation
-Extend storage structure and `StoragePaths` factory:
+**O-STORAGE-01: `_system/logs/` vs `system/logs/` inconsistency** ✅ FIXED
+- Added canonical helpers in `src/graphclaw/infra/storage.py`:
+  - `StoragePaths.system_log_path(service, hour_key, extension="jsonl")`
+  - `StoragePaths.user_log_path(user_id, service, hour_key, extension="jsonl")`
+- Logger sink path construction now uses these helpers; no inline `_system/logs/...` assembly in sink code.
 
-```
-{bucket}/
-├── system/
-│   └── logs/{service}/{YYYY-MM-DD}/{HH00Z}.jsonl   ← rename _system → system
-└── {user_id}/
-    ├── agents/{agent_id}/
-    │   ├── memory/
-    │   │   ├── working/context.md                   ← append-only, timestamped (§15)
-    │   │   ├── episodic/{date}-{session_id}.md
-    │   │   └── semantic/{topic}.md
-    │   └── intelligence/
-    │       └── archive/{task_id}/{YYYY-MM-DD}.md    ← trimmed intelligence entries
-    └── sessions/
-        └── {session_id}/
-            ├── context.md
-            └── artifacts/{filename}
-```
+**O-STORAGE-02: Working-context archive path after episodic flush** ✅ TRACKED (Phase 2 boundary)
+- Current memory model supports working context stream (`memory/working/context.md`) and explicit compact/archive flows.
+- A dedicated `working/archive/...` path factory for automatic flush lifecycle is not yet implemented.
 
-Add the following `StoragePaths` static methods to `src/graphclaw/infra/storage.py`:
-- `system_log_path(service: str, date_str: str, hour_str: str) → str`
-- `agent_intelligence_archive(user_id: str, agent_id: str, task_id: str, date_str: str) → str`
-- `user_session_context(user_id: str, session_id: str) → str`
-- `user_session_artifact(user_id: str, session_id: str, filename: str) → str`
+**O-STORAGE-03: Intelligence archive path missing** ✅ FIXED
+- Added `StoragePaths.agent_intelligence_archive(user_id, agent_id, task_id, date)` in `src/graphclaw/infra/storage.py`.
+- Inbound intelligence overflow now writes to this durable archive path.
+
+**O-STORAGE-04: No per-session path family** ✅ TRACKED
+- Session-scoped storage helpers (for `{user_id}/sessions/{session_id}/...`) are not yet present in `StoragePaths`.
+- This remains pending for the session-artifact lifecycle design.
+
+**O-STORAGE-05: `StoragePaths` factory completeness for known inline paths** ✅ PARTIALLY FIXED
+- Implemented for log and intelligence archive paths.
+- Remaining gap is session path helpers, still tracked.
+
+Validation completed:
+- `pytest tests/test_infra/test_storage_paths.py -v`
+- `pytest tests/test_inbound/test_intelligence_agent.py -v`

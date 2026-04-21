@@ -1,4 +1,4 @@
-"""graphclaw.state.cascade — Composite completion cascade and sequential chain activation.
+"""graphclaw.state.cascade — Composite completion cascade and shared transition helpers.
 
 Description
 -----------
@@ -21,6 +21,8 @@ Public API
 ----------
 - check_composite_completion: Evaluate and potentially auto-complete a composite parent.
 - activate_next_in_chain: Activate INACTIVE_PENDING tasks waiting on a completed task.
+- persist_transition: Apply a state-machine transition and persist it.
+- persist_transition_and_cascade: Persist a transition and run COMPLETE-triggered cascade.
 
 Dependencies
 ------------
@@ -50,6 +52,7 @@ from graphclaw.state.machine import StateMachine
 
 if TYPE_CHECKING:
     from graphclaw.db.base import GraphStore
+    from graphclaw.state.machine import StateMachine
 
 logger = logging.getLogger(__name__)
 
@@ -290,4 +293,101 @@ async def activate_next_in_chain(
     return activated
 
 
-__all__ = ["check_composite_completion", "activate_next_in_chain"]
+async def _load_children_for_parent(parent_id: str, graph_repo: GraphStore) -> list[TaskNode]:
+    """Return parsed direct PART_OF children for *parent_id*."""
+    child_edges = await graph_repo.get_edges(parent_id, direction="in", edge_type="PART_OF")
+
+    children: list[TaskNode] = []
+    for edge in child_edges:
+        child_id = edge.get("_start_id")
+        if not child_id:
+            continue
+        raw_child = await graph_repo.get_node(child_id)
+        if raw_child is None:
+            continue
+        try:
+            children.append(TaskNode.model_validate(_deserialize_node_props(raw_child)))
+        except Exception:
+            logger.warning("cascade: could not parse child node %s", child_id)
+    return children
+
+
+async def run_post_transition_cascade(task: TaskNode, graph_repo: GraphStore) -> list[TaskNode]:
+    """Run COMPLETE-triggered cascade side effects for *task* and persist them."""
+    if task.state != TaskState.COMPLETE:
+        return []
+
+    persisted_updates: list[TaskNode] = []
+
+    activated = await activate_next_in_chain(task, graph_repo)
+    for activated_task in activated:
+        await graph_repo.update_node(activated_task.id, activated_task.model_dump(mode="json"))
+        persisted_updates.append(activated_task)
+
+    parent_edges = await graph_repo.get_edges(task.id, direction="out", edge_type="PART_OF")
+    for edge in parent_edges:
+        parent_id = edge.get("_end_id")
+        if not parent_id:
+            continue
+
+        raw_parent = await graph_repo.get_node(parent_id)
+        if raw_parent is None:
+            continue
+
+        try:
+            parent_task = TaskNode.model_validate(_deserialize_node_props(raw_parent))
+        except Exception:
+            logger.warning("cascade: could not parse parent node %s", parent_id)
+            continue
+
+        children = await _load_children_for_parent(parent_id, graph_repo)
+        prior_state = parent_task.state
+        check_composite_completion(parent_task, children)
+
+        if parent_task.state == prior_state:
+            continue
+
+        await graph_repo.update_node(parent_task.id, parent_task.model_dump(mode="json"))
+        persisted_updates.append(parent_task)
+
+        if parent_task.state == TaskState.COMPLETE:
+            persisted_updates.extend(await run_post_transition_cascade(parent_task, graph_repo))
+
+    return persisted_updates
+
+
+async def persist_transition(
+    task: TaskNode,
+    target_state: TaskState,
+    changed_by: ChangedBy,
+    reason: str,
+    graph_repo: GraphStore,
+    state_machine: StateMachine,
+) -> TaskNode:
+    """Apply a state transition and persist the mutated task node."""
+    state_machine.transition(task, target_state, changed_by, reason)
+    await graph_repo.update_node(task.id, task.model_dump(mode="json"))
+    return task
+
+
+async def persist_transition_and_cascade(
+    task: TaskNode,
+    target_state: TaskState,
+    changed_by: ChangedBy,
+    reason: str,
+    graph_repo: GraphStore,
+    state_machine: StateMachine,
+) -> TaskNode:
+    """Persist a state transition and run any cascade side effects it triggers."""
+    await persist_transition(task, target_state, changed_by, reason, graph_repo, state_machine)
+    await run_post_transition_cascade(task, graph_repo)
+    return task
+
+
+__all__ = [
+    "check_composite_completion",
+    "activate_next_in_chain",
+    "persist_transition",
+    "persist_transition_and_cascade",
+    "run_post_transition_cascade",
+]

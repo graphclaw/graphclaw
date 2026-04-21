@@ -1483,31 +1483,44 @@ class MainOrchestrator:
         }
 
     async def _tool_update_task_state(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
-        import datetime as _dt
+        from graphclaw.models.enums import ChangedBy, TaskState
+        from graphclaw.state.cascade import _deserialize_node_props, persist_transition_and_cascade
+        from graphclaw.state.transitions import InvalidTransitionError
 
         task_id = args["task_id"]
-        new_state = args["new_state"]
         props = await self._repo.get_node(task_id)
         if not props:
             return {"error": f"Task {task_id} not found"}
 
-        current_state = props.get("state", "pending")
-        history = list(props.get("state_history", []))
-        history.append(
-            {
-                "from_state": current_state,
-                "to_state": new_state,
-                "changed_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
-                "changed_by": "HUMAN",
-                "reason": args.get("reason", ""),
-            }
-        )
-        await self._repo.update_node(task_id, {"state": new_state, "state_history": history})
+        try:
+            target_state = TaskState(args["new_state"].upper())
+        except ValueError:
+            valid_states = ", ".join(state.value for state in TaskState)
+            return {"error": f"Invalid state {args['new_state']!r}. Valid: {valid_states}"}
+
+        try:
+            task = TaskNode.model_validate(_deserialize_node_props(props))
+        except Exception as exc:
+            return {"error": f"Task {task_id} could not be parsed: {exc}"}
+
+        current_state = task.state.value
+        try:
+            await persist_transition_and_cascade(
+                task,
+                target_state,
+                ChangedBy.HUMAN,
+                args.get("reason", ""),
+                self._repo,
+                self._sm,
+            )
+        except InvalidTransitionError as exc:
+            return {"error": str(exc)}
+
         self._invalidate_cached_queue(user_id)
         return {
             "task_id": task_id,
             "old_state": current_state,
-            "new_state": new_state,
+            "new_state": target_state.value,
             "status": "updated",
         }
 
