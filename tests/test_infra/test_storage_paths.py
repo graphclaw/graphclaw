@@ -54,6 +54,10 @@ def test_user_root_is_prefix_of_all_user_paths() -> None:
         StoragePaths.agent_profile(user_id, "main"),
         StoragePaths.agent_config(user_id, "main"),
         StoragePaths.agent_memory_working(user_id, "main"),
+        StoragePaths.agent_memory_working_archive_prefix(user_id, "main"),
+        StoragePaths.agent_memory_working_archive_entry(
+            user_id, "main", "2026-01-01-compact-test.md"
+        ),
         StoragePaths.agent_intelligence_archive(user_id, "main", "TSK-abc", "2026-04-19"),
         StoragePaths.agent_memory_episodic_prefix(user_id, "main"),
         StoragePaths.agent_memory_episodic_entry(user_id, "main", "2026-01-01-session.md"),
@@ -67,6 +71,12 @@ def test_user_root_is_prefix_of_all_user_paths() -> None:
         StoragePaths.skill_executions(user_id, "skill-abc"),
         StoragePaths.attachment(user_id, "email", "2026-01-01", "msg-001", "file.pdf"),
         StoragePaths.attachments_prefix(user_id),
+        StoragePaths.session_root(user_id, "SES-123"),
+        StoragePaths.session_context(user_id, "SES-123"),
+        StoragePaths.session_events_prefix(user_id, "SES-123"),
+        StoragePaths.session_event(user_id, "SES-123", "evt-001"),
+        StoragePaths.session_outputs_prefix(user_id, "SES-123"),
+        StoragePaths.session_output(user_id, "SES-123", "briefing.md"),
         StoragePaths.user_log_path(user_id, "gateway", "2026-04-19/1000Z"),
     ]
     for path in paths_under_test:
@@ -125,6 +135,17 @@ def test_agent_root_path() -> None:
 def test_agent_memory_working_path() -> None:
     path = StoragePaths.agent_memory_working(_USER, _AGENT)
     assert path == f"{_USER}/agents/{_AGENT}/memory/working/context.md"
+
+
+def test_agent_memory_working_archive_prefix() -> None:
+    path = StoragePaths.agent_memory_working_archive_prefix(_USER, _AGENT)
+    assert path == f"{_USER}/agents/{_AGENT}/memory/working/archive/"
+
+
+def test_agent_memory_working_archive_entry() -> None:
+    entry = "2026-04-20-compact-ses1.md"
+    path = StoragePaths.agent_memory_working_archive_entry(_USER, _AGENT, entry)
+    assert path == f"{_USER}/agents/{_AGENT}/memory/working/archive/{entry}"
 
 
 def test_agent_intelligence_archive_path() -> None:
@@ -210,6 +231,50 @@ def test_attachment_path_sanitises_slashes_in_msg_id() -> None:
 
 def test_attachments_prefix() -> None:
     assert StoragePaths.attachments_prefix(_USER) == f"{_USER}/attachments/"
+
+
+# ---------------------------------------------------------------------------
+# Session artifact paths
+# ---------------------------------------------------------------------------
+
+
+def test_session_root() -> None:
+    assert StoragePaths.session_root(_USER, "SES-001") == f"{_USER}/sessions/SES-001/"
+
+
+def test_session_context() -> None:
+    assert (
+        StoragePaths.session_context(_USER, "SES-001")
+        == f"{_USER}/sessions/SES-001/context.md"
+    )
+
+
+def test_session_events_prefix() -> None:
+    assert (
+        StoragePaths.session_events_prefix(_USER, "SES-001")
+        == f"{_USER}/sessions/SES-001/events/"
+    )
+
+
+def test_session_event() -> None:
+    assert (
+        StoragePaths.session_event(_USER, "SES-001", "evt-0001")
+        == f"{_USER}/sessions/SES-001/events/evt-0001.json"
+    )
+
+
+def test_session_outputs_prefix() -> None:
+    assert (
+        StoragePaths.session_outputs_prefix(_USER, "SES-001")
+        == f"{_USER}/sessions/SES-001/outputs/"
+    )
+
+
+def test_session_output() -> None:
+    assert (
+        StoragePaths.session_output(_USER, "SES-001", "briefing.md")
+        == f"{_USER}/sessions/SES-001/outputs/briefing.md"
+    )
 
 
 # ---------------------------------------------------------------------------

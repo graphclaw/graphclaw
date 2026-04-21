@@ -938,55 +938,39 @@ Validation executed:
 
 ## 20. Storage Folder Directory Structure — Missing Paths & Factory Gaps
 
-### Current State (confirmed from `infra/storage.py`)
-```
-{bucket}/
-├── system/
-│   ├── prompts/system_header.md
-│   ├── knowledge/{6 topic files}.md
-│   ├── agents/comms/{profile,manifest,config}
-│   └── skills/definitions/{skill_name}/SKILL.md   ← defined, never seeded
-└── {user_id}/
-    ├── config.json
-    ├── scoring_weights.json
-    ├── agents/{agent_id}/
-    │   ├── profile.md, manifest.json, config.json
-    │   └── memory/
-    │       ├── working/context.md                  ← overwritten each cycle (§15)
-    │       ├── episodic/{date}-{session_id}.md
-    │       └── semantic/{topic}.md
-    ├── skills/registry/, cache/, authored/, executions/
-    ├── mcp/servers/{server_id}.json
-    ├── attachments/{channel}/{date}/{msg_id}/{file}
-    ├── logs/{service}/{YYYY-MM-DD/HH00Z}.jsonl
-    └── inbox/recent/ + archive/
-```
-
-### Gaps
-Section status: PARTIALLY COMPLETE (Phase 1 scope) (3/5 subsections addressed)
+Section status: COMPLETE (Phase 1 scope) (5/5 subsections addressed)
 
 **O-STORAGE-01: `_system/logs/` vs `system/logs/` inconsistency** ✅ FIXED
-- Added canonical helpers in `src/graphclaw/infra/storage.py`:
-  - `StoragePaths.system_log_path(service, hour_key, extension="jsonl")`
-  - `StoragePaths.user_log_path(user_id, service, hour_key, extension="jsonl")`
-- Logger sink path construction now uses these helpers; no inline `_system/logs/...` assembly in sink code.
+- Previously fixed via canonical log path helpers in `src/graphclaw/infra/storage.py` and logger sink wiring.
 
-**O-STORAGE-02: Working-context archive path after episodic flush** ✅ TRACKED (Phase 2 boundary)
-- Current memory model supports working context stream (`memory/working/context.md`) and explicit compact/archive flows.
-- A dedicated `working/archive/...` path factory for automatic flush lifecycle is not yet implemented.
+**O-STORAGE-02: Working-context archive path after episodic flush** ✅ FIXED
+- Added dedicated path family in `src/graphclaw/infra/storage.py`:
+  - `StoragePaths.agent_memory_working_archive_prefix(user_id, agent_id)`
+  - `StoragePaths.agent_memory_working_archive_entry(user_id, agent_id, entry_name)`
+- Wired compact flows to persist archive snapshots to the new path in addition to episodic memory:
+  - `src/graphclaw/api/intelligence.py` `compact_working_context(...)`
+  - `src/graphclaw/cli/intelligence_commands.py` `compact(...)`
 
 **O-STORAGE-03: Intelligence archive path missing** ✅ FIXED
-- Added `StoragePaths.agent_intelligence_archive(user_id, agent_id, task_id, date)` in `src/graphclaw/infra/storage.py`.
-- Inbound intelligence overflow now writes to this durable archive path.
+- Already fixed with `StoragePaths.agent_intelligence_archive(user_id, agent_id, task_id, date)` and active inbound overflow usage.
 
-**O-STORAGE-04: No per-session path family** ✅ TRACKED
-- Session-scoped storage helpers (for `{user_id}/sessions/{session_id}/...`) are not yet present in `StoragePaths`.
-- This remains pending for the session-artifact lifecycle design.
+**O-STORAGE-04: No per-session path family** ✅ FIXED
+- Added session-scoped storage path family in `src/graphclaw/infra/storage.py`:
+  - `StoragePaths.session_root(user_id, session_id)`
+  - `StoragePaths.session_context(user_id, session_id)`
+  - `StoragePaths.session_events_prefix(user_id, session_id)`
+  - `StoragePaths.session_event(user_id, session_id, event_id)`
+  - `StoragePaths.session_outputs_prefix(user_id, session_id)`
+  - `StoragePaths.session_output(user_id, session_id, artifact_name)`
 
-**O-STORAGE-05: `StoragePaths` factory completeness for known inline paths** ✅ PARTIALLY FIXED
-- Implemented for log and intelligence archive paths.
-- Remaining gap is session path helpers, still tracked.
+**O-STORAGE-05: `StoragePaths` factory completeness for known inline paths** ✅ FIXED
+- Storage path registry now covers the previously missing families (working archive + sessions).
+- Expanded path contract tests in `tests/test_infra/test_storage_paths.py` to include the new helpers.
+- Added API regression coverage in `tests/test_api/test_intelligence_routes.py` to verify compact now writes to working archive path.
 
-Validation completed:
-- `pytest tests/test_infra/test_storage_paths.py -v`
-- `pytest tests/test_inbound/test_intelligence_agent.py -v`
+Validation executed:
+- `pytest tests/test_infra/test_storage_paths.py tests/test_api/test_intelligence_routes.py tests/test_inbound/test_intelligence_agent.py -q` → **91 passed**
+- `ruff check src/graphclaw/infra/storage.py src/graphclaw/api/intelligence.py src/graphclaw/cli/intelligence_commands.py tests/test_infra/test_storage_paths.py tests/test_api/test_intelligence_routes.py` → **passed**
+- Attempted local real-backend validation:
+  - `pytest tests/test_inbound/test_intelligence_agent_integration.py -q`
+  - currently blocked by local object-storage credentials (`InvalidAccessKeyId`) in environment.

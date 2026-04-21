@@ -56,12 +56,17 @@ data ever lives outside their own prefix.
       │       ├── episodic/{date}-{session_id}.md       ← time-ordered session summaries
       │       ├── semantic/{topic}.md                   ← long-term factual knowledge
       │       └── working/context.md                    ← current session scratchpad
+    │       └── working/archive/{entry}.md            ← durable snapshots after compaction
       ├── skills/
       │   ├── registry/sources.json                     ← registered remote sources
       │   ├── registry/installed.json                   ← installed skill metadata
       │   ├── cache/{source_hash}/{skill_name}/SKILL.md ← downloaded remote skills
       │   ├── authored/{skill_id}/SKILL.md              ← user-authored / forked skills
       │   └── executions/{skill_id}.json                ← execution history
+    ├── sessions/{session_id}/                         ← per-session artifacts
+    │   ├── context.md
+    │   ├── events/{event_id}.json
+    │   └── outputs/{artifact_name}
       └── attachments/{channel}/{date}/{msg_id}/{file}  ← inbound message attachments
 """
 
@@ -186,6 +191,22 @@ class StoragePaths:
         return f"{user_id}/agents/{agent_id}/memory/working/context.md"
 
     @staticmethod
+    def agent_memory_working_archive_prefix(user_id: str, agent_id: str) -> str:
+        """Prefix for archived working-context snapshots.
+
+        Example: ``usr-abc123/agents/main/memory/working/archive/``
+        """
+        return f"{user_id}/agents/{agent_id}/memory/working/archive/"
+
+    @staticmethod
+    def agent_memory_working_archive_entry(user_id: str, agent_id: str, entry_name: str) -> str:
+        """One archived working-context snapshot.
+
+        Example: ``usr-abc123/agents/main/memory/working/archive/2026-04-20-compact-ses1.md``
+        """
+        return f"{user_id}/agents/{agent_id}/memory/working/archive/{entry_name}"
+
+    @staticmethod
     def agent_intelligence_archive(user_id: str, agent_id: str, task_id: str, date: str) -> str:
         """Archive path for trimmed task intelligence spillover.
 
@@ -306,6 +327,58 @@ class StoragePaths:
     def attachments_prefix(user_id: str) -> str:
         """Prefix to list all attachments for a user."""
         return f"{user_id}/attachments/"
+
+    # ------------------------------------------------------------------
+    # Session artifact paths
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def session_root(user_id: str, session_id: str) -> str:
+        """Root prefix for a single user session's artifacts.
+
+        Example: ``usr-abc123/sessions/SES-1234/``
+        """
+        return f"{user_id}/sessions/{session_id}/"
+
+    @staticmethod
+    def session_context(user_id: str, session_id: str) -> str:
+        """Canonical per-session context snapshot path.
+
+        Example: ``usr-abc123/sessions/SES-1234/context.md``
+        """
+        return f"{user_id}/sessions/{session_id}/context.md"
+
+    @staticmethod
+    def session_events_prefix(user_id: str, session_id: str) -> str:
+        """Prefix containing structured session events.
+
+        Example: ``usr-abc123/sessions/SES-1234/events/``
+        """
+        return f"{user_id}/sessions/{session_id}/events/"
+
+    @staticmethod
+    def session_event(user_id: str, session_id: str, event_id: str) -> str:
+        """One structured session event payload.
+
+        Example: ``usr-abc123/sessions/SES-1234/events/evt-0001.json``
+        """
+        return f"{user_id}/sessions/{session_id}/events/{event_id}.json"
+
+    @staticmethod
+    def session_outputs_prefix(user_id: str, session_id: str) -> str:
+        """Prefix containing generated per-session artifacts.
+
+        Example: ``usr-abc123/sessions/SES-1234/outputs/``
+        """
+        return f"{user_id}/sessions/{session_id}/outputs/"
+
+    @staticmethod
+    def session_output(user_id: str, session_id: str, artifact_name: str) -> str:
+        """One generated per-session artifact.
+
+        Example: ``usr-abc123/sessions/SES-1234/outputs/briefing.md``
+        """
+        return f"{user_id}/sessions/{session_id}/outputs/{artifact_name}"
 
     # ------------------------------------------------------------------
     # System prompt paths

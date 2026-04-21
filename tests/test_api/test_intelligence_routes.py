@@ -193,6 +193,29 @@ def test_compact_archives_to_episodic(client: TestClient) -> None:
     assert archived_as in keys
 
 
+def test_compact_archives_to_working_archive_path(
+    client: TestClient, storage: FakeStorageClient
+) -> None:
+    from graphclaw.infra.storage import StoragePaths
+
+    client.put(
+        f"/app/v1/intelligence/agents/{_AGENT_ID}/memory/working",
+        json={"content": "Context to archive"},
+    )
+    r = client.post(
+        f"/app/v1/intelligence/agents/{_AGENT_ID}/memory/compact",
+        json={"summary": "Summary", "session_label": "ses-archive"},
+    )
+    archived_as = r.json()["archived_as"]
+
+    archive_path = StoragePaths.agent_memory_working_archive_entry(
+        _TEST_USER,
+        _AGENT_ID,
+        archived_as,
+    )
+    assert archive_path in storage._data
+
+
 # ---------------------------------------------------------------------------
 # Episodic memory
 # ---------------------------------------------------------------------------

@@ -228,6 +228,9 @@ def working_compact(
         session_label = label or uuid.uuid4().hex[:8]
         entry_name = f"{today}-compact-{session_label}.md"
         episodic_path = StoragePaths.agent_memory_episodic_entry(user_id, agent_id, entry_name)
+        working_archive_path = StoragePaths.agent_memory_working_archive_entry(
+            user_id, agent_id, entry_name
+        )
 
         try:
             original = await client.read(working_path)
@@ -237,6 +240,7 @@ def working_compact(
                 f"## Original Working Context\n\n" + original.decode()
             )
             await client.write(episodic_path, archive.encode(), content_type="text/markdown")
+            await client.write(working_archive_path, archive.encode(), content_type="text/markdown")
             console.print(f"[blue]→[/blue] Archived to [bold]{entry_name}[/bold]")
         except FileNotFoundError:
             console.print("[yellow]⚠[/yellow] No existing working context to archive")

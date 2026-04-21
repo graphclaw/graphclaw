@@ -355,6 +355,9 @@ async def compact_working_context(
     session_label = body.session_label or uuid.uuid4().hex[:8]
     entry_name = f"{today}-compact-{session_label}.md"
     episodic_path = StoragePaths.agent_memory_episodic_entry(user_id, agent_id, entry_name)
+    working_archive_path = StoragePaths.agent_memory_working_archive_entry(
+        user_id, agent_id, entry_name
+    )
 
     try:
         original = await storage_client.read(working_path)
@@ -365,6 +368,11 @@ async def compact_working_context(
         )
         await storage_client.write(
             episodic_path, archive_content.encode(), content_type="text/markdown"
+        )
+        await storage_client.write(
+            working_archive_path,
+            archive_content.encode(),
+            content_type="text/markdown",
         )
     except FileNotFoundError:
         pass  # Nothing to archive — working context was empty
