@@ -69,14 +69,14 @@ It intentionally excludes already completed historical observations captured in 
     - reliability from assignee resource node if present, else default reliability
     - recency bonus default to 0 when no history is available
   - Test scope: validate scheduled_fire_at reflects formula and responds to lower reliability with shorter cadence.
-    Completion evidence:
-    - Implementation:
-      - src/graphclaw/api/graph.py (delegated follow-up scheduling now uses compute_next_followup()).
-      - src/graphclaw/agent/main_orchestrator.py (_tool_create_task delegated path now formula-based).
-    - Tests: tests/test_agent/test_followup_spawn_integration.py::test_delegated_followup_schedule_uses_formula_cadence and ::test_agent_delegated_followup_schedule_uses_formula.
-    - Commit: b16505f.
+  Completion evidence:
+  - Implementation:
+    - src/graphclaw/api/graph.py (delegated follow-up scheduling now uses compute_next_followup()).
+    - src/graphclaw/agent/main_orchestrator.py (_tool_create_task delegated path now formula-based).
+  - Tests: tests/test_agent/test_followup_spawn_integration.py::test_delegated_followup_schedule_uses_formula_cadence and ::test_agent_delegated_followup_schedule_uses_formula.
+  - Commit: b16505f.
 
-  - [x] N-005 | Priority: P0 | Status: Completed (Committed)
+- [x] N-005 | Priority: P0 | Status: Completed (Committed)
   Start and verify scheduled scoring cycles so computed_priority and ranked queues are continuously updated from real graph data.
   Design details:
   - Runtime wiring: start TriggerEngine in gateway lifespan and stop it during shutdown.
