@@ -93,20 +93,67 @@ It intentionally excludes already completed historical observations captured in 
 
 ## 2) Security and Access Control
 
-- [ ] N-006 | Priority: P0 | Status: Proposed
+- [x] N-006 | Priority: P0 | Status: Completed (Committed)
   Validate OAuth redirect base URL against an allowlist and strict URI parsing to prevent open redirect risk.
+  Design details:
+  - Auth path: src/graphclaw/auth/routes.py (_build_redirect_uri).
+  - Added strict base URL normalization/validation (scheme, host, no userinfo/query/fragment).
+  - Enforced allowlist via OAUTH_REDIRECT_ALLOWLIST (comma-separated base URLs, secure localhost-only default when unset).
+  - HTTP policy: non-localhost redirects must use https; invalid config returns HTTP 503 in login/callback.
+  - Provider hardening: callback now explicitly rejects unsupported providers with HTTP 400 before token exchange.
+  Completion evidence:
+  - Implementation: src/graphclaw/auth/routes.py (_normalize_redirect_base_url, _load_redirect_allowlist, login/callback enforcement).
+  - Tests: tests/test_auth/test_oauth_redirect_validation.py.
+  - Commit: 5ca77c4.
 
-- [ ] N-007 | Priority: P0 | Status: Proposed
+- [x] N-007 | Priority: P0 | Status: Completed (Committed)
   Harden Cypher query construction by auditing all dynamic query paths and enforcing strict escaping and allowlist rules.
+  Design details:
+  - Repository path: src/graphclaw/db/age/repository.py list_nodes().
+  - Added label allowlist validation for dynamic MATCH label interpolation (same identifier regex family already used for filter keys).
+  - Preserved existing strict filter-key validation and literal escaping path for values.
+  - Security behavior: reject malformed/injection-shaped labels and keys with ValueError before query execution.
+  Completion evidence:
+  - Implementation: src/graphclaw/db/age/repository.py (label validation guard in list_nodes).
+  - Tests: tests/test_db/test_graph_repository.py::TestListNodes::test_list_nodes_rejects_invalid_label and ::test_list_nodes_rejects_invalid_filter_key.
+  - Commit: 5ca77c4.
 
-- [ ] N-008 | Priority: P0 | Status: Proposed
+- [x] N-008 | Priority: P0 | Status: Completed (Committed)
   Add prompt-injection hardening in inbound intelligence processing (message boundary controls, constrained extraction schema, sanitization).
+  Design details:
+  - Runtime path: src/graphclaw/inbound/intelligence_agent.py.
+  - Added strict JSON extraction pipeline with bounded payload size, object-type enforcement, and key allowlist (task_entry/memory_note only).
+  - Added value normalization (single-line compaction, max field length) and type checks (string/null only).
+  - Prompt boundary update: inbound message body is wrapped in explicit <message> tags and treated as untrusted data.
+  - Failure mode: malformed/extra-key payloads now map to parse_error path with action_taken="error".
+  Completion evidence:
+  - Implementation: src/graphclaw/inbound/intelligence_agent.py (_extract_json_object, _parse_extraction_payload, strict parsing in process()).
+  - Tests: tests/test_inbound/test_intelligence_agent.py::test_parse_extraction_payload_extracts_json_from_wrapped_output and ::test_process_rejects_payload_with_unexpected_keys.
+  - Commit: 5ca77c4.
 
-- [ ] N-009 | Priority: P1 | Status: Proposed
+- [x] N-009 | Priority: P1 | Status: Completed (Committed)
   Add strict input validation for storage path segments (channel, topic, filename, ids) to prevent traversal and malformed key writes.
+  Design details:
+  - Storage path registry: src/graphclaw/infra/storage.py.
+  - Added centralized validators for single segments and relative subpaths to block separators, traversal tokens, and null bytes.
+  - Applied validation across dynamic StoragePaths builders (user/agent/skill/session/attachment/log/system paths).
+  - Added canonical user-scoped chat path helper (StoragePaths.chat_history) to avoid ad-hoc key construction.
+  Completion evidence:
+  - Implementation: src/graphclaw/infra/storage.py (new validators + validated path methods), src/graphclaw/api/chat.py (_history_path uses StoragePaths.chat_history).
+  - Tests: tests/test_infra/test_storage_paths.py (new validation cases + chat path case), tests/test_api/test_chat_history_integration.py::TestGenerateAgentResponseWithRealStorage::test_history_persisted_after_send.
+  - Commit: 5ca77c4.
 
-- [ ] N-010 | Priority: P1 | Status: Proposed
+- [x] N-010 | Priority: P1 | Status: Completed (Committed)
   Ensure chat history and state mutation APIs consistently enforce user scope and ownership checks.
+  Design details:
+  - Graph task endpoints: src/graphclaw/api/graph.py.
+  - Added shared _is_task_authorized() rule for task detail/update/delete: owner (owned_by), assignee (assigned_to), or OWNED_BY edge fallback.
+  - Enforced HTTP 403 for unauthorized get/patch/delete task operations.
+  - Chat scope alignment: chat history storage now uses per-user prefix via StoragePaths.chat_history.
+  Completion evidence:
+  - Implementation: src/graphclaw/api/graph.py (authorization helper + 403 enforcement), src/graphclaw/api/chat.py (user-scoped storage path helper).
+  - Tests: tests/test_api/test_graph_access_control.py, tests/test_auth/test_provisioning_integration.py::TestCallbackProvisionsUser::test_callback_creates_usernode_via_provisioning.
+  - Commit: 5ca77c4.
 
 ## 3) Reliability and Runtime Safety
 
