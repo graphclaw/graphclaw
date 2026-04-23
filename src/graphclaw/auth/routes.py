@@ -43,6 +43,7 @@ from __future__ import annotations
 import logging
 import os
 from typing import Any
+from urllib.parse import urlparse, urlunparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
@@ -57,6 +58,9 @@ from graphclaw.auth.provisioning import UserProvisioningService
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+_SUPPORTED_PROVIDERS = {"google", "github", "microsoft"}
+_LOCALHOST_NAMES = {"localhost", "127.0.0.1", "::1"}
 
 # ── Module-level OAuthService singleton ────────────────────────────────────────
 
@@ -145,8 +149,60 @@ def _build_redirect_uri(provider_name: str) -> str:
     str:
         Full callback URL, e.g. ``https://api.graphclaw.ai/auth/callback?provider=google``.
     """
-    base_url = os.environ.get("OAUTH_REDIRECT_BASE_URL", "http://localhost:8000").rstrip("/")
+    base_url_raw = os.environ.get("OAUTH_REDIRECT_BASE_URL", "http://localhost:8000")
+    base_url = _normalize_redirect_base_url(base_url_raw)
+
+    allowlist = _load_redirect_allowlist()
+    if base_url not in allowlist:
+        raise ValueError(
+            "OAUTH_REDIRECT_BASE_URL must appear in OAUTH_REDIRECT_ALLOWLIST"
+        )
+
     return f"{base_url}/auth/callback?provider={provider_name}"
+
+
+def _load_redirect_allowlist() -> set[str]:
+    """Parse and normalize OAUTH_REDIRECT_ALLOWLIST into a strict set.
+
+    The allowlist is a comma-separated list of absolute base URLs.
+    When unset, it defaults to local development only.
+    """
+    raw = os.environ.get("OAUTH_REDIRECT_ALLOWLIST", "")
+    if not raw.strip():
+        return {"http://localhost:8000"}
+
+    allowed: set[str] = set()
+    for entry in raw.split(","):
+        candidate = entry.strip()
+        if not candidate:
+            continue
+        allowed.add(_normalize_redirect_base_url(candidate))
+    if not allowed:
+        raise ValueError("OAUTH_REDIRECT_ALLOWLIST cannot be empty when configured")
+    return allowed
+
+
+def _normalize_redirect_base_url(base_url: str) -> str:
+    """Validate and normalize a redirect base URL for OAuth callback construction."""
+    parsed = urlparse(base_url.strip())
+    if parsed.scheme not in {"http", "https"}:
+        raise ValueError("OAuth redirect base URL must use http or https")
+    if not parsed.hostname:
+        raise ValueError("OAuth redirect base URL must include a host")
+    if parsed.username or parsed.password:
+        raise ValueError("OAuth redirect base URL must not contain userinfo")
+    if parsed.query or parsed.fragment:
+        raise ValueError("OAuth redirect base URL must not include query or fragment")
+
+    host = parsed.hostname.lower()
+    if parsed.scheme == "http" and host not in _LOCALHOST_NAMES:
+        raise ValueError("Non-localhost OAuth redirect base URLs must use https")
+
+    host_for_netloc = f"[{host}]" if ":" in host else host
+    netloc = f"{host_for_netloc}:{parsed.port}" if parsed.port else host_for_netloc
+
+    normalized_path = parsed.path.rstrip("/")
+    return urlunparse((parsed.scheme, netloc, normalized_path, "", "", ""))
 
 
 # ── Routes ─────────────────────────────────────────────────────────────────────
@@ -190,13 +246,19 @@ async def login(
         If the requested provider is not configured (missing env vars).
     """
     provider = provider.lower().strip()
-    if provider not in ("google", "github", "microsoft"):
+    if provider not in _SUPPORTED_PROVIDERS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Unsupported provider '{provider}'. Choose: google, github, microsoft.",
         )
 
-    redirect_uri = _build_redirect_uri(provider)
+    try:
+        redirect_uri = _build_redirect_uri(provider)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
 
     try:
         authorization_url, state = await oauth_service.get_authorization_url(
@@ -263,7 +325,19 @@ async def callback(
         If the provider is not configured.
     """
     provider = provider.lower().strip()
-    redirect_uri = _build_redirect_uri(provider)
+    if provider not in _SUPPORTED_PROVIDERS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported provider '{provider}'. Choose: google, github, microsoft.",
+        )
+
+    try:
+        redirect_uri = _build_redirect_uri(provider)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
 
     try:
         userinfo = await oauth_service.exchange_code(

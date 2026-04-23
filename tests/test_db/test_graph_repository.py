@@ -282,6 +282,14 @@ class TestListNodes:
         results = await repo.list_nodes(label="TaskAtomic", filters={"state": "NONEXISTENT_STATE"})
         assert results == []
 
+    async def test_list_nodes_rejects_invalid_label(self, repo: GraphRepository) -> None:
+        with pytest.raises(ValueError, match="Invalid label"):
+            await repo.list_nodes(label="TaskAtomic) MATCH (m", filters=None)
+
+    async def test_list_nodes_rejects_invalid_filter_key(self, repo: GraphRepository) -> None:
+        with pytest.raises(ValueError, match="Invalid filter key"):
+            await repo.list_nodes(label="TaskAtomic", filters={"state) OR 1=1": "ACTIVE"})
+
 
 # ---------------------------------------------------------------------------
 # Tests: downstream dependent query

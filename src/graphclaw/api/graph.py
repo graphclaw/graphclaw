@@ -89,6 +89,36 @@ def _clamp(value: float, *, low: float, high: float) -> float:
     return max(low, min(high, value))
 
 
+async def _is_task_authorized(
+    graph_store: Any,
+    *,
+    task: dict[str, Any],
+    user_id: str,
+) -> bool:
+    """Return True when *user_id* can access the given task payload."""
+    owner_user_id = task.get("owned_by")
+    assignee_id = task.get("assigned_to")
+    if owner_user_id == user_id or assignee_id == user_id:
+        return True
+
+    task_id = task.get("id")
+    if not isinstance(task_id, str) or not task_id:
+        return False
+
+    try:
+        out_edges = await graph_store.get_edges(task_id, direction="out")
+    except Exception:  # noqa: BLE001
+        return False
+
+    for edge in out_edges:
+        edge_type = edge.get("edge_type") or edge.get("_label")
+        target_id = edge.get("target_id") or edge.get("_end_id")
+        if edge_type == "OWNED_BY" and target_id == user_id:
+            return True
+
+    return False
+
+
 async def _build_followup_config(
     graph_store: Any,
     *,
@@ -385,6 +415,11 @@ async def get_task(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"Task '{task_id}' not found"
         )
+    if not await _is_task_authorized(graph_store, task=task, user_id=user_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"User '{user_id}' is not authorized to access task '{task_id}'",
+        )
 
     # Gather all incident edges (both directions)
     out_edges = await graph_store.get_edges(task_id, direction="out")
@@ -569,6 +604,11 @@ async def update_task(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"Task '{task_id}' not found"
         )
+    if not await _is_task_authorized(graph_store, task=existing, user_id=user_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"User '{user_id}' is not authorized to update task '{task_id}'",
+        )
 
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
     if not updates:
@@ -600,6 +640,11 @@ async def delete_task(
     if existing is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"Task '{task_id}' not found"
+        )
+    if not await _is_task_authorized(graph_store, task=existing, user_id=user_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"User '{user_id}' is not authorized to delete task '{task_id}'",
         )
 
     await graph_store.delete_node(task_id)

@@ -19,6 +19,8 @@ Dependencies
 
 from __future__ import annotations
 
+import pytest
+
 from graphclaw.infra.storage import StoragePaths
 
 _USER = "usr-abc123"
@@ -108,6 +110,10 @@ def test_user_config_path() -> None:
 
 def test_user_scoring_weights_path() -> None:
     assert StoragePaths.user_scoring_weights(_USER) == f"{_USER}/scoring_weights.json"
+
+
+def test_chat_history_path() -> None:
+    assert StoragePaths.chat_history(_USER) == f"{_USER}/chat/history.json"
 
 
 # ---------------------------------------------------------------------------
@@ -290,6 +296,21 @@ def test_user_log_path() -> None:
 def test_system_log_path() -> None:
     path = StoragePaths.system_log_path("gateway", "2026-04-19/1000Z")
     assert path == "system/logs/gateway/2026-04-19/1000Z.jsonl"
+
+
+def test_storage_paths_reject_path_separator_in_user_id() -> None:
+    with pytest.raises(ValueError, match="path separators"):
+        StoragePaths.user_config("usr/evil")
+
+
+def test_storage_paths_reject_traversal_segment() -> None:
+    with pytest.raises(ValueError, match="path separators|traversal"):
+        StoragePaths.agent_profile("usr-abc123", "../main")
+
+
+def test_user_log_path_rejects_absolute_hour_key() -> None:
+    with pytest.raises(ValueError, match="relative path"):
+        StoragePaths.user_log_path("usr-abc123", "gateway", "/2026-04-19/1000Z")
 
 
 # ---------------------------------------------------------------------------

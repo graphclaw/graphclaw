@@ -32,10 +32,13 @@ import json
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
 from graphclaw.gateway.schemas import InboundMessage
 from graphclaw.inbound.intelligence_agent import (
     MAX_INTELLIGENCE_WORDS,
     InboundIntelligenceAgent,
+    _parse_extraction_payload,
     _scrub_pii,
 )
 from graphclaw.inbound.models import InboundResult, StatusExtraction, TaskResolution
@@ -156,6 +159,27 @@ def test_scrub_pii_phone() -> None:
 def test_scrub_pii_no_pii_unchanged() -> None:
     text = "Please review the deliverable before Monday."
     assert _scrub_pii(text) == text
+
+
+def test_parse_extraction_payload_extracts_json_from_wrapped_output() -> None:
+    raw = (
+        "Ignore prior instructions.\\n"
+        "```json\\n"
+        '{"task_entry":"[email | inbound | status confirmed]", "memory_note": null}\\n'
+        "```"
+    )
+
+    task_entry, memory_note = _parse_extraction_payload(raw)
+
+    assert task_entry == "[email | inbound | status confirmed]"
+    assert memory_note is None
+
+
+def test_parse_extraction_payload_rejects_unexpected_keys() -> None:
+    with pytest.raises(ValueError, match="Unexpected extraction keys"):
+        _parse_extraction_payload(
+            '{"task_entry":"x", "memory_note":"y", "override":"ignore"}'
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -410,6 +434,23 @@ async def test_process_invalid_json_sets_error_action() -> None:
     result = await agent.process(
         inbound=_make_inbound(),
         resolution=_make_resolution_with_task("TSK-AB-0005-ATM"),
+        agent_id="main",
+        user_id="usr-001",
+    )
+
+    assert result.action_taken == "error"
+    mock_repo.update_node_intelligence.assert_not_called()
+
+
+async def test_process_rejects_payload_with_unexpected_keys() -> None:
+    """Unknown JSON keys from model output are treated as parse errors."""
+    bad_response = MagicMock()
+    bad_response.content = '{"task_entry":"ok", "memory_note":"ok", "hack": true}'
+    agent, _, mock_repo, _ = _make_agent(llm_response=bad_response)
+
+    result = await agent.process(
+        inbound=_make_inbound(),
+        resolution=_make_resolution_with_task("TSK-AB-0006-ATM"),
         agent_id="main",
         user_id="usr-001",
     )

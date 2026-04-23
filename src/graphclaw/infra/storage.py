@@ -100,6 +100,31 @@ class StoragePaths:
     access is possible when RBAC is applied at the ``{user_id}/`` prefix.
     """
 
+    @staticmethod
+    def _validate_segment(value: str, field_name: str) -> str:
+        """Validate a single path segment to prevent traversal/injection."""
+        segment = value.strip()
+        if not segment:
+            raise ValueError(f"{field_name} cannot be empty")
+        if "/" in segment or "\\" in segment:
+            raise ValueError(f"{field_name} must not contain path separators")
+        if segment in {".", ".."} or ".." in segment:
+            raise ValueError(f"{field_name} must not contain traversal tokens")
+        if "\x00" in segment:
+            raise ValueError(f"{field_name} must not contain null bytes")
+        return segment
+
+    @classmethod
+    def _validate_relative_path(cls, value: str, field_name: str) -> str:
+        """Validate a slash-delimited relative path with safe segments."""
+        normalized = value.strip().replace("\\", "/")
+        if not normalized:
+            raise ValueError(f"{field_name} cannot be empty")
+        if normalized.startswith("/") or normalized.endswith("/"):
+            raise ValueError(f"{field_name} must be a relative path")
+        segments = [cls._validate_segment(part, field_name) for part in normalized.split("/")]
+        return "/".join(segments)
+
     # ------------------------------------------------------------------
     # System paths (shared, read-only for regular users)
     # ------------------------------------------------------------------
@@ -110,7 +135,8 @@ class StoragePaths:
 
         Example: ``system/skills/definitions/meeting-notes-agent/SKILL.md``
         """
-        return f"system/skills/definitions/{skill_name}/SKILL.md"
+        skill = StoragePaths._validate_segment(skill_name, "skill_name")
+        return f"system/skills/definitions/{skill}/SKILL.md"
 
     @staticmethod
     def system_skills_prefix() -> str:
@@ -124,7 +150,8 @@ class StoragePaths:
     @staticmethod
     def user_root(user_id: str) -> str:
         """Root prefix for all objects owned by *user_id*."""
-        return f"{user_id}/"
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        return f"{user}/"
 
     # ------------------------------------------------------------------
     # User-level config
@@ -136,7 +163,8 @@ class StoragePaths:
 
         Example: ``usr-abc123/config.json``
         """
-        return f"{user_id}/config.json"
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        return f"{user}/config.json"
 
     @staticmethod
     def user_scoring_weights(user_id: str) -> str:
@@ -144,7 +172,17 @@ class StoragePaths:
 
         Example: ``usr-abc123/scoring_weights.json``
         """
-        return f"{user_id}/scoring_weights.json"
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        return f"{user}/scoring_weights.json"
+
+    @staticmethod
+    def chat_history(user_id: str) -> str:
+        """User-scoped chat history JSON path.
+
+        Example: ``usr-abc123/chat/history.json``
+        """
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        return f"{user}/chat/history.json"
 
     # ------------------------------------------------------------------
     # Agent paths
@@ -153,7 +191,9 @@ class StoragePaths:
     @staticmethod
     def agent_root(user_id: str, agent_id: str) -> str:
         """Root prefix for a single agent's objects."""
-        return f"{user_id}/agents/{agent_id}/"
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        agent = StoragePaths._validate_segment(agent_id, "agent_id")
+        return f"{user}/agents/{agent}/"
 
     @staticmethod
     def agent_profile(user_id: str, agent_id: str) -> str:
@@ -161,7 +201,9 @@ class StoragePaths:
 
         Example: ``usr-abc123/agents/main/profile.md``
         """
-        return f"{user_id}/agents/{agent_id}/profile.md"
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        agent = StoragePaths._validate_segment(agent_id, "agent_id")
+        return f"{user}/agents/{agent}/profile.md"
 
     @staticmethod
     def agent_config(user_id: str, agent_id: str) -> str:
@@ -169,7 +211,9 @@ class StoragePaths:
 
         Example: ``usr-abc123/agents/main/config.json``
         """
-        return f"{user_id}/agents/{agent_id}/config.json"
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        agent = StoragePaths._validate_segment(agent_id, "agent_id")
+        return f"{user}/agents/{agent}/config.json"
 
     # ------------------------------------------------------------------
     # Agent memory paths
@@ -178,7 +222,9 @@ class StoragePaths:
     @staticmethod
     def agent_memory_root(user_id: str, agent_id: str) -> str:
         """Root prefix for all memory objects of one agent."""
-        return f"{user_id}/agents/{agent_id}/memory/"
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        agent = StoragePaths._validate_segment(agent_id, "agent_id")
+        return f"{user}/agents/{agent}/memory/"
 
     @staticmethod
     def agent_memory_working(user_id: str, agent_id: str) -> str:
@@ -188,7 +234,9 @@ class StoragePaths:
 
         Example: ``usr-abc123/agents/main/memory/working/context.md``
         """
-        return f"{user_id}/agents/{agent_id}/memory/working/context.md"
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        agent = StoragePaths._validate_segment(agent_id, "agent_id")
+        return f"{user}/agents/{agent}/memory/working/context.md"
 
     @staticmethod
     def agent_memory_working_archive_prefix(user_id: str, agent_id: str) -> str:
@@ -196,7 +244,9 @@ class StoragePaths:
 
         Example: ``usr-abc123/agents/main/memory/working/archive/``
         """
-        return f"{user_id}/agents/{agent_id}/memory/working/archive/"
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        agent = StoragePaths._validate_segment(agent_id, "agent_id")
+        return f"{user}/agents/{agent}/memory/working/archive/"
 
     @staticmethod
     def agent_memory_working_archive_entry(user_id: str, agent_id: str, entry_name: str) -> str:
@@ -204,7 +254,10 @@ class StoragePaths:
 
         Example: ``usr-abc123/agents/main/memory/working/archive/2026-04-20-compact-ses1.md``
         """
-        return f"{user_id}/agents/{agent_id}/memory/working/archive/{entry_name}"
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        agent = StoragePaths._validate_segment(agent_id, "agent_id")
+        entry = StoragePaths._validate_segment(entry_name, "entry_name")
+        return f"{user}/agents/{agent}/memory/working/archive/{entry}"
 
     @staticmethod
     def agent_intelligence_archive(user_id: str, agent_id: str, task_id: str, date: str) -> str:
@@ -213,12 +266,18 @@ class StoragePaths:
         Example:
         ``usr-abc123/agents/main/intelligence/archive/TSK-XYZ/2026-04-19.md``
         """
-        return f"{user_id}/agents/{agent_id}/intelligence/archive/{task_id}/{date}.md"
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        agent = StoragePaths._validate_segment(agent_id, "agent_id")
+        task = StoragePaths._validate_segment(task_id, "task_id")
+        date_segment = StoragePaths._validate_segment(date, "date")
+        return f"{user}/agents/{agent}/intelligence/archive/{task}/{date_segment}.md"
 
     @staticmethod
     def agent_memory_episodic_prefix(user_id: str, agent_id: str) -> str:
         """Prefix to list all episodic memory entries for an agent."""
-        return f"{user_id}/agents/{agent_id}/memory/episodic/"
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        agent = StoragePaths._validate_segment(agent_id, "agent_id")
+        return f"{user}/agents/{agent}/memory/episodic/"
 
     @staticmethod
     def agent_memory_episodic_entry(user_id: str, agent_id: str, entry_name: str) -> str:
@@ -226,12 +285,17 @@ class StoragePaths:
 
         Example: ``usr-abc123/agents/main/memory/episodic/2026-04-11-ses-abc.md``
         """
-        return f"{user_id}/agents/{agent_id}/memory/episodic/{entry_name}"
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        agent = StoragePaths._validate_segment(agent_id, "agent_id")
+        entry = StoragePaths._validate_segment(entry_name, "entry_name")
+        return f"{user}/agents/{agent}/memory/episodic/{entry}"
 
     @staticmethod
     def agent_memory_semantic_prefix(user_id: str, agent_id: str) -> str:
         """Prefix to list all semantic memory topics for an agent."""
-        return f"{user_id}/agents/{agent_id}/memory/semantic/"
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        agent = StoragePaths._validate_segment(agent_id, "agent_id")
+        return f"{user}/agents/{agent}/memory/semantic/"
 
     @staticmethod
     def agent_memory_semantic_topic(user_id: str, agent_id: str, topic: str) -> str:
@@ -239,7 +303,10 @@ class StoragePaths:
 
         Example: ``usr-abc123/agents/main/memory/semantic/users.md``
         """
-        return f"{user_id}/agents/{agent_id}/memory/semantic/{topic}.md"
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        agent = StoragePaths._validate_segment(agent_id, "agent_id")
+        topic_segment = StoragePaths._validate_segment(topic, "topic")
+        return f"{user}/agents/{agent}/memory/semantic/{topic_segment}.md"
 
     # ------------------------------------------------------------------
     # Skill registry paths
@@ -251,7 +318,8 @@ class StoragePaths:
 
         Example: ``usr-abc123/skills/registry/sources.json``
         """
-        return f"{user_id}/skills/registry/sources.json"
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        return f"{user}/skills/registry/sources.json"
 
     @staticmethod
     def skill_registry_installed(user_id: str) -> str:
@@ -259,7 +327,8 @@ class StoragePaths:
 
         Example: ``usr-abc123/skills/registry/installed.json``
         """
-        return f"{user_id}/skills/registry/installed.json"
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        return f"{user}/skills/registry/installed.json"
 
     @staticmethod
     def skill_cache(user_id: str, source_hash8: str, skill_name: str) -> str:
@@ -267,7 +336,10 @@ class StoragePaths:
 
         Example: ``usr-abc123/skills/cache/a1b2c3d4/meeting-notes-agent/SKILL.md``
         """
-        return f"{user_id}/skills/cache/{source_hash8}/{skill_name}/SKILL.md"
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        source_hash = StoragePaths._validate_segment(source_hash8, "source_hash8")
+        skill = StoragePaths._validate_segment(skill_name, "skill_name")
+        return f"{user}/skills/cache/{source_hash}/{skill}/SKILL.md"
 
     @staticmethod
     def skill_authored(user_id: str, skill_id: str) -> str:
@@ -275,12 +347,15 @@ class StoragePaths:
 
         Example: ``usr-abc123/skills/authored/my-skill-id/SKILL.md``
         """
-        return f"{user_id}/skills/authored/{skill_id}/SKILL.md"
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        skill = StoragePaths._validate_segment(skill_id, "skill_id")
+        return f"{user}/skills/authored/{skill}/SKILL.md"
 
     @staticmethod
     def skill_authored_prefix(user_id: str) -> str:
         """Prefix to list all user-authored skills."""
-        return f"{user_id}/skills/authored/"
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        return f"{user}/skills/authored/"
 
     @staticmethod
     def skill_executions(user_id: str, skill_id: str) -> str:
@@ -288,7 +363,9 @@ class StoragePaths:
 
         Example: ``usr-abc123/skills/executions/skill-abc123.json``
         """
-        return f"{user_id}/skills/executions/{skill_id}.json"
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        skill = StoragePaths._validate_segment(skill_id, "skill_id")
+        return f"{user}/skills/executions/{skill}.json"
 
     # ------------------------------------------------------------------
     # MCP server config paths
@@ -300,7 +377,8 @@ class StoragePaths:
 
         Example: ``USER-abc123/mcp/servers/``
         """
-        return f"{user_id}/mcp/servers/"
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        return f"{user}/mcp/servers/"
 
     @staticmethod
     def mcp_server(user_id: str, server_id: str) -> str:
@@ -308,7 +386,9 @@ class StoragePaths:
 
         Example: ``USER-abc123/mcp/servers/MCP-github-dev-001.json``
         """
-        return f"{user_id}/mcp/servers/{server_id}.json"
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        server = StoragePaths._validate_segment(server_id, "server_id")
+        return f"{user}/mcp/servers/{server}.json"
 
     # ------------------------------------------------------------------
     # Attachment paths
@@ -320,13 +400,18 @@ class StoragePaths:
 
         Example: ``usr-abc123/attachments/whatsapp/2026-04-11/msg-xyz/abc_file.jpg``
         """
-        safe_msg_id = msg_id.replace("/", "_")
-        return f"{user_id}/attachments/{channel}/{date_str}/{safe_msg_id}/{filename}"
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        channel_segment = StoragePaths._validate_segment(channel, "channel")
+        date_segment = StoragePaths._validate_segment(date_str, "date_str")
+        safe_msg_id = StoragePaths._validate_segment(msg_id.replace("/", "_"), "msg_id")
+        file_segment = StoragePaths._validate_segment(filename, "filename")
+        return f"{user}/attachments/{channel_segment}/{date_segment}/{safe_msg_id}/{file_segment}"
 
     @staticmethod
     def attachments_prefix(user_id: str) -> str:
         """Prefix to list all attachments for a user."""
-        return f"{user_id}/attachments/"
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        return f"{user}/attachments/"
 
     # ------------------------------------------------------------------
     # Session artifact paths
@@ -338,7 +423,9 @@ class StoragePaths:
 
         Example: ``usr-abc123/sessions/SES-1234/``
         """
-        return f"{user_id}/sessions/{session_id}/"
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        session = StoragePaths._validate_segment(session_id, "session_id")
+        return f"{user}/sessions/{session}/"
 
     @staticmethod
     def session_context(user_id: str, session_id: str) -> str:
@@ -346,7 +433,9 @@ class StoragePaths:
 
         Example: ``usr-abc123/sessions/SES-1234/context.md``
         """
-        return f"{user_id}/sessions/{session_id}/context.md"
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        session = StoragePaths._validate_segment(session_id, "session_id")
+        return f"{user}/sessions/{session}/context.md"
 
     @staticmethod
     def session_events_prefix(user_id: str, session_id: str) -> str:
@@ -354,7 +443,9 @@ class StoragePaths:
 
         Example: ``usr-abc123/sessions/SES-1234/events/``
         """
-        return f"{user_id}/sessions/{session_id}/events/"
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        session = StoragePaths._validate_segment(session_id, "session_id")
+        return f"{user}/sessions/{session}/events/"
 
     @staticmethod
     def session_event(user_id: str, session_id: str, event_id: str) -> str:
@@ -362,7 +453,10 @@ class StoragePaths:
 
         Example: ``usr-abc123/sessions/SES-1234/events/evt-0001.json``
         """
-        return f"{user_id}/sessions/{session_id}/events/{event_id}.json"
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        session = StoragePaths._validate_segment(session_id, "session_id")
+        event = StoragePaths._validate_segment(event_id, "event_id")
+        return f"{user}/sessions/{session}/events/{event}.json"
 
     @staticmethod
     def session_outputs_prefix(user_id: str, session_id: str) -> str:
@@ -370,7 +464,9 @@ class StoragePaths:
 
         Example: ``usr-abc123/sessions/SES-1234/outputs/``
         """
-        return f"{user_id}/sessions/{session_id}/outputs/"
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        session = StoragePaths._validate_segment(session_id, "session_id")
+        return f"{user}/sessions/{session}/outputs/"
 
     @staticmethod
     def session_output(user_id: str, session_id: str, artifact_name: str) -> str:
@@ -378,7 +474,10 @@ class StoragePaths:
 
         Example: ``usr-abc123/sessions/SES-1234/outputs/briefing.md``
         """
-        return f"{user_id}/sessions/{session_id}/outputs/{artifact_name}"
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        session = StoragePaths._validate_segment(session_id, "session_id")
+        artifact = StoragePaths._validate_segment(artifact_name, "artifact_name")
+        return f"{user}/sessions/{session}/outputs/{artifact}"
 
     # ------------------------------------------------------------------
     # System prompt paths
@@ -407,7 +506,8 @@ class StoragePaths:
 
         Example: ``system/knowledge/node_creation_rules.md``
         """
-        return f"system/knowledge/{topic}.md"
+        topic_segment = StoragePaths._validate_segment(topic, "topic")
+        return f"system/knowledge/{topic_segment}.md"
 
     @staticmethod
     def system_knowledge_prefix() -> str:
@@ -424,7 +524,8 @@ class StoragePaths:
 
         Example: ``system/agents/comms/``
         """
-        return f"system/agents/{agent_id}/"
+        agent = StoragePaths._validate_segment(agent_id, "agent_id")
+        return f"system/agents/{agent}/"
 
     @staticmethod
     def system_agent_profile(agent_id: str) -> str:
@@ -432,7 +533,8 @@ class StoragePaths:
 
         Example: ``system/agents/comms/profile.md``
         """
-        return f"system/agents/{agent_id}/profile.md"
+        agent = StoragePaths._validate_segment(agent_id, "agent_id")
+        return f"system/agents/{agent}/profile.md"
 
     @staticmethod
     def system_agent_manifest(agent_id: str) -> str:
@@ -440,7 +542,8 @@ class StoragePaths:
 
         Example: ``system/agents/comms/manifest.json``
         """
-        return f"system/agents/{agent_id}/manifest.json"
+        agent = StoragePaths._validate_segment(agent_id, "agent_id")
+        return f"system/agents/{agent}/manifest.json"
 
     @staticmethod
     def system_agent_config(agent_id: str) -> str:
@@ -448,7 +551,8 @@ class StoragePaths:
 
         Example: ``system/agents/comms/config.json``
         """
-        return f"system/agents/{agent_id}/config.json"
+        agent = StoragePaths._validate_segment(agent_id, "agent_id")
+        return f"system/agents/{agent}/config.json"
 
     @staticmethod
     def system_agents_prefix() -> str:
@@ -465,7 +569,9 @@ class StoragePaths:
 
         Example: ``usr-abc123/agents/main/manifest.json``
         """
-        return f"{user_id}/agents/{agent_id}/manifest.json"
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        agent = StoragePaths._validate_segment(agent_id, "agent_id")
+        return f"{user}/agents/{agent}/manifest.json"
 
     @staticmethod
     def agents_prefix(user_id: str) -> str:
@@ -473,7 +579,8 @@ class StoragePaths:
 
         Example: ``usr-abc123/agents/``
         """
-        return f"{user_id}/agents/"
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        return f"{user}/agents/"
 
     # ------------------------------------------------------------------
     # Agent inbox paths
@@ -485,7 +592,9 @@ class StoragePaths:
 
         Example: ``usr-abc123/agents/main/inbox/recent/``
         """
-        return f"{user_id}/agents/{agent_id}/inbox/recent/"
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        agent = StoragePaths._validate_segment(agent_id, "agent_id")
+        return f"{user}/agents/{agent}/inbox/recent/"
 
     @staticmethod
     def agent_inbox_recent(user_id: str, agent_id: str, entry_name: str) -> str:
@@ -493,7 +602,10 @@ class StoragePaths:
 
         Example: ``usr-abc123/agents/main/inbox/recent/2026-04-12-msg-xyz.md``
         """
-        return f"{user_id}/agents/{agent_id}/inbox/recent/{entry_name}"
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        agent = StoragePaths._validate_segment(agent_id, "agent_id")
+        entry = StoragePaths._validate_segment(entry_name, "entry_name")
+        return f"{user}/agents/{agent}/inbox/recent/{entry}"
 
     @staticmethod
     def agent_inbox_archive(user_id: str, agent_id: str, entry_name: str) -> str:
@@ -501,7 +613,10 @@ class StoragePaths:
 
         Example: ``usr-abc123/agents/main/inbox/archive/2026-04-11-msg-abc.md``
         """
-        return f"{user_id}/agents/{agent_id}/inbox/archive/{entry_name}"
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        agent = StoragePaths._validate_segment(agent_id, "agent_id")
+        entry = StoragePaths._validate_segment(entry_name, "entry_name")
+        return f"{user}/agents/{agent}/inbox/archive/{entry}"
 
     # ------------------------------------------------------------------
     # Log paths
@@ -513,7 +628,11 @@ class StoragePaths:
 
         Example: ``usr-abc123/logs/gateway/2026-04-19/1000Z.jsonl``
         """
-        return f"{user_id}/logs/{service}/{hour_key}.{extension}"
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        service_segment = StoragePaths._validate_segment(service, "service")
+        hour_path = StoragePaths._validate_relative_path(hour_key, "hour_key")
+        ext = StoragePaths._validate_segment(extension, "extension")
+        return f"{user}/logs/{service_segment}/{hour_path}.{ext}"
 
     @staticmethod
     def system_log_path(service: str, hour_key: str, extension: str = "jsonl") -> str:
@@ -521,7 +640,10 @@ class StoragePaths:
 
         Example: ``system/logs/gateway/2026-04-19/1000Z.jsonl``
         """
-        return f"system/logs/{service}/{hour_key}.{extension}"
+        service_segment = StoragePaths._validate_segment(service, "service")
+        hour_path = StoragePaths._validate_relative_path(hour_key, "hour_key")
+        ext = StoragePaths._validate_segment(extension, "extension")
+        return f"system/logs/{service_segment}/{hour_path}.{ext}"
 
 
 class StorageClient(ABC):

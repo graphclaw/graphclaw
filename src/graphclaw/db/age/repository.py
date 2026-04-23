@@ -211,6 +211,12 @@ class AgeGraphStore(GraphStore):
         Returns a list of property dicts (may be empty).
         """
         filters = filters or {}
+        if label != "TaskNode" and not _KEY_RE.match(label):
+            raise ValueError(
+                f"Invalid label {label!r}: labels must match "
+                r"^[a-zA-Z_][a-zA-Z0-9_]*$"
+            )
+
         where_fragments: list[str] = []
         for key, value in filters.items():
             if not _KEY_RE.match(key):

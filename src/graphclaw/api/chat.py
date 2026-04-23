@@ -17,7 +17,7 @@ All endpoints require a valid Bearer access token.
 Storage layout
 --------------
 Chat history is persisted via ``StorageClient`` at
-``agents/{user_id}/chat_history.json``.  Each entry records the human message,
+``{user_id}/chat/history.json``.  Each entry records the human message,
 the agent's response, and a UTC timestamp.
 
 Agent integration
@@ -59,6 +59,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from graphclaw.api.deps import CurrentUserDep, StorageClientDep
+from graphclaw.infra.storage import StoragePaths
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +73,7 @@ _HISTORY_MAX = 200  # keep only the last N messages
 
 
 def _history_path(user_id: str) -> str:
-    return f"agents/{user_id}/chat_history.json"
+    return StoragePaths.chat_history(user_id)
 
 
 async def _load_history(user_id: str, storage_client) -> list[dict[str, Any]]:

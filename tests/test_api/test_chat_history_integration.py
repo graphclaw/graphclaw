@@ -46,7 +46,7 @@ class TestGenerateAgentResponseWithRealStorage:
         """The agent loop must receive the conversation history loaded from storage."""
         from unittest.mock import MagicMock
 
-        from graphclaw.api.chat import _generate_agent_response
+        from graphclaw.api.chat import _generate_agent_response, _history_path
         from graphclaw.infra.storage import S3StorageClient
 
         # Real storage against MinIO
@@ -75,7 +75,7 @@ class TestGenerateAgentResponseWithRealStorage:
         ]
 
         # Write history to real MinIO
-        history_path = f"agents/{user_id}/chat_history.json"
+        history_path = _history_path(user_id)
         try:
             await storage.write(
                 history_path, json.dumps(history).encode(), content_type="application/json"
@@ -115,7 +115,7 @@ class TestGenerateAgentResponseWithRealStorage:
     async def test_history_persisted_after_send(self):
         """Sending a message should append to MinIO history."""
 
-        from graphclaw.api.chat import _load_history, _save_history
+        from graphclaw.api.chat import _history_path, _load_history, _save_history
         from graphclaw.infra.storage import S3StorageClient
 
         storage = S3StorageClient(
@@ -125,7 +125,7 @@ class TestGenerateAgentResponseWithRealStorage:
         )
 
         user_id = f"test-usr-{uuid.uuid4().hex[:8]}"
-        history_path = f"agents/{user_id}/chat_history.json"
+        history_path = _history_path(user_id)
 
         try:
             # Start with empty history
