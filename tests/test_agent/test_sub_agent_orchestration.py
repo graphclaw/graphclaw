@@ -18,6 +18,7 @@ Design Patterns
 
 from __future__ import annotations
 
+import asyncio
 import json
 from unittest.mock import AsyncMock, MagicMock
 
@@ -658,3 +659,77 @@ class TestSubAgentPool:
         assert batch_1.total_count == 1
         assert batch_1.is_final_tier
 
+
+class TestSubAgentRunnerTimeouts:
+    """Unit tests for runner-level and tool-level timeout behavior."""
+
+    @pytest.mark.asyncio
+    async def test_execute_times_out_when_runner_exceeds_execution_limit(self):
+        from graphclaw.agent.sub_agent_runner import AgentJobEvent, RunnerState, SubAgentRunner
+
+        broker = FakeBroker()
+        llm = MagicMock()
+        runner = SubAgentRunner(
+            runner_id="runner-timeout",
+            broker=broker,
+            llm_client=llm,
+            execution_timeout_seconds=1,
+            tool_timeout_seconds=1,
+        )
+
+        async def _slow_loop(_job: AgentJobEvent) -> None:
+            await asyncio.sleep(1.2)
+
+        runner._run_llm_loop = _slow_loop  # type: ignore[method-assign]
+
+        job = AgentJobEvent(
+            agent_id="agent-1",
+            task_id="TSK-timeout",
+            session_id="SES-timeout",
+            instructions="slow test",
+        )
+
+        status = await runner.execute(job)
+
+        assert status == "TIMED_OUT"
+        assert runner.state == RunnerState.TIMED_OUT
+
+        events = [
+            json.loads(payload) for queue, payload in broker.published if queue == "agent_updates"
+        ]
+        assert any(event.get("event_type") == "blocked" for event in events)
+        assert any(
+            event.get("event_type") == "completed" and event.get("status") == "TIMED_OUT"
+            for event in events
+        )
+
+    @pytest.mark.asyncio
+    async def test_dispatch_tool_returns_timeout_error_for_slow_tool(self):
+        from graphclaw.agent.sub_agent_runner import AgentJobEvent, SubAgentRunner
+
+        broker = FakeBroker()
+        llm = MagicMock()
+        runner = SubAgentRunner(
+            runner_id="runner-tool-timeout",
+            broker=broker,
+            llm_client=llm,
+            execution_timeout_seconds=5,
+            tool_timeout_seconds=1,
+        )
+
+        async def _slow_skill(_args: dict, _job: AgentJobEvent) -> dict[str, str]:
+            await asyncio.sleep(1.2)
+            return {"status": "ok"}
+
+        runner._tool_invoke_skill = _slow_skill  # type: ignore[method-assign]
+
+        job = AgentJobEvent(
+            agent_id="agent-2",
+            task_id="TSK-slow-tool",
+            session_id="SES-slow-tool",
+            instructions="tool timeout test",
+        )
+
+        result = await runner._dispatch_tool("invoke_skill", {}, job)
+        assert "error" in result
+        assert "timeout" in str(result["error"]).lower()

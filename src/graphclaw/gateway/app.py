@@ -52,11 +52,12 @@ adapter reads its own environment variables for credentials.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -107,6 +108,8 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
         _db_pool = None
         _sub_agent_pool = None
         _agent_health_monitor = None
+        _agent_event_consumer = None
+        _trigger_engine = None
         try:
             from graphclaw.db.age.connection import create_pgbouncer_pool
             from graphclaw.db.factory import create_graph_store, create_query_engine
@@ -155,7 +158,6 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
             logger.info("GraphClaw: scoring engine initialised")
 
             # AgentLoop + LLM client + AgentEventConsumer
-            _agent_event_consumer = None
             if database_url:
                 try:
                     from graphclaw.agent.event_consumer import AgentEventConsumer  # noqa: PLC0415
@@ -182,7 +184,10 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
                     try:
                         from graphclaw.mcp.registry import MCPRegistry  # noqa: PLC0415
 
-                        _mcp_registry = MCPRegistry(graph_store=app.state.graph_store)
+                        _mcp_registry = MCPRegistry(
+                            storage_client=app.state.storage_client,
+                            secrets_client=app.state.secrets_client,
+                        )
                     except Exception:
                         pass
                     try:
@@ -234,6 +239,10 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
                                 skill_registry=_skill_registry,
                                 mcp_registry=_mcp_registry,
                                 heartbeat_interval=pool_cfg.heartbeat_interval_seconds,
+                                execution_timeout_seconds=(
+                                    pool_cfg.subagent_execution_timeout_seconds
+                                ),
+                                tool_timeout_seconds=pool_cfg.subagent_tool_timeout_seconds,
                             )
 
                             _agent_health_monitor = AgentHealthMonitor(
@@ -323,6 +332,93 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
                         await _agent_event_consumer.start()
                         app.state.agent_event_consumer = _agent_event_consumer
                         logger.info("GraphClaw: agent event consumer started")
+
+                        # TriggerEngine: schedule loop + inbound->trigger conversion loop
+                        from graphclaw.triggers.engine import TriggerEngine  # noqa: PLC0415
+                        from graphclaw.triggers.models import (  # noqa: PLC0415
+                            TriggerConfig,
+                            TriggerType,
+                        )
+                        from graphclaw.triggers.scheduler import TriggerScheduler  # noqa: PLC0415
+
+                        scheduler = TriggerScheduler()
+                        loaded_trigger_count = 0
+                        trigger_user_id = os.environ.get("GRAPHCLAW_USER_ID", "")
+
+                        if trigger_user_id:
+                            trigger_path = f"{trigger_user_id}/agents/{agent_id}/triggers.json"
+                            try:
+                                raw_bytes = await app.state.storage_client.read(trigger_path)
+                                parsed = json.loads(raw_bytes.decode(errors="replace"))
+                                if isinstance(parsed, list):
+                                    for idx, item in enumerate(parsed):
+                                        try:
+                                            cfg = TriggerConfig.model_validate(item)
+                                            scheduler.register(cfg)
+                                            loaded_trigger_count += 1
+                                        except Exception as exc:  # noqa: BLE001
+                                            logger.warning(
+                                                "GraphClaw: invalid trigger config at index %d in %s: %s",
+                                                idx,
+                                                trigger_path,
+                                                exc,
+                                            )
+                                else:
+                                    logger.warning(
+                                        "GraphClaw: trigger config file %s is not a JSON list",
+                                        trigger_path,
+                                    )
+                            except FileNotFoundError:
+                                logger.info(
+                                    "GraphClaw: no persisted trigger config found at %s",
+                                    trigger_path,
+                                )
+                            except Exception as exc:  # noqa: BLE001
+                                logger.warning(
+                                    "GraphClaw: failed to load persisted trigger config from %s: %s",
+                                    trigger_path,
+                                    exc,
+                                )
+
+                            if loaded_trigger_count == 0:
+                                hour_raw = os.environ.get("GRAPHCLAW_BRIEFING_HOUR_UTC", "8")
+                                minute_raw = os.environ.get("GRAPHCLAW_BRIEFING_MINUTE_UTC", "0")
+                                hour = min(max(int(hour_raw), 0), 23)
+                                minute = min(max(int(minute_raw), 0), 59)
+                                now = datetime.now(timezone.utc)
+                                next_fire = now.replace(
+                                    hour=hour,
+                                    minute=minute,
+                                    second=0,
+                                    microsecond=0,
+                                )
+                                if next_fire <= now:
+                                    next_fire += timedelta(days=1)
+
+                                fallback = TriggerConfig(
+                                    trigger_id=f"briefing-{trigger_user_id}-{hour:02d}{minute:02d}",
+                                    trigger_type=TriggerType.TIME_BASED,
+                                    user_id=trigger_user_id,
+                                    enabled=True,
+                                    cron_expression=f"{minute} {hour} * * *",
+                                    next_fire_at=next_fire,
+                                    payload_template={"agent_id": agent_id, "briefing": True},
+                                )
+                                scheduler.register(fallback)
+                                loaded_trigger_count = 1
+                                logger.info(
+                                    "GraphClaw: registered fallback daily briefing trigger (%02d:%02d UTC)",
+                                    hour,
+                                    minute,
+                                )
+
+                        _trigger_engine = TriggerEngine(broker=broker, scheduler=scheduler)
+                        await _trigger_engine.start()
+                        app.state.trigger_engine = _trigger_engine
+                        logger.info(
+                            "GraphClaw: trigger engine started (%d scheduled trigger(s))",
+                            loaded_trigger_count,
+                        )
                 except Exception as exc:  # noqa: BLE001
                     logger.error(
                         "GraphClaw: agent loop/consumer initialisation failed — %s",
@@ -337,6 +433,9 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
         yield
 
         # ── Shutdown ──────────────────────────────────────────────────────
+        if _trigger_engine is not None:
+            await _trigger_engine.stop()
+            logger.info("GraphClaw: trigger engine stopped")
         if _agent_event_consumer is not None:
             await _agent_event_consumer.stop()
             logger.info("GraphClaw: agent event consumer stopped")

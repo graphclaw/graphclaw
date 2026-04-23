@@ -187,6 +187,57 @@ class TestCreateTaskEdgesViaRestAPI:
         finally:
             await repo.delete_node(task_id)
 
+    async def test_part_of_edge_created_when_parent_goal_id_provided(
+        self,
+        client: AsyncClient,
+        repo: AgeGraphStore,
+    ):
+        """POST /tasks with parent_goal_id wires PART_OF edge to the parent node."""
+        parent_resp = await client.post(
+            "/graph/tasks",
+            json={"title": "Parent node", "task_type": "ATOMIC"},
+            headers={"Authorization": "Bearer test"},
+        )
+        assert parent_resp.status_code == 201, parent_resp.text
+        parent_id = parent_resp.json()["id"]
+
+        child_resp = await client.post(
+            "/graph/tasks",
+            json={
+                "title": "Child task",
+                "task_type": "ATOMIC",
+                "parent_goal_id": parent_id,
+            },
+            headers={"Authorization": "Bearer test"},
+        )
+        assert child_resp.status_code == 201, child_resp.text
+        child_id = child_resp.json()["id"]
+
+        try:
+            edges = await _edges_from(repo, child_id)
+            part_edges = [e for e in edges if e.get("_label") == "PART_OF"]
+            assert len(part_edges) >= 1, f"Expected PART_OF edge for task {child_id}, got {edges}"
+            assert _edge_target(part_edges[0]) == parent_id
+        finally:
+            await repo.delete_node(child_id)
+            await repo.delete_node(parent_id)
+
+    async def test_parent_goal_id_requires_existing_node(
+        self,
+        client: AsyncClient,
+    ):
+        """POST /tasks with a missing parent_goal_id must return 422."""
+        resp = await client.post(
+            "/graph/tasks",
+            json={
+                "title": "Missing parent",
+                "task_type": "ATOMIC",
+                "parent_goal_id": "TSK-does-not-exist",
+            },
+            headers={"Authorization": "Bearer test"},
+        )
+        assert resp.status_code == 422, resp.text
+
 
 # ---------------------------------------------------------------------------
 # AgentLoop._tool_create_task

@@ -148,15 +148,21 @@ class AgentPoolConfig(BaseModel):
             heartbeat event to ``AGENT_UPDATES``.
         heartbeat_timeout_seconds: Inactivity threshold after which
             AgentHealthMonitor marks the task BLOCKED and triggers escalation.
+        subagent_execution_timeout_seconds: Hard timeout for each delegated
+            sub-agent run.
+        subagent_tool_timeout_seconds: Per-tool timeout for sub-agent calls
+            to skills and MCP tools.
     """
 
     max_concurrent_agents: int = 4
     subagent_worker_pool_size: int = 4
     heartbeat_interval_seconds: int = 60
     heartbeat_timeout_seconds: int = 300
+    subagent_execution_timeout_seconds: int = 600
+    subagent_tool_timeout_seconds: int = 120
 
     @classmethod
-    def from_env(cls) -> "AgentPoolConfig":
+    def from_env(cls) -> AgentPoolConfig:
         """Build an ``AgentPoolConfig`` from environment variables.
 
         Environment variables
@@ -165,11 +171,11 @@ class AgentPoolConfig(BaseModel):
         GRAPHCLAW_SUBAGENT_WORKER_POOL_SIZE  — default 4
         GRAPHCLAW_AGENT_HEARTBEAT_INTERVAL_SECONDS — default 60
         GRAPHCLAW_AGENT_HEARTBEAT_TIMEOUT_SECONDS  — default 300
+        GRAPHCLAW_SUBAGENT_EXECUTION_TIMEOUT_SECONDS — default 600
+        GRAPHCLAW_SUBAGENT_TOOL_TIMEOUT_SECONDS      — default 120
         """
         return cls(
-            max_concurrent_agents=int(
-                os.environ.get("GRAPHCLAW_MAX_CONCURRENT_AGENTS", "4")
-            ),
+            max_concurrent_agents=int(os.environ.get("GRAPHCLAW_MAX_CONCURRENT_AGENTS", "4")),
             subagent_worker_pool_size=int(
                 os.environ.get("GRAPHCLAW_SUBAGENT_WORKER_POOL_SIZE", "4")
             ),
@@ -178,5 +184,11 @@ class AgentPoolConfig(BaseModel):
             ),
             heartbeat_timeout_seconds=int(
                 os.environ.get("GRAPHCLAW_AGENT_HEARTBEAT_TIMEOUT_SECONDS", "300")
+            ),
+            subagent_execution_timeout_seconds=int(
+                os.environ.get("GRAPHCLAW_SUBAGENT_EXECUTION_TIMEOUT_SECONDS", "600")
+            ),
+            subagent_tool_timeout_seconds=int(
+                os.environ.get("GRAPHCLAW_SUBAGENT_TOOL_TIMEOUT_SECONDS", "120")
             ),
         )

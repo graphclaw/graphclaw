@@ -38,6 +38,8 @@ TEST_DSN = os.getenv(
     "postgresql://graphclaw:graphclaw_dev@localhost:5432/graphclaw",
 )
 _TEST_USER = "USER-sm03-int-test"
+_TEST_ASSIGNEE = "USER-sm03-assignee-int-test"
+_TEST_UNRELATED = "USER-sm03-unrelated-int-test"
 
 
 # ---------------------------------------------------------------------------
@@ -58,13 +60,18 @@ async def repo(pool):
 
 
 @pytest.fixture
-def app(repo: AgeGraphStore):
+def auth_user() -> dict[str, str]:
+    return {"id": _TEST_USER}
+
+
+@pytest.fixture
+def app(repo: AgeGraphStore, auth_user: dict[str, str]):
     """Minimal FastAPI app wired to the real AgeGraphStore and real StateMachine."""
     sm = StateMachine()
     test_app = FastAPI()
     test_app.include_router(state_router)
 
-    test_app.dependency_overrides[require_auth] = lambda: _TEST_USER
+    test_app.dependency_overrides[require_auth] = lambda: auth_user["id"]
     test_app.dependency_overrides[get_graph_store] = lambda: repo
     test_app.dependency_overrides[get_state_machine] = lambda: sm
     return test_app
@@ -88,6 +95,8 @@ async def _create_task(repo: AgeGraphStore, state: TaskState = TaskState.PENDING
         title="sm03 state history test",
         description="sm03 integration test task",
         task_type=TaskType.ATOMIC,
+        created_by=_TEST_USER,
+        owned_by=_TEST_USER,
         state=state,
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
@@ -196,6 +205,8 @@ class TestStateHistoryPersisted:
             title="predecessor",
             description="sm03 predecessor",
             task_type=TaskType.ATOMIC,
+            created_by=_TEST_USER,
+            owned_by=_TEST_USER,
             state=TaskState.ACTIVE,
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
@@ -209,6 +220,8 @@ class TestStateHistoryPersisted:
             title="dependent",
             description="sm03 dependent",
             task_type=TaskType.ATOMIC,
+            created_by=_TEST_USER,
+            owned_by=_TEST_USER,
             state=TaskState.INACTIVE_PENDING,
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
@@ -244,3 +257,55 @@ class TestStateHistoryPersisted:
         finally:
             await repo.delete_node(pred_id)
             await repo.delete_node(dep_id)
+
+    async def test_assignee_can_transition_task(
+        self,
+        client: AsyncClient,
+        repo: AgeGraphStore,
+        auth_user: dict[str, str],
+    ):
+        """Assigned users are authorized to perform transitions."""
+        tid = generate_task_id("SM", TaskType.ATOMIC)
+        task = TaskNode(
+            id=tid,
+            title="assignee transition",
+            description="assignee authorization path",
+            task_type=TaskType.ATOMIC,
+            created_by=_TEST_USER,
+            owned_by=_TEST_USER,
+            assigned_to=_TEST_ASSIGNEE,
+            state=TaskState.PENDING,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        await repo.create_node(task)
+
+        try:
+            auth_user["id"] = _TEST_ASSIGNEE
+            resp = await client.post(
+                f"/tasks/{tid}/transition",
+                json={"target_state": "ACTIVE", "reason": "assignee authorization"},
+            )
+            assert resp.status_code == 200, resp.text
+        finally:
+            auth_user["id"] = _TEST_USER
+            await repo.delete_node(tid)
+
+    async def test_unrelated_user_gets_403_on_transition(
+        self,
+        client: AsyncClient,
+        repo: AgeGraphStore,
+        auth_user: dict[str, str],
+    ):
+        """Users who are neither owner nor assignee cannot transition the task."""
+        tid = await _create_task(repo)
+        try:
+            auth_user["id"] = _TEST_UNRELATED
+            resp = await client.post(
+                f"/tasks/{tid}/transition",
+                json={"target_state": "ACTIVE", "reason": "unauthorized"},
+            )
+            assert resp.status_code == 403, resp.text
+        finally:
+            auth_user["id"] = _TEST_USER
+            await repo.delete_node(tid)

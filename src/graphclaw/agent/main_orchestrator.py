@@ -245,7 +245,9 @@ class MainOrchestrator:
         related_ids: set[str] = set()
 
         try:
-            dependent_edges = await self._repo.get_edges(task_id, direction="in", edge_type="DEPENDS_ON")
+            dependent_edges = await self._repo.get_edges(
+                task_id, direction="in", edge_type="DEPENDS_ON"
+            )
             dependent_ids = {
                 start_id
                 for edge in dependent_edges
@@ -256,7 +258,9 @@ class MainOrchestrator:
                 cache.invalidate_upstream(task_id, list(dependent_ids))
                 related_ids.update(dependent_ids)
         except Exception as exc:
-            logger.debug("AgentLoop: could not invalidate dependent scores for %s: %s", task_id, exc)
+            logger.debug(
+                "AgentLoop: could not invalidate dependent scores for %s: %s", task_id, exc
+            )
 
         try:
             parent_edges = await self._repo.get_edges(task_id, direction="out", edge_type="PART_OF")
@@ -1535,12 +1539,72 @@ class MainOrchestrator:
 
         # Auto-spawn a FollowUp task for DELEGATED tasks (PRD §3.1, §6.2).
         if task_type == TaskType.DELEGATED:
-            from datetime import timedelta
-
             from graphclaw.models.type_metadata import DelegatedMetadata, FollowUpMetadata
+            from graphclaw.triggers.followup import compute_next_followup
+            from graphclaw.triggers.models import FollowupConfig
+
+            def _safe_float(value: Any, default: float) -> float:
+                try:
+                    return float(value)
+                except (TypeError, ValueError):
+                    return default
+
+            def _decode_json_like(value: Any) -> Any:
+                if isinstance(value, str):
+                    try:
+                        return json.loads(value)
+                    except (json.JSONDecodeError, ValueError):
+                        return value
+                return value
 
             followup_id = generate_task_id("AG", TaskType.FOLLOWUP)
-            scheduled_fire_at = now_task + timedelta(hours=48)
+            base_cadence_days = 3.0
+            complexity_factor = 1.0
+            reliability_score = 0.8
+            recency_bonus = 0.0
+
+            try:
+                owner_raw = await self._repo.get_node(user_id)
+                if owner_raw:
+                    prefs = _decode_json_like(owner_raw.get("preferences"))
+                    if isinstance(prefs, dict):
+                        base_cadence_days = max(
+                            0.1,
+                            _safe_float(prefs.get("default_follow_up_days"), base_cadence_days),
+                        )
+            except Exception as exc:
+                logger.debug("AgentLoop: could not load owner preferences for %s: %s", user_id, exc)
+
+            assignee_id = args.get("assigned_to")
+            if assignee_id:
+                try:
+                    assignee_raw = await self._repo.get_node(assignee_id)
+                    if assignee_raw:
+                        reliability = _decode_json_like(assignee_raw.get("reliability"))
+                        if isinstance(reliability, dict):
+                            reliability_score = _safe_float(
+                                reliability.get("overall_score"),
+                                reliability_score,
+                            )
+                            recency_bonus = _safe_float(
+                                reliability.get("on_time_delivery_rate"),
+                                recency_bonus,
+                            )
+                except Exception as exc:
+                    logger.debug(
+                        "AgentLoop: could not load assignee reliability for %s: %s",
+                        assignee_id,
+                        exc,
+                    )
+
+            followup_config = FollowupConfig(
+                task_id=task_id,
+                base_cadence_days=base_cadence_days,
+                complexity_factor=max(0.1, complexity_factor),
+                reliability_score=max(0.0, min(1.0, reliability_score)),
+                recency_bonus=max(0.0, min(1.0, recency_bonus)),
+            )
+            scheduled_fire_at = compute_next_followup(followup_config)
             followup = TaskNode(
                 id=followup_id,
                 task_type=TaskType.FOLLOWUP,

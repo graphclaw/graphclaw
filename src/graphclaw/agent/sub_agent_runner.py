@@ -169,6 +169,11 @@ class SubAgentRunner:
         Optional AsyncLogger for structured audit events.
     heartbeat_interval:
         Seconds between heartbeat event emissions (default 60).
+    execution_timeout_seconds:
+        Hard timeout for the full delegated run. When exceeded, the runner
+        transitions to TIMED_OUT and emits a BLOCKED update.
+    tool_timeout_seconds:
+        Per-tool-call timeout applied to ``invoke_skill`` and ``call_mcp_tool``.
     """
 
     def __init__(
@@ -182,6 +187,8 @@ class SubAgentRunner:
         mcp_registry: MCPRegistry | None = None,
         async_logger: AsyncLogger | None = None,
         heartbeat_interval: int = 60,
+        execution_timeout_seconds: int = 600,
+        tool_timeout_seconds: int = 120,
     ) -> None:
         self._runner_id = runner_id
         self._broker = broker
@@ -192,6 +199,8 @@ class SubAgentRunner:
         self._mcp_registry = mcp_registry
         self._logger = async_logger
         self._heartbeat_interval = heartbeat_interval
+        self._execution_timeout_seconds = max(1, execution_timeout_seconds)
+        self._tool_timeout_seconds = max(1, tool_timeout_seconds)
 
         self._state: RunnerState = RunnerState.IDLE
         self._current_job: AgentJobEvent | None = None
@@ -262,8 +271,25 @@ class SubAgentRunner:
 
         final_status = "COMPLETED"
         try:
-            await self._run_llm_loop(job)
+            await asyncio.wait_for(
+                self._run_llm_loop(job),
+                timeout=self._execution_timeout_seconds,
+            )
             self._state = RunnerState.COMPLETED
+        except asyncio.TimeoutError:
+            final_status = "TIMED_OUT"
+            self._state = RunnerState.TIMED_OUT
+            reason = (
+                f"Runner exceeded timeout of {self._execution_timeout_seconds}s "
+                f"for task {job.task_id}"
+            )
+            logger.warning("SubAgentRunner %s timed out: %s", self._runner_id, reason)
+            await self._emit(
+                AgentUpdateEventType.BLOCKED,
+                job,
+                message=reason,
+            )
+            self._audit_blocked(job, reason=reason)
         except asyncio.CancelledError:
             final_status = "TIMED_OUT"
             self._state = RunnerState.TIMED_OUT
@@ -464,11 +490,27 @@ class SubAgentRunner:
         self, tool_name: str, tool_input: dict[str, Any], job: AgentJobEvent
     ) -> dict[str, Any]:
         """Dispatch a tool call and return the result dict."""
-        if tool_name == "invoke_skill":
-            return await self._tool_invoke_skill(tool_input, job)
-        if tool_name == "call_mcp_tool":
-            return await self._tool_call_mcp(tool_input)
-        return {"error": f"Unknown tool: {tool_name}"}
+        try:
+            if tool_name == "invoke_skill":
+                return await asyncio.wait_for(
+                    self._tool_invoke_skill(tool_input, job),
+                    timeout=self._tool_timeout_seconds,
+                )
+            if tool_name == "call_mcp_tool":
+                return await asyncio.wait_for(
+                    self._tool_call_mcp(tool_input),
+                    timeout=self._tool_timeout_seconds,
+                )
+            return {"error": f"Unknown tool: {tool_name}"}
+        except asyncio.TimeoutError:
+            return {
+                "error": (f"Tool '{tool_name}' exceeded timeout of {self._tool_timeout_seconds}s")
+            }
+        except Exception as exc:  # noqa: BLE001
+            logger.exception(
+                "SubAgentRunner %s tool '%s' failed: %s", self._runner_id, tool_name, exc
+            )
+            return {"error": f"Tool '{tool_name}' failed: {exc!s}"}
 
     async def _tool_invoke_skill(self, args: dict[str, Any], job: AgentJobEvent) -> dict[str, Any]:
         """Invoke a skill via the dedicated sub-agent worker pool."""

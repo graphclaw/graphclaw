@@ -203,6 +203,10 @@ class SubAgentPool:
         Optional AsyncLogger for structured audit events.
     heartbeat_interval:
         Seconds between heartbeat emits (default 60).
+    execution_timeout_seconds:
+        Hard timeout applied to each delegated run.
+    tool_timeout_seconds:
+        Per-tool-call timeout applied inside each runner.
     """
 
     def __init__(
@@ -216,6 +220,8 @@ class SubAgentPool:
         mcp_registry: MCPRegistry | None = None,
         async_logger: AsyncLogger | None = None,
         heartbeat_interval: int = 60,
+        execution_timeout_seconds: int = 600,
+        tool_timeout_seconds: int = 120,
     ) -> None:
         self._max_size = max_size
         self._broker = broker
@@ -226,6 +232,8 @@ class SubAgentPool:
         self._mcp_registry = mcp_registry
         self._logger = async_logger
         self._heartbeat_interval = heartbeat_interval
+        self._execution_timeout_seconds = execution_timeout_seconds
+        self._tool_timeout_seconds = tool_timeout_seconds
 
         self._semaphore: asyncio.Semaphore = asyncio.Semaphore(max_size)
         self._active_runners: dict[str, SubAgentRunner] = {}  # runner_id → runner
@@ -349,6 +357,8 @@ class SubAgentPool:
             mcp_registry=self._mcp_registry,
             async_logger=self._logger,
             heartbeat_interval=self._heartbeat_interval,
+            execution_timeout_seconds=self._execution_timeout_seconds,
+            tool_timeout_seconds=self._tool_timeout_seconds,
         )
         self._active_runners[runner_id] = runner
 

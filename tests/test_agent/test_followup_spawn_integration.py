@@ -103,6 +103,14 @@ async def _find_followup(repo: AgeGraphStore, delegated_id: str) -> dict | None:
     return await repo.get_node(followup_id)
 
 
+def _as_dt(value: object) -> datetime:
+    """Parse datetimes returned as datetime objects or ISO strings."""
+    if isinstance(value, datetime):
+        return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+    assert isinstance(value, str), f"Expected datetime or ISO string, got: {type(value)}"
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
 # ---------------------------------------------------------------------------
 # REST API tests
 # ---------------------------------------------------------------------------
@@ -214,6 +222,41 @@ class TestFollowUpSpawnViaRestAPI:
                     await repo.delete_node(fid)
             await repo.delete_node(delegated_id)
 
+    async def test_delegated_followup_schedule_uses_formula_cadence(
+        self,
+        client: AsyncClient,
+        repo: AgeGraphStore,
+    ):
+        """REST delegated follow-up timing should be formula-based (default ~86.4h)."""
+        from graphclaw.api.state import _deserialize_task_fields
+
+        resp = await client.post(
+            "/graph/tasks",
+            json={"title": "Delegated schedule", "task_type": "DELEGATED"},
+            headers={"Authorization": "Bearer test"},
+        )
+        assert resp.status_code == 201, resp.text
+        delegated_id = resp.json()["id"]
+
+        try:
+            followup_raw = await _find_followup(repo, delegated_id)
+            assert followup_raw is not None
+            followup = _deserialize_task_fields(followup_raw)
+            meta = followup.get("type_metadata") or {}
+            created_at = _as_dt(followup.get("created_at"))
+            scheduled_fire_at = _as_dt(meta.get("scheduled_fire_at"))
+            delta_hours = (scheduled_fire_at - created_at).total_seconds() / 3600.0
+            assert 80.0 <= delta_hours <= 92.0, (
+                f"Expected formula-based cadence near 86.4h, got {delta_hours:.2f}h"
+            )
+        finally:
+            edges = await repo.get_edges(delegated_id, direction="in", edge_type="FOLLOW_UP_FOR")
+            for e in edges:
+                fid = e.get("_start_id")
+                if fid:
+                    await repo.delete_node(fid)
+            await repo.delete_node(delegated_id)
+
 
 # ---------------------------------------------------------------------------
 # AgentLoop._tool_create_task tests
@@ -250,6 +293,47 @@ class TestFollowUpSpawnViaAgentLoop:
             assert followup is not None, f"AgentLoop should auto-spawn FollowUp for {delegated_id}"
             assert followup.get("task_type") == "FOLLOWUP"
             assert followup.get("state") == "INACTIVE_PENDING"
+        finally:
+            followup = await _find_followup(repo, delegated_id)
+            if followup:
+                await repo.delete_node(followup["id"])
+            await repo.delete_node(delegated_id)
+
+    async def test_agent_delegated_followup_schedule_uses_formula(self, repo: AgeGraphStore):
+        """AgentLoop delegated follow-up should use the same formula cadence."""
+        from unittest.mock import MagicMock
+
+        from graphclaw.agent.main_orchestrator import MainOrchestrator as AgentLoop
+        from graphclaw.api.state import _deserialize_task_fields
+        from graphclaw.scoring.engine import ScoringEngine
+        from graphclaw.state.machine import StateMachine
+
+        loop = AgentLoop(
+            graph_repo=repo,
+            scoring_engine=MagicMock(spec=ScoringEngine),
+            state_machine=MagicMock(spec=StateMachine),
+        )
+
+        result = await loop._tool_create_task(
+            user_id=_TEST_USER,
+            args={
+                "title": "Agent delegated schedule",
+                "task_type": "delegated",
+            },
+        )
+        delegated_id = result["task_id"]
+
+        try:
+            followup_raw = await _find_followup(repo, delegated_id)
+            assert followup_raw is not None
+            followup = _deserialize_task_fields(followup_raw)
+            meta = followup.get("type_metadata") or {}
+            created_at = _as_dt(followup.get("created_at"))
+            scheduled_fire_at = _as_dt(meta.get("scheduled_fire_at"))
+            delta_hours = (scheduled_fire_at - created_at).total_seconds() / 3600.0
+            assert 80.0 <= delta_hours <= 92.0, (
+                f"Expected formula-based cadence near 86.4h, got {delta_hours:.2f}h"
+            )
         finally:
             followup = await _find_followup(repo, delegated_id)
             if followup:

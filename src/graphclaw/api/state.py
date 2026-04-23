@@ -58,6 +58,43 @@ _JSON_STR_FIELDS = ("scoring", "timeline", "progress", "override", "autonomy", "
 _JSON_LIST_FIELDS = ("state_history", "update_log", "tags")
 
 
+def _edge_target_id(edge: dict[str, Any]) -> str:
+    """Return a best-effort target node id from a repository edge payload."""
+    return str(edge.get("_end_id") or edge.get("target_id") or edge.get("to_id") or "")
+
+
+async def _is_transition_authorized(
+    task_id: str,
+    user_id: str,
+    raw_task: dict[str, Any],
+    graph_store: Any,
+) -> bool:
+    """Return True when the caller can transition the target task.
+
+    Authorization policy:
+    - direct owner via ``owned_by`` field
+    - direct assignee via ``assigned_to`` field
+    - owner via graph edge ``(task)-[:OWNED_BY]->(user)``
+    """
+    if str(raw_task.get("owned_by") or "") == user_id:
+        return True
+
+    if str(raw_task.get("assigned_to") or "") == user_id:
+        return True
+
+    try:
+        owner_edges = await graph_store.get_edges(task_id, direction="out", edge_type="OWNED_BY")
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("state: ownership edge lookup failed for task %s: %s", task_id, exc)
+        owner_edges = []
+
+    for edge in owner_edges:
+        if _edge_target_id(edge) == user_id:
+            return True
+
+    return False
+
+
 def _deserialize_task_fields(raw: dict) -> dict:
     """Parse JSON-string fields in a task dict from AGE back to native types."""
     result = dict(raw)
@@ -201,6 +238,12 @@ async def transition_task(
     if raw_task is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"Task '{task_id}' not found"
+        )
+
+    if not await _is_transition_authorized(task_id, user_id, raw_task, graph_store):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"User '{user_id}' is not authorized to transition task '{task_id}'",
         )
 
     try:

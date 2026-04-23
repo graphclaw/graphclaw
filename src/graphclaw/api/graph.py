@@ -66,6 +66,87 @@ from graphclaw.models.enums import TaskState, TaskType
 logger = logging.getLogger(__name__)
 
 
+def _decode_json_like(value: Any) -> Any:
+    """Decode JSON-like string values into Python objects when possible."""
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except (json.JSONDecodeError, ValueError):
+            return value
+    return value
+
+
+def _safe_float(value: Any, default: float) -> float:
+    """Return a float value or fallback default on parse errors."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _clamp(value: float, *, low: float, high: float) -> float:
+    """Clamp a float to [low, high]."""
+    return max(low, min(high, value))
+
+
+async def _build_followup_config(
+    graph_store: Any,
+    *,
+    task_id: str,
+    owner_user_id: str,
+    assignee_id: str | None,
+) -> Any:
+    """Build FollowupConfig inputs from user/resource graph context.
+
+    Defaults are intentionally aligned with FollowupConfig model defaults.
+    """
+    from graphclaw.triggers.models import FollowupConfig
+
+    base_cadence_days = 3.0
+    complexity_factor = 1.0
+    reliability_score = 0.8
+    recency_bonus = 0.0
+
+    try:
+        owner_raw = await graph_store.get_node(owner_user_id)
+        if owner_raw:
+            prefs = _decode_json_like(owner_raw.get("preferences"))
+            if isinstance(prefs, dict):
+                base_cadence_days = _safe_float(
+                    prefs.get("default_follow_up_days"),
+                    base_cadence_days,
+                )
+    except Exception as exc:  # noqa: BLE001
+        logger.debug(
+            "graph: could not load user follow-up preferences for %s: %s", owner_user_id, exc
+        )
+
+    if assignee_id:
+        try:
+            assignee_raw = await graph_store.get_node(assignee_id)
+            if assignee_raw:
+                reliability = _decode_json_like(assignee_raw.get("reliability"))
+                if isinstance(reliability, dict):
+                    reliability_score = _safe_float(
+                        reliability.get("overall_score"),
+                        reliability_score,
+                    )
+                    recency_bonus = _safe_float(
+                        reliability.get("on_time_delivery_rate"),
+                        recency_bonus,
+                    )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("graph: could not load assignee reliability for %s: %s", assignee_id, exc)
+
+    return FollowupConfig(
+        task_id=task_id,
+        base_cadence_days=max(base_cadence_days, 0.1),
+        complexity_factor=max(complexity_factor, 0.1),
+        reliability_score=_clamp(reliability_score, low=0.0, high=1.0),
+        recency_bonus=_clamp(recency_bonus, low=0.0, high=1.0),
+    )
+
+
 def _normalize_edge(e: dict) -> dict:
     """Ensure edge dicts have canonical source_id/target_id/edge_type/id fields."""
     result = {k: v for k, v in e.items() if not k.startswith("_")}
@@ -339,6 +420,14 @@ async def create_task(
 
     from graphclaw.models.nodes import TaskNode
 
+    if body.parent_goal_id:
+        parent_node = await graph_store.get_node(body.parent_goal_id)
+        if parent_node is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"parent_goal_id '{body.parent_goal_id}' does not exist",
+            )
+
     # Map string task_type to enum; raise 422 if unknown.
     try:
         ttype = TaskType(body.task_type)
@@ -380,15 +469,41 @@ async def create_task(
         except Exception as exc:
             logger.warning("graph: could not wire ASSIGNED_TO edge for task %s: %s", task_id, exc)
 
+    if body.parent_goal_id:
+        try:
+            await graph_store.create_edge(task_id, body.parent_goal_id, "PART_OF", {})
+        except Exception as exc:
+            logger.error("graph: could not wire PART_OF edge for task %s: %s", task_id, exc)
+            try:
+                await graph_store.delete_node(task_id)
+            except Exception:  # noqa: BLE001
+                pass
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=(
+                    f"Failed to create PART_OF edge from '{task_id}' to '{body.parent_goal_id}'"
+                ),
+            )
+
     # Auto-spawn a FollowUp task when creating a DELEGATED task (PRD §3.1, §6.2).
     if ttype == TaskType.DELEGATED:
         from graphclaw.models.nodes import TaskNode as _TN
         from graphclaw.models.type_metadata import FollowUpMetadata
+        from graphclaw.triggers.followup import compute_next_followup
+        from graphclaw.triggers.models import FollowupConfig
 
         followup_id = generate_task_id("API", TaskType.FOLLOWUP)
-        # Default scheduled_fire_at: 48 hours from now (placeholder; O-AGT-03 will refine)
-        from datetime import timedelta
-        scheduled_fire_at = utcnow() + timedelta(hours=48)
+        try:
+            followup_cfg = await _build_followup_config(
+                graph_store,
+                task_id=task_id,
+                owner_user_id=user_id,
+                assignee_id=body.assignee_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("graph: follow-up config build failed for %s: %s", task_id, exc)
+            followup_cfg = FollowupConfig(task_id=task_id)
+        scheduled_fire_at = compute_next_followup(followup_cfg)
 
         followup = _TN(
             id=followup_id,
@@ -411,11 +526,14 @@ async def create_task(
             await graph_store.create_edge(followup_id, task_id, "FOLLOW_UP_FOR", {})
             # Also update the delegated task's type_metadata with follow_up_task_id
             from graphclaw.models.type_metadata import DelegatedMetadata
+
             del_meta = DelegatedMetadata(
                 assigned_resource_id=body.assignee_id or user_id,
                 follow_up_task_id=followup_id,
             )
-            await graph_store.update_node(task_id, {"type_metadata": del_meta.model_dump(mode="json")})
+            await graph_store.update_node(
+                task_id, {"type_metadata": del_meta.model_dump(mode="json")}
+            )
             logger.info(
                 "graph: auto-spawned follow-up %s for delegated task %s",
                 followup_id,
