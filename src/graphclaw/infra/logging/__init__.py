@@ -17,9 +17,7 @@ from __future__ import annotations
 
 import logging
 import logging.handlers
-import os
 import queue
-from typing import Optional
 
 from graphclaw.infra.logging.context import (
     SessionFilter,
@@ -40,7 +38,7 @@ __all__ = [
     "SessionFilter",
 ]
 
-_listener: Optional[logging.handlers.QueueListener] = None
+_listener: logging.handlers.QueueListener | None = None
 
 
 class _DroppingQueueHandler(logging.handlers.QueueHandler):

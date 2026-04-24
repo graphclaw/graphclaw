@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import io
 import json
 import logging
+import queue
 import time
 
 import pytest
@@ -57,8 +57,9 @@ class TestConfigureLogging:
         cap = CapturingHandler()
         cap.setFormatter(JsonFormatter(service_name="test"))
 
-        log_queue: "queue.Queue" = __import__("queue").Queue()
-        from logging.handlers import QueueListener, QueueHandler
+        log_queue: queue.Queue = __import__("queue").Queue()
+        from logging.handlers import QueueHandler, QueueListener
+
         from graphclaw.infra.logging.context import SessionFilter
 
         qh = QueueHandler(log_queue)

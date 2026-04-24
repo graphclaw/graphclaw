@@ -423,27 +423,21 @@ It intentionally excludes already completed historical observations captured in 
 
 ## 6) Validation and Release Gates
 
-- [-] N-028 | Priority: P0 | Status: In Progress (Gates Executed, Partial Blockers)
+- [x] N-028 | Priority: P0 | Status: Completed
   For each approved observation: implement code, run targeted tests against real services, then run full lint/format gates.
   Gate policy decision (2026-04-24):
   - Strict full-repo gates must pass before closure.
-  Current evidence:
-  - Targeted validation completed for N-022..N-027 scope:
-    - `pytest tests/test_gateway/test_seeding.py tests/test_models/test_deserialization.py tests/test_scoring/test_factor_guards.py tests/test_state/test_machine.py tests/test_agent/test_event_consumer.py -q` → `57 passed`.
-    - focused lint passed on touched files (`ruff check ...`).
-    - focused format check passed on touched files (`ruff format --check ...`).
-  - Full workspace gates remain blocked by repository-wide/environment issues outside the N-022..N-027 patch surface.
-
-  Latest strict gate run (2026-04-24, full repo):
-  - `ruff check src/ tests/` → failed with 26 findings (24 auto-fixable), including import-order,
-    unused imports, and typing issues in baseline files.
-  - `ruff format --check src/ tests/` → failed; 15 files would be reformatted.
-  - Result: N-028 remains open until strict full-repo lint/format gates pass in a stabilized baseline.
-
-  Status refresh (2026-04-24):
-  - Latest recorded full-suite runs (see `test_results_new.txt` / `test_results_final.txt`) indicate
-    broad integration failures tied to environment setup (storage auth and DB test infra), so N-028
-    remains in progress pending stable full-gate execution in a clean environment.
+  Completion evidence (2026-04-24):
+  - Strict lint autofix executed across full enforced scope:
+    - `ruff check --fix src/ tests/` → fixed 27 findings automatically; remaining issues fixed manually.
+  - Strict format applied across full enforced scope:
+    - `ruff format src/ tests/` → 15 files reformatted.
+  - Final strict gates are green:
+    - `ruff check src/ tests/` → `All checks passed!`
+    - `ruff format --check src/ tests/` → `422 files already formatted`
+  Notes:
+  - This closes the strict full-repo lint/format requirement for N-028.
+  - Remaining release risk is in N-029 (services-backed integration evidence), not lint/format policy.
 
 - [-] N-029 | Priority: P0 | Status: In Progress (Mandatory Precheck Implemented)
   Require non-mock integration evidence for DB, broker, and storage paths before marking observation as done.
@@ -476,16 +470,12 @@ It intentionally excludes already completed historical observations captured in 
   Remaining requirement:
   - Collect green, non-mock evidence for DB + broker + storage in the same environment after mandatory services-up precheck.
 
-- [-] N-030 | Priority: P1 | Status: In Progress (Policy Applied in This Pass)
+- [-] N-030 | Priority: P1 | Status: In Progress (Commit Policy Locked)
   Commit in small batches per approved observation group with test evidence in commit messages.
   Commit evidence decision (2026-04-24):
   - Each commit/batch summary must include explicit pass/fail summary for executed validation commands.
-  Evidence now present:
-  - `6ba7a50` (N-021): includes explicit validation command outcomes.
-  - `279a442` (N-029): includes PASS/FAIL validation summary.
-  - `8f3f3be` (N-020 progress): includes PASS/FAIL validation summary and blocker evidence.
-  Remaining requirement:
-  - Continue the same commit discipline for remaining open observations until closure.
+  Current evidence gap:
+  - No observation-scoped commit batch sequence with pass/fail evidence summary has been executed in this pass yet.
 
 ## Status Snapshot (2026-04-24)
 
@@ -498,6 +488,6 @@ It intentionally excludes already completed historical observations captured in 
 - N-025: Completed.
 - N-026: Completed.
 - N-027: Completed.
-- N-028: In Progress (strict full-repo lint/format gates executed and currently failing on baseline-wide issues).
+- N-028: Completed (strict full-repo lint/format gates now passing).
 - N-029: In Progress (services-up precheck now enforced; DB/storage non-mock green evidence still pending).
-- N-030: In Progress (commit evidence policy now being applied; continue for remaining open observations).
+- N-030: In Progress (commit evidence policy locked; pass/fail summary still to be applied in commit batches).
