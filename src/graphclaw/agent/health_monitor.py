@@ -48,7 +48,6 @@ from graphclaw.infra.broker import AGENT_UPDATES, MessageBroker
 from graphclaw.models.base import utcnow
 
 if TYPE_CHECKING:
-    from graphclaw.infra.logger import AsyncLogger
     from graphclaw.state.machine import StateMachine
 
 logger = logging.getLogger(__name__)
@@ -91,13 +90,11 @@ class AgentHealthMonitor:
         state_machine: StateMachine | None = None,
         check_interval: int = 30,
         heartbeat_timeout: int = 300,
-        async_logger: AsyncLogger | None = None,
     ) -> None:
         self._broker = broker
         self._state_machine = state_machine
         self._check_interval = check_interval
         self._heartbeat_timeout = heartbeat_timeout
-        self._logger = async_logger
 
         self._records: dict[str, _AgentRecord] = {}  # agent_id → record
         self._monitor_task: asyncio.Task | None = None
@@ -228,21 +225,16 @@ class AgentHealthMonitor:
             except Exception as exc:
                 logger.warning("AgentHealthMonitor: failed to publish BLOCKED event: %s", exc)
 
-            # Audit log
-            if self._logger:
-                from graphclaw.infra.logger import AgentTaskBlockedEvent
-
-                self._logger.log(
-                    "WARNING",
-                    "agent.task.blocked",
-                    rec.session_id,
-                    **AgentTaskBlockedEvent(
-                        agent_id=rec.agent_id,
-                        task_id=rec.task_id,
-                        session_id=rec.session_id,
-                        reason=f"Heartbeat timeout ({self._heartbeat_timeout}s)",
-                    ).model_dump(),
-                )
+            logger.info(
+                "agent.task.blocked",
+                extra={
+                    "event_type": "agent.task.blocked",
+                    "agent_id": rec.agent_id,
+                    "task_id": rec.task_id,
+                    "session_id": rec.session_id,
+                    "reason": f"Heartbeat timeout ({self._heartbeat_timeout}s)",
+                },
+            )
 
             # Remove from active tracking after escalation
             self._records.pop(rec.agent_id, None)

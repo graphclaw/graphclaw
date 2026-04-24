@@ -47,6 +47,7 @@ want it to run concurrently.
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
@@ -54,8 +55,9 @@ from graphclaw.models.base import utcnow
 from graphclaw.skills.models import HeartbeatConfig, ThreadState
 
 if TYPE_CHECKING:
-    from graphclaw.infra.logger import AsyncLogger
     from graphclaw.skills.worker import WorkerPool
+
+logger = logging.getLogger(__name__)
 
 
 class HeartbeatMonitor:
@@ -80,11 +82,9 @@ class HeartbeatMonitor:
         self,
         pool: WorkerPool,
         config: HeartbeatConfig | None = None,
-        logger: AsyncLogger | None = None,
     ) -> None:
         self._pool = pool
         self._config = config or HeartbeatConfig()
-        self._logger = logger
         self._running: bool = False
         self._respawn_counts: dict[str, int] = {}
 
@@ -154,22 +154,22 @@ class HeartbeatMonitor:
 
             if attempts < self._config.max_respawn_attempts:
                 self._respawn_counts[worker_id] = attempts + 1
-                if self._logger:
-                    self._logger.log(
-                        "WARN",
-                        "heartbeat.timeout",
-                        "",
-                        worker_id=worker_id,
-                        attempt=attempts + 1,
-                        elapsed_seconds=elapsed.total_seconds(),
-                    )
+                logger.warning(
+                    "heartbeat.timeout",
+                    extra={
+                        "event_type": "heartbeat.timeout",
+                        "worker_id": worker_id,
+                        "attempt": attempts + 1,
+                        "elapsed_seconds": elapsed.total_seconds(),
+                    },
+                )
             else:
-                if self._logger:
-                    self._logger.log(
-                        "ERROR",
-                        "heartbeat.failed",
-                        "",
-                        worker_id=worker_id,
-                        message="Max respawn attempts exceeded",
-                        attempts=attempts,
-                    )
+                logger.error(
+                    "heartbeat.failed",
+                    extra={
+                        "event_type": "heartbeat.failed",
+                        "worker_id": worker_id,
+                        "detail": "Max respawn attempts exceeded",
+                        "attempts": attempts,
+                    },
+                )

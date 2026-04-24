@@ -69,7 +69,6 @@ if TYPE_CHECKING:
     from graphclaw.agent.sub_agent_pool import SubAgentPool
     from graphclaw.db.base import GraphStore
     from graphclaw.infra.broker import MessageBroker
-    from graphclaw.infra.logger import AsyncLogger
     from graphclaw.infra.storage import StorageClient
     from graphclaw.infra.user_events import UserEventPublisher
     from graphclaw.llm.base import LLMClient
@@ -82,6 +81,11 @@ logger = logging.getLogger(__name__)
 
 # Sentinel agent_id used when no explicit agent_id is configured
 _DEFAULT_AGENT_ID = "main"
+_PLAN_STATUS_DRAFT = "DRAFT"
+_PLAN_STATUS_APPROVED = "APPROVED"
+_PLAN_STATUS_EXECUTED = "EXECUTED"
+_GOAL_INFERENCE_STATUS_DRAFT = "DRAFT"
+_GOAL_INFERENCE_STATUS_APPROVED = "APPROVED"
 
 # System prompt template — persona loaded from profile.md is appended
 _SYSTEM_PROMPT_HEADER = """\
@@ -157,7 +161,6 @@ class MainOrchestrator:
         llm_client: LLMClient | None = None,
         storage_client: StorageClient | None = None,
         agent_id: str = _DEFAULT_AGENT_ID,
-        _logger: AsyncLogger | None = None,
         skill_registry: SkillRegistryService | None = None,
         worker_pool: WorkerPool | None = None,
         mcp_registry: MCPRegistry | None = None,
@@ -172,7 +175,6 @@ class MainOrchestrator:
         self._llm = llm_client
         self._storage = storage_client
         self._agent_id = agent_id
-        self._logger = _logger
         self._skill_registry = skill_registry
         self._worker_pool = worker_pool
         self._mcp_registry = mcp_registry
@@ -206,6 +208,21 @@ class MainOrchestrator:
             self._knowledge_base = None
             self._agent_catalog = None
             self._context_manager = None
+
+    @property
+    def llm_client(self) -> LLMClient | None:
+        """Public accessor for the configured LLM client."""
+        return self._llm
+
+    @property
+    def graph_repo(self) -> GraphStore:
+        """Public accessor for the graph repository dependency."""
+        return self._repo
+
+    @property
+    def agent_id(self) -> str:
+        """Public accessor for this orchestrator's logical agent id."""
+        return self._agent_id
 
     def _invalidate_cached_queue(
         self,
@@ -362,18 +379,17 @@ class MainOrchestrator:
         self._dirty_task_ids.clear()
         logger.info("AgentLoop: scoring cycle complete — %d items in queue", len(queue))
 
-        # Log scoring cycle completion
-        if self._logger:
-            self._logger.log(
-                "INFO",
-                "agent.scoring_cycle",
-                session_id="",
-                user_id=user_id or "system",
-                tasks_scored=len(tasks),
-                top_task_id=queue[0].node_id if queue else None,
-                queue_depth=len(queue),
-                trigger_source=trigger_source,
-            )
+        logger.info(
+            "agent.scoring_cycle",
+            extra={
+                "event_type": "agent.scoring_cycle",
+                "user_id": user_id or "system",
+                "tasks_scored": len(tasks),
+                "top_task_id": queue[0].node_id if queue else None,
+                "queue_depth": len(queue),
+                "trigger_source": trigger_source,
+            },
+        )
 
         return queue
 
@@ -668,15 +684,17 @@ class MainOrchestrator:
             elapsed_ms = (time.monotonic() - t0) * 1000
 
             # Log LLM response
-            if self._logger and response.usage:
-                self._logger.log(
-                    "INFO",
+            if response.usage:
+                logger.info(
                     "agent.message",
-                    session_id=session_id or "",
-                    user_id=user_id,
-                    input_tokens=response.usage.input_tokens if response.usage else 0,
-                    output_tokens=response.usage.output_tokens if response.usage else 0,
-                    latency_ms=int(elapsed_ms),
+                    extra={
+                        "event_type": "agent.message",
+                        "session_id": session_id or "",
+                        "user_id": user_id,
+                        "input_tokens": response.usage.input_tokens,
+                        "output_tokens": response.usage.output_tokens,
+                        "latency_ms": int(elapsed_ms),
+                    },
                 )
 
             # If the model wants to call tools, execute them and feed results back
@@ -1133,43 +1151,78 @@ class MainOrchestrator:
             return ""
 
     async def _build_graph_summary(self, user_id: str) -> str:
-        """Build a goal-first, user-scoped task graph snapshot.
+        """Build a goal-first, user-scoped task graph snapshot (§12.4).
 
-        Strategy (§14.1):
-        1. Load active GoalNode summaries for the user.
-        2. Load top-5 scored tasks for the user from the last scoring queue.
-        3. Omit COMPLETE/CANCELLED goals entirely.
+        Strategy:
+        1. Load active GoalNode summaries for the user; split ACTIVE vs ON_HOLD.
+        2. Load top-5 scored tasks; enrich each with task_type, assignee name,
+           and blocked-by ID when state=BLOCKED.
+        3. Omit COMPLETE/ABANDONED goals entirely.
         """
-        from graphclaw.models.enums import GoalState
+        from graphclaw.models.enums import GoalState, TaskState
 
         parts: list[str] = []
 
         # --- Goals section ---
         try:
             goal_props = await self._repo.list_nodes_by_user("GoalNode", user_id)
-            active_goals = []
+            active_goals: list[dict] = []
+            on_hold_goals: list[dict] = []
             for gp in goal_props:
                 state = gp.get("state", "")
-                if state in (GoalState.COMPLETE.value, "ABANDONED"):
+                if state in (GoalState.COMPLETE.value, "ABANDONED", GoalState.OBSOLETE.value):
                     continue
-                active_goals.append(gp)
+                if state == GoalState.ON_HOLD.value:
+                    on_hold_goals.append(gp)
+                else:
+                    active_goals.append(gp)
+
+            def _format_goal_line(gp: dict) -> str:
+                title = gp.get("title", gp.get("id", "?"))
+                gid = gp.get("id", "")
+                priority = gp.get("priority", "")
+                state = gp.get("state", "")
+                # Progress fields
+                progress = gp.get("progress", {}) or {}
+                if isinstance(progress, dict):
+                    pct = progress.get("derived_percentage", "")
+                    m_done = progress.get("milestones_done", "")
+                    m_total = progress.get("milestone_count", "")
+                else:
+                    pct = m_done = m_total = ""
+                # Timeline
+                timeline = gp.get("timeline", {}) or {}
+                target_date = ""
+                if isinstance(timeline, dict):
+                    td = (
+                        timeline.get("target_date")
+                        or timeline.get("due_date")
+                        or gp.get("due_date")
+                        or gp.get("target_date", "")
+                    )
+                    if td:
+                        target_date = str(td)[:10]  # ISO date only
+                parts_line: list[str] = [f"- {title} [{gid}]", priority, state]
+                if target_date:
+                    parts_line.append(f"due {target_date}")
+                if m_done != "" and m_total != "":
+                    parts_line.append(f"{m_done}/{m_total} milestones")
+                if pct != "":
+                    parts_line.append(f"{pct}%")
+                return " | ".join(parts_line)
 
             if active_goals:
                 goal_lines = ["### Active Goals"]
                 for gp in active_goals[:5]:
-                    title = gp.get("title", gp.get("id", "?"))
-                    priority = gp.get("priority", "")
-                    state = gp.get("state", "")
-                    gid = gp.get("id", "")
-                    # Include node_intelligence summary if available
-                    intel = gp.get("node_intelligence") or gp.get("intelligence", "")
-                    if isinstance(intel, dict):
-                        intel = intel.get("summary", "")
-                    line = f"- {title} [{gid}] | {priority} | {state}"
-                    goal_lines.append(line)
-                    if intel:
-                        goal_lines.append(f"    {intel[:150]}")
+                    goal_lines.append(_format_goal_line(gp))
                 parts.append("\n".join(goal_lines))
+
+            if on_hold_goals:
+                hold_lines = ["### On Hold Goals"]
+                for gp in on_hold_goals[:3]:
+                    hold_lines.append(_format_goal_line(gp))
+                parts.append("\n".join(hold_lines))
+
         except Exception as exc:  # noqa: BLE001
             logger.debug("AgentLoop: goal summary failed: %s", exc)
 
@@ -1188,18 +1241,70 @@ class MainOrchestrator:
             except Exception:  # noqa: BLE001
                 task_index = {}
 
+            # Collect assignee IDs and blocker IDs so we can bulk-resolve names.
+            assignee_ids: set[str] = set()
+            blocker_map: dict[str, str] = {}  # task_id → blocker_task_id
+            for entry in scoped_queue[:5]:
+                task = task_index.get(entry.node_id)
+                if task is None:
+                    continue
+                if task.assigned_to:
+                    assignee_ids.add(task.assigned_to)
+                if task.state == TaskState.BLOCKED:
+                    try:
+                        in_edges = await self._repo.get_edges(
+                            task.id, direction="in", edge_type="BLOCKS"
+                        )
+                        if in_edges:
+                            blocker_id = in_edges[0].get("_start_id", "")
+                            if blocker_id:
+                                blocker_map[task.id] = blocker_id
+                    except Exception:  # noqa: BLE001
+                        pass
+
+            # Bulk-resolve assignee names in one graph call.
+            assignee_names: dict[str, str] = {}
+            if assignee_ids:
+                try:
+                    nodes = await self._repo.get_nodes_bulk(list(assignee_ids))
+                    for nid, props in nodes.items():
+                        name = props.get("name") or props.get("title") or nid
+                        assignee_names[nid] = name
+                except Exception:  # noqa: BLE001
+                    pass
+
             task_lines = ["### Top Priority Tasks"]
             for entry in scoped_queue[:5]:
                 task = task_index.get(entry.node_id)
                 if task is None:
-                    continue  # skip tasks from other users
-                deadline = ""
+                    continue
+
+                task_type = task.task_type.value if task.task_type else ""
+                state_str = task.state.value if task.state else str(task.state)
+
+                # Assignee short name
+                assignee_part = ""
+                if task.assigned_to:
+                    raw_name = assignee_names.get(task.assigned_to, task.assigned_to)
+                    short_name = raw_name.split()[0] if raw_name else task.assigned_to
+                    assignee_part = f" | @{short_name}"
+
+                # Deadline
+                deadline_part = ""
                 if task.timeline and task.timeline.deadline:
-                    deadline = f" (due {task.timeline.deadline.date()})"
+                    deadline_part = f" | due {task.timeline.deadline.date()}"
+
+                # Blocked-by
+                if task.state == TaskState.BLOCKED and task.id in blocker_map:
+                    state_str = f"BLOCKED by {blocker_map[task.id]}"
+
                 task_lines.append(
                     f"- [{entry.rank}] {task.title} [{task.id}]"
-                    f" | {task.state} | score={entry.final_score:.2f}{deadline}"
+                    f" | {task_type} | {state_str}"
+                    f" | score={entry.final_score:.2f}"
+                    f"{assignee_part}{deadline_part}"
                 )
+
             if len(task_lines) > 1:
                 parts.append("\n".join(task_lines))
 
@@ -1241,8 +1346,16 @@ class MainOrchestrator:
             # --- planning set ---
             elif name == "propose_plan":
                 result = await self._tool_propose_plan(user_id, arguments)
+            elif name == "edit_plan":
+                result = await self._tool_edit_plan(user_id, arguments)
+            elif name == "approve_plan":
+                result = await self._tool_approve_plan(user_id, arguments)
             elif name == "execute_plan":
                 result = await self._tool_execute_plan(user_id, arguments)
+            elif name == "propose_goal_inference":
+                result = await self._tool_propose_goal_inference(user_id, arguments)
+            elif name == "approve_goal_inference":
+                result = await self._tool_approve_goal_inference(user_id, arguments)
             # --- skills set ---
             elif name == "list_available_skills":
                 result = await self._tool_list_available_skills(user_id, arguments)
@@ -1262,14 +1375,16 @@ class MainOrchestrator:
                 result = {"error": f"Unknown tool: {name}"}
 
             # Log successful tool execution
-            if self._logger and "error" not in result:
-                self._logger.log(
-                    "INFO",
+            if "error" not in result:
+                logger.info(
                     "agent.tool_call",
-                    session_id=self._current_session_id or "",
-                    tool_name=name,
-                    user_id=user_id,
-                    latency_ms=int((time.monotonic() - t0) * 1000),
+                    extra={
+                        "event_type": "agent.tool_call",
+                        "session_id": self._current_session_id or "",
+                        "tool_name": name,
+                        "user_id": user_id,
+                        "latency_ms": int((time.monotonic() - t0) * 1000),
+                    },
                 )
 
             return result
@@ -1538,6 +1653,7 @@ class MainOrchestrator:
                 logger.warning("AgentLoop: could not wire ASSIGNED_TO edge: %s", exc)
 
         # Auto-spawn a FollowUp task for DELEGATED tasks (PRD §3.1, §6.2).
+        followup_task_id: str | None = None
         if task_type == TaskType.DELEGATED:
             from graphclaw.models.type_metadata import DelegatedMetadata, FollowUpMetadata
             from graphclaw.triggers.followup import compute_next_followup
@@ -1625,6 +1741,7 @@ class MainOrchestrator:
             try:
                 await self._repo.create_node(followup)
                 await self._repo.create_edge(followup_id, task_id, "FOLLOW_UP_FOR", {})
+                followup_task_id = followup_id
                 del_meta = DelegatedMetadata(
                     assigned_resource_id=args.get("assigned_to") or user_id,
                     follow_up_task_id=followup_id,
@@ -1642,16 +1759,20 @@ class MainOrchestrator:
 
         self._invalidate_cached_queue(user_id)
 
-        return {
+        result = {
             "task_id": task_id,
             "title": args["title"],
             "task_type": str(task_type.value),
             "status": "created",
         }
+        if followup_task_id:
+            result["follow_up_task_id"] = followup_task_id
+        return result
 
     async def _tool_update_task_state(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
+        from graphclaw.models.deserialization import deserialize_task_node_props
         from graphclaw.models.enums import ChangedBy, TaskState
-        from graphclaw.state.cascade import _deserialize_node_props, persist_transition_and_cascade
+        from graphclaw.state.cascade import persist_transition_and_cascade
         from graphclaw.state.transitions import InvalidTransitionError
 
         task_id = args["task_id"]
@@ -1666,7 +1787,7 @@ class MainOrchestrator:
             return {"error": f"Invalid state {args['new_state']!r}. Valid: {valid_states}"}
 
         try:
-            task = TaskNode.model_validate(_deserialize_node_props(props))
+            task = TaskNode.model_validate(deserialize_task_node_props(props))
         except Exception as exc:
             return {"error": f"Task {task_id} could not be parsed: {exc}"}
 
@@ -1811,7 +1932,12 @@ class MainOrchestrator:
         return {"goal_id": goal_id, "status": "updated", "fields_updated": changed}
 
     async def _tool_get_task_details(self, _user_id: str, args: dict[str, Any]) -> dict[str, Any]:
-        """Return full node details plus graph relationships for one task or goal."""
+        """Return a layered detail view for one task or goal (§12.5).
+
+        Response is ordered from most-actionable to most-historical:
+        header → timeline → assignee → goal → dependencies → edges →
+        scoring → type_metadata → intelligence log.
+        """
         node_id = args.get("node_id") or args.get("task_id", "")
         if not node_id:
             return {"error": "node_id is required"}
@@ -1820,47 +1946,230 @@ class MainOrchestrator:
         if not props:
             return {"error": f"Node {node_id} not found"}
 
-        result: dict[str, Any] = dict(_deserialise_graph_props(props))
+        raw = _deserialise_graph_props(props)
+        is_goal = node_id.upper().startswith("GOAL") or raw.get("node_type", "").startswith("Goal")
 
-        # Enrich with edges
+        # --- Fetch edges ---
+        out_edges: list[dict] = []
+        in_edges: list[dict] = []
         try:
             out_edges = await self._repo.get_edges(node_id, direction="out")
             in_edges = await self._repo.get_edges(node_id, direction="in")
-
-            def _edge_label(edge: dict[str, Any]) -> str:
-                return str(edge.get("type") or edge.get("_label") or "")
-
-            def _edge_target(edge: dict[str, Any]) -> Any:
-                return (
-                    edge.get("target_id") or edge.get("_end_id") or edge.get("target", {}).get("id")
-                )
-
-            def _edge_source(edge: dict[str, Any]) -> Any:
-                return (
-                    edge.get("source_id")
-                    or edge.get("_start_id")
-                    or edge.get("source", {}).get("id")
-                )
-
-            result["depends_on"] = [
-                _edge_target(e) for e in out_edges if _edge_label(e) == "DEPENDS_ON"
-            ]
-            result["blocks"] = [_edge_target(e) for e in out_edges if _edge_label(e) == "BLOCKS"]
-            result["part_of_goal"] = next(
-                (_edge_target(e) for e in out_edges if _edge_label(e) == "PART_OF"),
-                None,
-            )
-            result["assigned_to_user"] = next(
-                (_edge_target(e) for e in out_edges if _edge_label(e) == "ASSIGNED_TO"),
-                None,
-            )
-            result["blocked_by"] = [_edge_source(e) for e in in_edges if _edge_label(e) == "BLOCKS"]
         except Exception as exc:
-            logger.debug("AgentLoop: get_task_details edge enrichment failed: %s", exc)
+            logger.debug("get_task_details: edge fetch failed for %s: %s", node_id, exc)
 
-        # Trim state_history to last 3 entries
-        if isinstance(result.get("state_history"), list):
-            result["state_history"] = result["state_history"][-3:]
+        def _label(e: dict) -> str:
+            return str(e.get("type") or e.get("_label") or "")
+
+        def _target(e: dict) -> str:
+            return str(e.get("target_id") or e.get("_end_id") or "")
+
+        def _source(e: dict) -> str:
+            return str(e.get("source_id") or e.get("_start_id") or "")
+
+        depends_on_ids = [_target(e) for e in out_edges if _label(e) == "DEPENDS_ON" and _target(e)]
+        blocks_ids = [_target(e) for e in out_edges if _label(e) == "BLOCKS" and _target(e)]
+        blocked_by_ids = [_source(e) for e in in_edges if _label(e) == "BLOCKS" and _source(e)]
+        part_of_id = next(
+            (_target(e) for e in out_edges if _label(e) == "PART_OF" and _target(e)), None
+        )
+        assignee_id = next(
+            (_target(e) for e in out_edges if _label(e) == "ASSIGNED_TO" and _target(e)), None
+        )
+        spawned_from_id = next(
+            (_target(e) for e in out_edges if _label(e) == "SPAWNED_FROM" and _target(e)), None
+        )
+        depended_on_by_ids = [
+            _source(e) for e in in_edges if _label(e) == "DEPENDS_ON" and _source(e)
+        ]
+
+        # --- Bulk-resolve neighbor names in one round-trip ---
+        neighbor_ids: list[str] = [
+            nid
+            for nid in [
+                *depends_on_ids,
+                *blocks_ids,
+                *blocked_by_ids,
+                *depended_on_by_ids,
+                part_of_id,
+                assignee_id,
+                spawned_from_id,
+            ]
+            if nid
+        ]
+        neighbor_props: dict[str, dict] = {}
+        if neighbor_ids:
+            try:
+                neighbor_props = await self._repo.get_nodes_bulk(neighbor_ids)
+            except Exception as exc:
+                logger.debug("get_task_details: bulk fetch failed: %s", exc)
+
+        def _name(nid: str | None) -> str:
+            if not nid:
+                return ""
+            p = neighbor_props.get(nid, {})
+            return p.get("name") or p.get("title") or nid
+
+        def _state(nid: str | None) -> str:
+            if not nid:
+                return ""
+            return str(neighbor_props.get(nid, {}).get("state", ""))
+
+        # --- Find scoring entry from last queue ---
+        queue_entry: ActionQueueEntry | None = next(
+            (e for e in self._last_queue if e.node_id == node_id), None
+        )
+
+        # ================================================================
+        # Build the layered response
+        # ================================================================
+        result: dict[str, Any] = {}
+
+        # --- Header ---
+        header: dict[str, Any] = {
+            "id": raw.get("id", node_id),
+            "title": raw.get("title", ""),
+            "state": raw.get("state", ""),
+        }
+        if not is_goal:
+            header["task_type"] = raw.get("task_type", "")
+            if queue_entry:
+                header["score"] = round(queue_entry.final_score, 3)
+                header["rank"] = queue_entry.rank
+                header["autonomy_level"] = queue_entry.autonomy_level.value
+                header["recommended_action"] = queue_entry.recommended_action
+            is_overridden = (raw.get("override") or {}).get("is_overridden", False)
+            if is_overridden:
+                header["overridden"] = True
+        result["header"] = header
+
+        # --- Timeline ---
+        timeline_raw = raw.get("timeline") or {}
+        if isinstance(timeline_raw, dict):
+            tl: dict[str, Any] = {}
+            for field in (
+                "deadline",
+                "target_date",
+                "started_at",
+                "completed_at",
+                "estimated_effort_hours",
+                "estimated_effort_days",
+                "actual_effort_days",
+            ):
+                val = timeline_raw.get(field)
+                if val is not None:
+                    tl[field] = val
+            progress_raw = raw.get("progress") or {}
+            if isinstance(progress_raw, dict):
+                pct = progress_raw.get("percentage") or progress_raw.get("derived_percentage")
+                if pct is not None:
+                    tl["progress_pct"] = pct
+            if tl:
+                result["timeline"] = tl
+
+        # --- Assignee ---
+        if assignee_id:
+            ap = neighbor_props.get(assignee_id, {})
+            result["assigned_to"] = {
+                "id": assignee_id,
+                "name": _name(assignee_id),
+                "load_factor": (ap.get("capacity") or {}).get("load_factor"),
+                "reliability": (ap.get("reliability") or {}).get("overall_score"),
+                "availability": (ap.get("capacity") or {}).get("availability_status"),
+            }
+
+        # --- Parent goal ---
+        if part_of_id:
+            gp = neighbor_props.get(part_of_id, {})
+            result["goal"] = {
+                "id": part_of_id,
+                "title": _name(part_of_id),
+                "priority": gp.get("priority"),
+                "state": gp.get("state"),
+            }
+
+        # --- Dependencies ---
+        deps: dict[str, Any] = {}
+        if depends_on_ids:
+            deps["waiting_on"] = [
+                {"id": nid, "title": _name(nid), "state": _state(nid)} for nid in depends_on_ids
+            ]
+        if depended_on_by_ids:
+            deps["blocking"] = [
+                {"id": nid, "title": _name(nid), "state": _state(nid)} for nid in depended_on_by_ids
+            ]
+        if blocked_by_ids:
+            deps["blocked_by"] = [
+                {"id": nid, "title": _name(nid), "state": _state(nid)} for nid in blocked_by_ids
+            ]
+        if blocks_ids:
+            deps["actively_blocks"] = [
+                {"id": nid, "title": _name(nid), "state": _state(nid)} for nid in blocks_ids
+            ]
+        if deps:
+            result["dependencies"] = deps
+
+        # --- Edge summary ---
+        edges: dict[str, Any] = {}
+        if part_of_id:
+            edges["PART_OF"] = part_of_id
+        if assignee_id:
+            edges["ASSIGNED_TO"] = f"{assignee_id} ({_name(assignee_id)})"
+        if depends_on_ids:
+            edges["DEPENDS_ON"] = depends_on_ids
+        if blocks_ids:
+            edges["BLOCKS"] = blocks_ids
+        if spawned_from_id:
+            edges["SPAWNED_FROM"] = spawned_from_id
+        if edges:
+            result["edges"] = edges
+
+        # --- Scoring factors ---
+        if queue_entry and queue_entry.explanation.factors:
+            expl = queue_entry.explanation
+            result["scoring"] = {
+                "final_score": round(expl.final_score, 3),
+                "summary": expl.summary,
+                "topology_note": expl.topology_note,
+                "factors": [
+                    {
+                        "factor": f.factor_name,
+                        "weighted_score": round(f.weighted_score, 3),
+                        "reason": f.plain_english,
+                    }
+                    for f in sorted(expl.factors, key=lambda f: f.weighted_score, reverse=True)
+                ],
+            }
+
+        # --- Type metadata (task-specific fields only) ---
+        type_meta = raw.get("type_metadata") or {}
+        if isinstance(type_meta, dict) and type_meta:
+            # Strip internal/empty fields
+            clean_meta = {
+                k: v for k, v in type_meta.items() if v is not None and v != [] and v != {}
+            }
+            if clean_meta:
+                result["type_metadata"] = clean_meta
+
+        # --- Goal-specific fields (for GoalNode detail) ---
+        if is_goal:
+            prog = raw.get("progress") or {}
+            if isinstance(prog, dict):
+                result["progress"] = {k: v for k, v in prog.items() if v is not None}
+            constraints_raw = raw.get("constraints") or []
+            if constraints_raw:
+                result["constraints"] = constraints_raw
+
+        # --- Intelligence log (last 5 entries) ---
+        intel = raw.get("intelligence") or ""
+        if intel and isinstance(intel, str):
+            lines = [ln.strip() for ln in intel.strip().splitlines() if ln.strip()]
+            result["intelligence_log"] = lines[-5:]
+
+        # --- Recent state history (last 3 entries) ---
+        state_history = raw.get("state_history") or []
+        if isinstance(state_history, list) and state_history:
+            result["state_history"] = state_history[-3:]
 
         return result
 
@@ -1871,6 +2180,442 @@ class MainOrchestrator:
     # Planning tools
     # ------------------------------------------------------------------
 
+    def _plan_storage_path(self, user_id: str, plan_id: str) -> str:
+        from graphclaw.infra.storage import StoragePaths
+
+        return (
+            f"{StoragePaths.agent_root(user_id, self._agent_id)}state/pending_plans/{plan_id}.json"
+        )
+
+    async def _persist_pending_plan(self, user_id: str, plan_data: dict[str, Any]) -> None:
+        plan_id = str(plan_data.get("plan_id", "")).strip()
+        if not plan_id:
+            return
+
+        if not hasattr(self, "_pending_plans"):
+            self._pending_plans: dict[str, dict[str, Any]] = {}
+        self._pending_plans[plan_id] = plan_data
+
+        if self._storage:
+            try:
+                await self._storage.write(
+                    self._plan_storage_path(user_id, plan_id),
+                    json.dumps(plan_data).encode(),
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("AgentLoop: could not persist plan to storage: %s", exc)
+
+    async def _load_pending_plan(self, user_id: str, plan_id: str) -> dict[str, Any] | None:
+        plan_data = getattr(self, "_pending_plans", {}).get(plan_id)
+        if plan_data:
+            return plan_data
+
+        if self._storage:
+            try:
+                raw = await self._storage.read(self._plan_storage_path(user_id, plan_id))
+                loaded = json.loads(raw.decode())
+                if isinstance(loaded, dict):
+                    if not hasattr(self, "_pending_plans"):
+                        self._pending_plans: dict[str, dict[str, Any]] = {}
+                    self._pending_plans[plan_id] = loaded
+                    return loaded
+            except Exception:  # noqa: BLE001
+                return None
+        return None
+
+    def _goal_inference_storage_path(self, user_id: str, inference_id: str) -> str:
+        from graphclaw.infra.storage import StoragePaths
+
+        return (
+            f"{StoragePaths.agent_root(user_id, self._agent_id)}"
+            f"state/pending_goal_inferences/{inference_id}.json"
+        )
+
+    async def _persist_goal_inference(
+        self,
+        user_id: str,
+        inference_data: dict[str, Any],
+    ) -> None:
+        inference_id = str(inference_data.get("inference_id", "")).strip()
+        if not inference_id:
+            return
+
+        if not hasattr(self, "_pending_goal_inferences"):
+            self._pending_goal_inferences: dict[str, dict[str, Any]] = {}
+        self._pending_goal_inferences[inference_id] = inference_data
+
+        if self._storage:
+            try:
+                await self._storage.write(
+                    self._goal_inference_storage_path(user_id, inference_id),
+                    json.dumps(inference_data).encode(),
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("AgentLoop: could not persist goal inference to storage: %s", exc)
+
+    async def _load_goal_inference(
+        self,
+        user_id: str,
+        inference_id: str,
+    ) -> dict[str, Any] | None:
+        cached = getattr(self, "_pending_goal_inferences", {}).get(inference_id)
+        if cached:
+            return cached
+
+        if self._storage:
+            try:
+                raw = await self._storage.read(
+                    self._goal_inference_storage_path(user_id, inference_id)
+                )
+                loaded = json.loads(raw.decode())
+                if isinstance(loaded, dict):
+                    if not hasattr(self, "_pending_goal_inferences"):
+                        self._pending_goal_inferences: dict[str, dict[str, Any]] = {}
+                    self._pending_goal_inferences[inference_id] = loaded
+                    return loaded
+            except Exception:  # noqa: BLE001
+                return None
+        return None
+
+    def _build_goal_inference_title(
+        self,
+        *,
+        topic: str,
+        assigned_to: str,
+        due_bucket: str,
+    ) -> str:
+        fallback_topics = {
+            "atomic",
+            "composite",
+            "delegated",
+            "followup",
+            "approval",
+            "milestone",
+            "review",
+            "recurring",
+            "decision",
+            "checkin",
+            "research",
+        }
+        if topic and topic not in fallback_topics:
+            return f"{topic.replace('_', ' ').title()} Workstream"
+        if assigned_to != "unassigned":
+            return f"Workstream for {assigned_to}"
+        if due_bucket != "none":
+            return f"{due_bucket} Delivery Goal"
+        return "Inferred Execution Goal"
+
+    async def _build_goal_inference_candidates(
+        self,
+        user_id: str,
+        *,
+        min_cluster_size: int,
+        max_proposals: int,
+    ) -> list[dict[str, Any]]:
+        from datetime import datetime, timezone
+
+        from graphclaw.models.enums import TaskState
+
+        tasks = await self._fetch_active_tasks(user_id)
+        if not tasks:
+            return []
+
+        clustered: dict[tuple[str, str, str], list[TaskNode]] = {}
+
+        for task in tasks:
+            if task.state in (TaskState.COMPLETE, TaskState.CANCELLED, TaskState.SNOOZED):
+                continue
+
+            try:
+                parent_edges = await self._repo.get_edges(
+                    task.id, direction="out", edge_type="PART_OF"
+                )
+            except Exception:  # noqa: BLE001
+                parent_edges = []
+            if parent_edges:
+                continue
+
+            assigned_to = str(task.assigned_to or "unassigned")
+            due_bucket = "none"
+            if task.timeline and task.timeline.deadline:
+                due_bucket = task.timeline.deadline.strftime("%Y-%m")
+
+            normalized_tags = sorted(
+                {
+                    str(tag).strip().lower()
+                    for tag in (task.tags or [])
+                    if isinstance(tag, str) and str(tag).strip()
+                }
+            )
+            topic = (
+                normalized_tags[0]
+                if normalized_tags
+                else str(getattr(task.task_type, "value", task.task_type or "")).lower()
+            )
+
+            key = (assigned_to, due_bucket, topic)
+            clustered.setdefault(key, []).append(task)
+
+        proposals: list[dict[str, Any]] = []
+        now = datetime.now(timezone.utc)
+
+        for (assigned_to, due_bucket, topic), grouped_tasks in clustered.items():
+            if len(grouped_tasks) < min_cluster_size:
+                continue
+
+            task_ids = [task.id for task in grouped_tasks]
+            task_titles = [task.title for task in grouped_tasks][:5]
+
+            tag_sets: list[set[str]] = []
+            for task in grouped_tasks:
+                tag_sets.append(
+                    {
+                        str(tag).strip().lower()
+                        for tag in (task.tags or [])
+                        if isinstance(tag, str) and str(tag).strip()
+                    }
+                )
+
+            shared_tags = set.intersection(*tag_sets) if tag_sets else set()
+
+            confidence = 0.35
+            rationale: list[str] = []
+
+            if assigned_to != "unassigned":
+                confidence += 0.2
+                rationale.append(f"Shared assignee: {assigned_to}")
+            if due_bucket != "none":
+                confidence += 0.15
+                rationale.append(f"Deadline cluster: {due_bucket}")
+            if shared_tags:
+                confidence += min(0.25, 0.05 * len(shared_tags))
+                rationale.append(f"Shared tags: {', '.join(sorted(shared_tags)[:3])}")
+            confidence += min(0.1, 0.02 * len(grouped_tasks))
+            confidence = max(0.0, min(confidence, 0.95))
+
+            due_text = (
+                "no shared deadline window"
+                if due_bucket == "none"
+                else f"a {due_bucket} deadline window"
+            )
+            inferred_title = self._build_goal_inference_title(
+                topic=topic,
+                assigned_to=assigned_to,
+                due_bucket=due_bucket,
+            )
+            inferred_description = (
+                f"Inferred from {len(grouped_tasks)} active tasks sharing "
+                f"{due_text} and related ownership/context signals."
+            )
+            inference_note = (
+                "Agent inferred this goal from bottom-up task clustering. "
+                f"Signals: {', '.join(rationale) if rationale else 'task similarity'}"
+            )
+
+            proposals.append(
+                {
+                    "inference_id": f"GINF-{uuid.uuid4().hex[:10].upper()}",
+                    "created_at": now.isoformat(),
+                    "status": _GOAL_INFERENCE_STATUS_DRAFT,
+                    "confidence_score": round(confidence, 3),
+                    "task_ids": task_ids,
+                    "task_titles": task_titles,
+                    "rationale": rationale,
+                    "proposal": {
+                        "title": inferred_title,
+                        "description": inferred_description,
+                        "priority": "P2",
+                        "origin": "AGENT_INFERRED",
+                        "inferred_from": task_ids,
+                        "inference_note": inference_note,
+                        "confirmed_by_user": False,
+                    },
+                }
+            )
+
+        proposals.sort(
+            key=lambda item: (
+                float(item.get("confidence_score", 0.0)),
+                len(item.get("task_ids", [])),
+            ),
+            reverse=True,
+        )
+        return proposals[:max_proposals]
+
+    async def _tool_propose_goal_inference(
+        self,
+        user_id: str,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Propose bottom-up inferred goals from ungrouped task clusters."""
+        try:
+            min_cluster_size = int(args.get("min_cluster_size", 3) or 3)
+        except (TypeError, ValueError):
+            min_cluster_size = 3
+        min_cluster_size = max(2, min(min_cluster_size, 10))
+
+        try:
+            max_proposals = int(args.get("max_proposals", 3) or 3)
+        except (TypeError, ValueError):
+            max_proposals = 3
+        max_proposals = max(1, min(max_proposals, 10))
+
+        proposals = await self._build_goal_inference_candidates(
+            user_id,
+            min_cluster_size=min_cluster_size,
+            max_proposals=max_proposals,
+        )
+        if not proposals:
+            return {
+                "proposals": [],
+                "count": 0,
+                "status": "no_candidates",
+                "message": "No candidate task clusters met the inference threshold.",
+            }
+
+        persisted_summaries: list[dict[str, Any]] = []
+        for proposal in proposals:
+            payload = {
+                "inference_id": proposal["inference_id"],
+                "user_id": user_id,
+                "status": _GOAL_INFERENCE_STATUS_DRAFT,
+                "created_at": proposal["created_at"],
+                "updated_at": proposal["created_at"],
+                "confidence_score": proposal["confidence_score"],
+                "task_ids": proposal["task_ids"],
+                "rationale": proposal["rationale"],
+                "proposal": proposal["proposal"],
+            }
+            await self._persist_goal_inference(user_id, payload)
+            persisted_summaries.append(
+                {
+                    "inference_id": payload["inference_id"],
+                    "status": payload["status"],
+                    "confidence_score": payload["confidence_score"],
+                    "task_count": len(payload["task_ids"]),
+                    "goal_title": payload["proposal"]["title"],
+                }
+            )
+
+        return {
+            "proposals": persisted_summaries,
+            "count": len(persisted_summaries),
+            "status": "draft — awaiting user review and approval",
+        }
+
+    async def _tool_approve_goal_inference(
+        self,
+        user_id: str,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Approve and commit a draft goal-inference proposal to the graph."""
+        import datetime as _dt
+
+        from graphclaw.models.base import generate_id
+        from graphclaw.models.enums import GoalOrigin, GoalPriority, GoalState
+        from graphclaw.models.nodes import GoalNode
+
+        inference_id = str(args.get("inference_id", "")).strip()
+        if not inference_id:
+            return {"error": "inference_id is required."}
+
+        inference = await self._load_goal_inference(user_id, inference_id)
+        if not inference:
+            return {"error": f"Goal inference {inference_id} not found."}
+
+        if str(
+            inference.get("status", "")
+        ).upper() == _GOAL_INFERENCE_STATUS_APPROVED and inference.get("goal_id"):
+            return {
+                "inference_id": inference_id,
+                "status": _GOAL_INFERENCE_STATUS_APPROVED,
+                "goal_id": inference.get("goal_id"),
+                "message": "Goal inference is already approved and committed.",
+            }
+
+        proposal = inference.get("proposal") or {}
+        if not isinstance(proposal, dict):
+            return {"error": f"Goal inference {inference_id} is malformed."}
+
+        task_ids_raw = inference.get("task_ids") or proposal.get("inferred_from") or []
+        task_ids = [str(task_id).strip() for task_id in task_ids_raw if str(task_id).strip()]
+        if not task_ids:
+            return {"error": "Goal inference has no linked task_ids to commit."}
+
+        goal_id = generate_id("GOAL")
+        now = _dt.datetime.now(_dt.timezone.utc)
+
+        try:
+            priority_raw = str(proposal.get("priority", "P2"))
+            priority = GoalPriority(priority_raw)
+        except ValueError:
+            priority = GoalPriority.P2
+
+        goal = GoalNode(
+            id=goal_id,
+            title=str(proposal.get("title") or "Inferred Goal"),
+            description=str(proposal.get("description") or ""),
+            owner=user_id,
+            state=GoalState.ACTIVE,
+            priority=priority,
+            origin=GoalOrigin.AGENT_INFERRED,
+            inferred_from=task_ids,
+            inference_note=str(
+                proposal.get("inference_note") or "Goal inferred from related active task cluster."
+            ),
+            confirmed_by_user=True,
+            created_at=now,
+            updated_at=now,
+        )
+
+        linked_task_ids: list[str] = []
+        skipped_task_ids: list[str] = []
+        try:
+            await self._repo.create_node(goal)
+            for task_id in task_ids:
+                task_node = await self._repo.get_node(task_id)
+                if not task_node:
+                    skipped_task_ids.append(task_id)
+                    continue
+                existing_parent = await self._repo.get_edges(
+                    task_id, direction="out", edge_type="PART_OF"
+                )
+                if existing_parent:
+                    skipped_task_ids.append(task_id)
+                    continue
+                await self._repo.create_edge(task_id, goal_id, "PART_OF", {})
+                linked_task_ids.append(task_id)
+        except Exception as exc:  # noqa: BLE001
+            try:
+                await self._repo.delete_node(goal_id)
+            except Exception:  # noqa: BLE001
+                pass
+            return {
+                "error": f"Failed to commit goal inference {inference_id}: {exc}",
+                "inference_id": inference_id,
+                "rolled_back": True,
+            }
+
+        inference["status"] = _GOAL_INFERENCE_STATUS_APPROVED
+        inference["goal_id"] = goal_id
+        inference["approved_by"] = user_id
+        inference["approved_at"] = now.isoformat()
+        inference["updated_at"] = now.isoformat()
+        inference["linked_task_ids"] = linked_task_ids
+        inference["skipped_task_ids"] = skipped_task_ids
+        await self._persist_goal_inference(user_id, inference)
+
+        self._invalidate_cached_queue(user_id, dirty_task_ids=set(linked_task_ids))
+
+        return {
+            "inference_id": inference_id,
+            "goal_id": goal_id,
+            "status": _GOAL_INFERENCE_STATUS_APPROVED,
+            "linked_task_count": len(linked_task_ids),
+            "skipped_task_count": len(skipped_task_ids),
+            "message": "Goal inference approved and committed to graph.",
+        }
+
     async def _tool_propose_plan(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
         """Use an inner LLM call to decompose a goal into a structured plan."""
         if self._llm is None:
@@ -1878,9 +2623,38 @@ class MainOrchestrator:
 
         from graphclaw.llm.base import LLMMessage
 
-        description = args["description"]
-        constraints = args.get("constraints", "")
-        deadline = args.get("deadline", "")
+        description = str(args.get("description", "")).strip()
+        context = str(args.get("context", "")).strip()
+        goal_or_task_id = str(args.get("goal_or_task_id", "")).strip()
+        constraints = str(args.get("constraints", "")).strip()
+        if not constraints and context and context != description:
+            constraints = context
+        deadline = str(args.get("deadline", "")).strip()
+        try:
+            max_tasks = int(args.get("max_tasks", 10) or 10)
+        except (TypeError, ValueError):
+            max_tasks = 10
+        max_tasks = max(1, min(max_tasks, 50))
+
+        # Backward-compatible arg resolution: derive a description from target node when needed.
+        if not description and goal_or_task_id:
+            target = await self._repo.get_node(goal_or_task_id)
+            if target:
+                node_title = str(target.get("title", goal_or_task_id))
+                node_desc = str(target.get("description", "")).strip()
+                description = (
+                    f"Create an execution plan for {goal_or_task_id}: {node_title}."
+                    f"\n\nExisting description:\n{node_desc}"
+                    if node_desc
+                    else f"Create an execution plan for {goal_or_task_id}: {node_title}."
+                )
+
+        if not description:
+            return {
+                "error": (
+                    "description is required (or provide goal_or_task_id/context so a plan target can be inferred)."
+                )
+            }
 
         # Gather context: available skills and MCP tools
         skills_ctx = await self._gather_skills_summary(user_id)
@@ -1903,6 +2677,7 @@ class MainOrchestrator:
             "- Only assign skills/MCP tools that exist in the available list below\n"
             "- Mark can_be_automated=true if a skill or MCP tool can handle it\n"
             "- For recurring tasks, include the schedule in the description\n\n"
+            f"- Return at most {max_tasks} tasks\n\n"
         )
         if skills_ctx:
             planning_prompt += f"Available skills:\n{skills_ctx}\n\n"
@@ -1941,28 +2716,30 @@ class MainOrchestrator:
                 "parse_warning": "Could not parse structured plan — showing raw decomposition.",
             }
 
-        # Generate plan_id and store for later execution
+        tasks = plan_data.get("tasks", [])
+        if not isinstance(tasks, list):
+            tasks = []
+        tasks = tasks[:max_tasks]
+        for idx, task in enumerate(tasks):
+            if isinstance(task, dict):
+                task.setdefault("draft_task_id", f"DRAFT-TASK-{idx + 1}")
+        plan_data["tasks"] = tasks
+
+        # Generate plan_id and store for review/execution lifecycle
+        import datetime as _dt
+
         plan_id = f"PLAN-{uuid.uuid4().hex[:12]}"
         plan_data["plan_id"] = plan_id
         plan_data["user_id"] = user_id
-        plan_data["status"] = "proposed"
+        now = _dt.datetime.now(_dt.timezone.utc).isoformat()
+        plan_data["status"] = _PLAN_STATUS_DRAFT
+        plan_data["revision"] = 1
+        plan_data["created_at"] = now
+        plan_data["updated_at"] = now
         if deadline:
             plan_data["deadline"] = deadline
 
-        # Persist to storage if available
-        if self._storage:
-            from graphclaw.infra.storage import StoragePaths
-
-            plan_path = f"{StoragePaths.agent_root(user_id, self._agent_id)}state/pending_plans/{plan_id}.json"
-            try:
-                await self._storage.write(plan_path, json.dumps(plan_data).encode())
-            except Exception as exc:
-                logger.debug("AgentLoop: could not persist plan to storage: %s", exc)
-
-        # Also cache in memory for execute_plan to find
-        if not hasattr(self, "_pending_plans"):
-            self._pending_plans: dict[str, dict] = {}
-        self._pending_plans[plan_id] = plan_data
+        await self._persist_pending_plan(user_id, plan_data)
 
         return {
             "plan_id": plan_id,
@@ -1970,97 +2747,250 @@ class MainOrchestrator:
             "tasks": plan_data.get("tasks", []),
             "execution_summary": plan_data.get("execution_summary", ""),
             "task_count": len(plan_data.get("tasks", [])),
-            "status": "proposed — awaiting user approval",
+            "status": "draft — awaiting user review and approval",
+            "revision": plan_data.get("revision", 1),
+        }
+
+    async def _tool_edit_plan(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
+        """Apply human-reviewed edits to a draft plan before approval."""
+        plan_id = str(args.get("plan_id", "")).strip()
+        if not plan_id:
+            return {"error": "plan_id is required."}
+
+        plan_data = await self._load_pending_plan(user_id, plan_id)
+        if not plan_data:
+            return {"error": f"Plan {plan_id} not found. Call propose_plan first."}
+
+        if plan_data.get("status") == _PLAN_STATUS_EXECUTED:
+            return {"error": f"Plan {plan_id} has already been executed and cannot be edited."}
+
+        updated = False
+        for field in ("goal_title", "goal_description", "execution_summary", "deadline"):
+            if field in args:
+                plan_data[field] = args.get(field)
+                updated = True
+
+        if "tasks" in args:
+            tasks = args.get("tasks")
+            if not isinstance(tasks, list):
+                return {"error": "tasks must be an array when provided."}
+            normalized: list[dict[str, Any]] = []
+            for idx, task in enumerate(tasks):
+                if not isinstance(task, dict):
+                    return {"error": f"tasks[{idx}] must be an object."}
+                task_copy = dict(task)
+                task_copy.setdefault("draft_task_id", f"DRAFT-TASK-{idx + 1}")
+                normalized.append(task_copy)
+            plan_data["tasks"] = normalized
+            updated = True
+
+        if not updated:
+            return {
+                "plan_id": plan_id,
+                "status": plan_data.get("status", _PLAN_STATUS_DRAFT),
+                "task_count": len(plan_data.get("tasks", [])),
+                "message": "No changes provided.",
+            }
+
+        previous_status = str(plan_data.get("status", _PLAN_STATUS_DRAFT))
+        if previous_status == _PLAN_STATUS_APPROVED:
+            # Any edit after approval requires re-approval before execution.
+            plan_data["status"] = _PLAN_STATUS_DRAFT
+            plan_data.pop("approved_at", None)
+            plan_data.pop("approved_by", None)
+
+        import datetime as _dt
+
+        plan_data["revision"] = int(plan_data.get("revision", 1)) + 1
+        plan_data["updated_at"] = _dt.datetime.now(_dt.timezone.utc).isoformat()
+        await self._persist_pending_plan(user_id, plan_data)
+
+        return {
+            "plan_id": plan_id,
+            "status": plan_data.get("status", _PLAN_STATUS_DRAFT),
+            "revision": plan_data.get("revision", 1),
+            "task_count": len(plan_data.get("tasks", [])),
+            "message": "Plan updated.",
+        }
+
+    async def _tool_approve_plan(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
+        """Mark a reviewed draft plan as approved for execution."""
+        import datetime as _dt
+
+        plan_id = str(args.get("plan_id", "")).strip()
+        if not plan_id:
+            return {"error": "plan_id is required."}
+
+        plan_data = await self._load_pending_plan(user_id, plan_id)
+        if not plan_data:
+            return {"error": f"Plan {plan_id} not found. Call propose_plan first."}
+
+        status = str(plan_data.get("status", ""))
+        if status == _PLAN_STATUS_EXECUTED:
+            return {"error": f"Plan {plan_id} has already been executed."}
+        if status == _PLAN_STATUS_APPROVED:
+            return {
+                "plan_id": plan_id,
+                "status": _PLAN_STATUS_APPROVED,
+                "message": "Plan is already approved.",
+            }
+
+        plan_data["status"] = _PLAN_STATUS_APPROVED
+        plan_data["approved_by"] = user_id
+        plan_data["approved_at"] = _dt.datetime.now(_dt.timezone.utc).isoformat()
+        plan_data["updated_at"] = plan_data["approved_at"]
+        await self._persist_pending_plan(user_id, plan_data)
+
+        return {
+            "plan_id": plan_id,
+            "status": _PLAN_STATUS_APPROVED,
+            "task_count": len(plan_data.get("tasks", [])),
+            "message": "Plan approved. You can now call execute_plan.",
         }
 
     async def _tool_execute_plan(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
         """Create all tasks from an approved plan in the graph."""
         plan_id = args["plan_id"]
 
-        # Load plan from memory cache or storage
-        plan_data = getattr(self, "_pending_plans", {}).get(plan_id)
-        if not plan_data and self._storage:
-            from graphclaw.infra.storage import StoragePaths
-
-            plan_path = f"{StoragePaths.agent_root(user_id, self._agent_id)}state/pending_plans/{plan_id}.json"
-            try:
-                raw = await self._storage.read(plan_path)
-                plan_data = json.loads(raw.decode())
-            except Exception:
-                pass
+        # Load plan from memory cache or storage.
+        plan_data = await self._load_pending_plan(user_id, plan_id)
 
         if not plan_data:
             return {"error": f"Plan {plan_id} not found. Call propose_plan first."}
-        if plan_data.get("status") == "executed":
+        if plan_data.get("status") == _PLAN_STATUS_EXECUTED:
             return {"error": f"Plan {plan_id} has already been executed."}
+        if plan_data.get("status") != _PLAN_STATUS_APPROVED:
+            return {
+                "error": (
+                    f"Plan {plan_id} is {plan_data.get('status', 'UNKNOWN')}. "
+                    "Call approve_plan before execute_plan."
+                )
+            }
 
-        # Create the goal first
-        goal_result = await self._tool_create_goal(
-            user_id,
-            {
-                "title": plan_data.get("goal_title", "Untitled Goal"),
-                "description": plan_data.get("goal_description", ""),
-                "deadline": plan_data.get("deadline", ""),
-            },
-        )
-        goal_id = goal_result.get("goal_id")
+        approved_task_ids_arg = args.get("approved_task_ids") or []
+        approved_task_ids = {
+            str(task_id).strip()
+            for task_id in approved_task_ids_arg
+            if isinstance(task_id, str) and str(task_id).strip()
+        }
 
-        # Create tasks and track created IDs for dependency wiring
-        tasks = plan_data.get("tasks", [])
+        # Create the goal/tasks atomically using compensating rollback when any step fails.
+        created_node_ids: list[str] = []
         created_tasks: list[dict[str, Any]] = []
         index_to_task_id: dict[int, str] = {}
 
-        for idx, task_spec in enumerate(tasks):
-            # Resolve depends_on from indices to task IDs
-            depends_on_ids = []
-            for dep_idx in task_spec.get("depends_on_indices", []):
-                dep_task_id = index_to_task_id.get(dep_idx)
-                if dep_task_id:
-                    depends_on_ids.append(dep_task_id)
-
-            task_result = await self._tool_create_task(
+        try:
+            goal_result = await self._tool_create_goal(
                 user_id,
                 {
-                    "title": task_spec.get("title", f"Task {idx + 1}"),
-                    "description": task_spec.get("description", ""),
-                    "task_type": task_spec.get("task_type", "atomic"),
-                    "goal_id": goal_id,
-                    "depends_on": depends_on_ids,
+                    "title": plan_data.get("goal_title", "Untitled Goal"),
+                    "description": plan_data.get("goal_description", ""),
+                    "deadline": plan_data.get("deadline", ""),
                 },
             )
-            task_id = task_result.get("task_id", "")
-            index_to_task_id[idx] = task_id
-            created_tasks.append(
-                {
-                    "task_id": task_id,
-                    "title": task_spec.get("title", ""),
-                    "task_type": task_spec.get("task_type", "atomic"),
-                    "can_be_automated": task_spec.get("can_be_automated", False),
-                    "assigned_skill": task_spec.get("assigned_skill"),
-                    "assigned_mcp_server": task_spec.get("assigned_mcp_server"),
-                    "assigned_mcp_tool": task_spec.get("assigned_mcp_tool"),
-                }
-            )
+            if "error" in goal_result:
+                raise RuntimeError(str(goal_result["error"]))
+            goal_id = str(goal_result.get("goal_id", "")).strip()
+            if not goal_id:
+                raise RuntimeError("Goal creation did not return a goal_id.")
+            created_node_ids.append(goal_id)
+
+            # Create tasks and track created IDs for dependency wiring
+            tasks = plan_data.get("tasks", [])
+            if not isinstance(tasks, list):
+                tasks = []
+
+            indexed_tasks: list[tuple[int, dict[str, Any]]] = []
+            for original_idx, task in enumerate(tasks):
+                if not isinstance(task, dict):
+                    continue
+                if (
+                    approved_task_ids
+                    and str(task.get("draft_task_id", "")).strip() not in approved_task_ids
+                ):
+                    continue
+                indexed_tasks.append((original_idx, task))
+
+            for original_idx, task_spec in indexed_tasks:
+                if not isinstance(task_spec, dict):
+                    continue
+
+                # Resolve depends_on from indices to task IDs
+                depends_on_ids = []
+                for dep_idx in task_spec.get("depends_on_indices", []):
+                    dep_task_id = index_to_task_id.get(dep_idx)
+                    if dep_task_id:
+                        depends_on_ids.append(dep_task_id)
+
+                task_result = await self._tool_create_task(
+                    user_id,
+                    {
+                        "title": task_spec.get("title", f"Task {original_idx + 1}"),
+                        "description": task_spec.get("description", ""),
+                        "task_type": task_spec.get("task_type", "atomic"),
+                        "goal_id": goal_id,
+                        "depends_on": depends_on_ids,
+                    },
+                )
+                if "error" in task_result:
+                    raise RuntimeError(str(task_result["error"]))
+
+                task_id = str(task_result.get("task_id", "")).strip()
+                if not task_id:
+                    raise RuntimeError(
+                        f"Plan task at index {original_idx} was created without a task_id."
+                    )
+
+                index_to_task_id[original_idx] = task_id
+                created_node_ids.append(task_id)
+
+                followup_task_id = str(task_result.get("follow_up_task_id", "")).strip()
+                if followup_task_id:
+                    created_node_ids.append(followup_task_id)
+
+                created_tasks.append(
+                    {
+                        "task_id": task_id,
+                        "title": task_spec.get("title", ""),
+                        "task_type": task_spec.get("task_type", "atomic"),
+                        "can_be_automated": task_spec.get("can_be_automated", False),
+                        "assigned_skill": task_spec.get("assigned_skill"),
+                        "assigned_mcp_server": task_spec.get("assigned_mcp_server"),
+                        "assigned_mcp_tool": task_spec.get("assigned_mcp_tool"),
+                        "draft_task_id": task_spec.get("draft_task_id"),
+                    }
+                )
+        except Exception as exc:  # noqa: BLE001
+            for node_id in reversed(created_node_ids):
+                try:
+                    await self._repo.delete_node(node_id)
+                except Exception as rollback_exc:  # noqa: BLE001
+                    logger.warning(
+                        "AgentLoop: rollback failed for node %s during execute_plan: %s",
+                        node_id,
+                        rollback_exc,
+                    )
+            return {
+                "error": f"Execution failed for plan {plan_id}: {exc}",
+                "plan_id": plan_id,
+                "rolled_back": True,
+                "status": "failed",
+            }
 
         # Mark plan as executed
-        plan_data["status"] = "executed"
-        if hasattr(self, "_pending_plans"):
-            self._pending_plans[plan_id] = plan_data
-        if self._storage:
-            from graphclaw.infra.storage import StoragePaths
+        import datetime as _dt
 
-            plan_path = f"{StoragePaths.agent_root(user_id, self._agent_id)}state/pending_plans/{plan_id}.json"
-            try:
-                await self._storage.write(plan_path, json.dumps(plan_data).encode())
-            except Exception:
-                pass
+        plan_data["status"] = _PLAN_STATUS_EXECUTED
+        plan_data["executed_at"] = _dt.datetime.now(_dt.timezone.utc).isoformat()
+        plan_data["updated_at"] = plan_data["executed_at"]
+        await self._persist_pending_plan(user_id, plan_data)
 
         return {
             "plan_id": plan_id,
             "goal_id": goal_id,
             "created_tasks": created_tasks,
             "total_created": len(created_tasks),
-            "status": "executed",
+            "status": _PLAN_STATUS_EXECUTED,
         }
 
     # ------------------------------------------------------------------
@@ -2253,18 +3183,19 @@ class MainOrchestrator:
         finally:
             await client.disconnect()
             # Audit log every MCP tool call — success or failure
-            if self._logger:
-                self._logger.log(
-                    "INFO",
-                    "mcp.tool_call",
-                    session_id=self._current_session_id or "",
-                    user_id=user_id,
-                    server_id=server_id,
-                    server_name=server.name,
-                    tool_name=tool_name,
-                    success=success,
-                    latency_ms=latency_ms,
-                )
+            logger.info(
+                "mcp.tool_call",
+                extra={
+                    "event_type": "mcp.tool_call",
+                    "session_id": self._current_session_id or "",
+                    "user_id": user_id,
+                    "server_id": server_id,
+                    "server_name": server.name,
+                    "tool_name": tool_name,
+                    "success": success,
+                    "latency_ms": latency_ms,
+                },
+            )
             # Stamp last_used_at on the server config (best-effort)
             try:
                 await self._mcp_registry.update_last_used(user_id, server_id)
@@ -2404,6 +3335,7 @@ class MainOrchestrator:
         import datetime as _dt
 
         now = _dt.datetime.now(_dt.timezone.utc)
+        previous_assignee = task_props.get("assigned_to")
         history = list(task_props.get("state_history", []))
         history.append(
             {
@@ -2423,6 +3355,34 @@ class MainOrchestrator:
                 "state_history": history,
             },
         )
+
+        # Record ownership transition context as a HandoffNode when assignee changes.
+        if previous_assignee != agent_id:
+            try:
+                from graphclaw.models.base import generate_handoff_node_id
+                from graphclaw.models.nodes import HandoffNode
+
+                handoff_id = generate_handoff_node_id()
+                handoff = HandoffNode(
+                    id=handoff_id,
+                    created_at=now,
+                    updated_at=now,
+                    task_id=task_id,
+                    from_owner=previous_assignee,
+                    to_owner=agent_id,
+                    context_summary=(instructions or "Delegation handoff").strip(),
+                    context_refs=[],
+                    transitioned_at=now,
+                )
+                await self._repo.create_node(handoff)
+                await self._repo.create_edge(handoff_id, task_id, "REFERRED_BY")
+            except Exception as exc:
+                logger.warning(
+                    "AgentLoop: non-fatal handoff persistence failure for task %s: %s",
+                    task_id,
+                    exc,
+                )
+
         await self._invalidate_score_cache_for_task(task_id, include_related=False)
         self._invalidate_cached_queue(user_id, dirty_task_ids={task_id})
 

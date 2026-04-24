@@ -25,6 +25,7 @@ Dependencies
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
@@ -84,7 +85,7 @@ def _make_config(
 # ---------------------------------------------------------------------------
 
 
-async def test_check_heartbeats_no_timeout() -> None:
+async def test_check_heartbeats_no_timeout(caplog) -> None:
     """Workers with fresh heartbeats should not trigger any warnings."""
     statuses = [
         WorkerStatus(
@@ -94,16 +95,16 @@ async def test_check_heartbeats_no_timeout() -> None:
         )
     ]
     pool = _make_mock_pool(statuses)
-    logger = _make_logger()
-    monitor = HeartbeatMonitor(pool=pool, config=_make_config(), logger=logger)
+    monitor = HeartbeatMonitor(pool=pool, config=_make_config())
 
-    await monitor._check_heartbeats()
+    with caplog.at_level(logging.WARNING, logger="graphclaw.skills.heartbeat"):
+        await monitor._check_heartbeats()
 
-    logger.log.assert_not_called()
+    assert len(caplog.records) == 0
     assert monitor.get_respawn_counts() == {}
 
 
-async def test_check_heartbeats_idle_worker_not_checked() -> None:
+async def test_check_heartbeats_idle_worker_not_checked(caplog) -> None:
     """Workers not in RUNNING state should not be checked for heartbeat timeout."""
     statuses = [
         WorkerStatus(
@@ -118,15 +119,15 @@ async def test_check_heartbeats_idle_worker_not_checked() -> None:
         ),
     ]
     pool = _make_mock_pool(statuses)
-    logger = _make_logger()
-    monitor = HeartbeatMonitor(pool=pool, config=_make_config(), logger=logger)
+    monitor = HeartbeatMonitor(pool=pool, config=_make_config())
 
-    await monitor._check_heartbeats()
+    with caplog.at_level(logging.WARNING, logger="graphclaw.skills.heartbeat"):
+        await monitor._check_heartbeats()
 
-    logger.log.assert_not_called()
+    assert len(caplog.records) == 0
 
 
-async def test_check_heartbeats_none_heartbeat_skipped() -> None:
+async def test_check_heartbeats_none_heartbeat_skipped(caplog) -> None:
     """Workers with no last_heartbeat recorded should be skipped without error."""
     statuses = [
         WorkerStatus(
@@ -136,12 +137,12 @@ async def test_check_heartbeats_none_heartbeat_skipped() -> None:
         )
     ]
     pool = _make_mock_pool(statuses)
-    logger = _make_logger()
-    monitor = HeartbeatMonitor(pool=pool, config=_make_config(), logger=logger)
+    monitor = HeartbeatMonitor(pool=pool, config=_make_config())
 
-    await monitor._check_heartbeats()
+    with caplog.at_level(logging.WARNING, logger="graphclaw.skills.heartbeat"):
+        await monitor._check_heartbeats()
 
-    logger.log.assert_not_called()
+    assert len(caplog.records) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -149,8 +150,8 @@ async def test_check_heartbeats_none_heartbeat_skipped() -> None:
 # ---------------------------------------------------------------------------
 
 
-async def test_check_heartbeats_detects_timeout() -> None:
-    """A RUNNING worker with an expired heartbeat should trigger a WARN log."""
+async def test_check_heartbeats_detects_timeout(caplog) -> None:
+    """A RUNNING worker with an expired heartbeat should trigger a WARNING log."""
     statuses = [
         WorkerStatus(
             worker_id="worker-000",
@@ -159,19 +160,18 @@ async def test_check_heartbeats_detects_timeout() -> None:
         )
     ]
     pool = _make_mock_pool(statuses)
-    logger = _make_logger()
-    monitor = HeartbeatMonitor(pool=pool, config=_make_config(), logger=logger)
+    monitor = HeartbeatMonitor(pool=pool, config=_make_config())
 
-    await monitor._check_heartbeats()
+    with caplog.at_level(logging.WARNING, logger="graphclaw.skills.heartbeat"):
+        await monitor._check_heartbeats()
 
-    logger.log.assert_called_once()
-    call_args = logger.log.call_args
-    level, event_type = call_args[0][0], call_args[0][1]
-    assert level == "WARN"
-    assert event_type == "heartbeat.timeout"
+    assert len(caplog.records) == 1
+    record = caplog.records[0]
+    assert record.levelno == logging.WARNING
+    assert getattr(record, "event_type", None) == "heartbeat.timeout"
 
 
-async def test_respawn_count_incremented() -> None:
+async def test_respawn_count_incremented(caplog) -> None:
     """Calling _check_heartbeats twice with a timed-out worker should increment count to 2."""
     statuses = [
         WorkerStatus(
@@ -181,19 +181,19 @@ async def test_respawn_count_incremented() -> None:
         )
     ]
     pool = _make_mock_pool(statuses)
-    logger = _make_logger()
     config = _make_config(max_respawn=5)
-    monitor = HeartbeatMonitor(pool=pool, config=config, logger=logger)
+    monitor = HeartbeatMonitor(pool=pool, config=config)
 
-    await monitor._check_heartbeats()
-    await monitor._check_heartbeats()
+    with caplog.at_level(logging.WARNING, logger="graphclaw.skills.heartbeat"):
+        await monitor._check_heartbeats()
+        await monitor._check_heartbeats()
 
     counts = monitor.get_respawn_counts()
     assert counts["worker-000"] == 2
-    assert logger.log.call_count == 2
+    assert len(caplog.records) == 2
 
 
-async def test_max_respawn_exceeded_logs_error() -> None:
+async def test_max_respawn_exceeded_logs_error(caplog) -> None:
     """Once max_respawn_attempts is reached, subsequent checks should log ERROR."""
     statuses = [
         WorkerStatus(
@@ -203,27 +203,21 @@ async def test_max_respawn_exceeded_logs_error() -> None:
         )
     ]
     pool = _make_mock_pool(statuses)
-    logger = _make_logger()
     config = _make_config(max_respawn=2)
-    monitor = HeartbeatMonitor(pool=pool, config=config, logger=logger)
+    monitor = HeartbeatMonitor(pool=pool, config=config)
 
-    # First two calls increment count (1 then 2) — WARN
-    await monitor._check_heartbeats()
-    await monitor._check_heartbeats()
+    with caplog.at_level(logging.WARNING, logger="graphclaw.skills.heartbeat"):
+        # First two calls increment count (1 then 2) — WARNING
+        await monitor._check_heartbeats()
+        await monitor._check_heartbeats()
+        # Third call: count is now at max, should log ERROR
+        await monitor._check_heartbeats()
 
-    # Third call: count is now at max, should log ERROR
-    await monitor._check_heartbeats()
-
-    calls = logger.log.call_args_list
-    assert len(calls) == 3
-
-    # First two should be WARN
-    assert calls[0][0][0] == "WARN"
-    assert calls[1][0][0] == "WARN"
-
-    # Third should be ERROR
-    assert calls[2][0][0] == "ERROR"
-    assert calls[2][0][1] == "heartbeat.failed"
+    assert len(caplog.records) == 3
+    assert caplog.records[0].levelno == logging.WARNING
+    assert caplog.records[1].levelno == logging.WARNING
+    assert caplog.records[2].levelno == logging.ERROR
+    assert getattr(caplog.records[2], "event_type", None) == "heartbeat.failed"
 
 
 # ---------------------------------------------------------------------------

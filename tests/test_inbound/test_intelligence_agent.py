@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
@@ -177,9 +178,7 @@ def test_parse_extraction_payload_extracts_json_from_wrapped_output() -> None:
 
 def test_parse_extraction_payload_rejects_unexpected_keys() -> None:
     with pytest.raises(ValueError, match="Unexpected extraction keys"):
-        _parse_extraction_payload(
-            '{"task_entry":"x", "memory_note":"y", "override":"ignore"}'
-        )
+        _parse_extraction_payload('{"task_entry":"x", "memory_note":"y", "override":"ignore"}')
 
 
 # ---------------------------------------------------------------------------
@@ -459,8 +458,8 @@ async def test_process_rejects_payload_with_unexpected_keys() -> None:
     mock_repo.update_node_intelligence.assert_not_called()
 
 
-async def test_process_error_action_logged_via_logger() -> None:
-    """When JSON parse fails and logger is present, error is logged."""
+async def test_process_error_action_logged_via_logger(caplog) -> None:
+    """When JSON parse fails, error is logged via stdlib logger."""
     bad_response = MagicMock()
     bad_response.content = "not valid json"
     mock_llm = AsyncMock()
@@ -471,27 +470,25 @@ async def test_process_error_action_logged_via_logger() -> None:
     mock_storage = AsyncMock()
     mock_storage.read = AsyncMock(return_value=b"# Working Context\n")
     mock_storage.write = AsyncMock()
-    mock_logger = AsyncMock()
 
     agent = InboundIntelligenceAgent(
         llm=mock_llm,
         graph_repo=mock_repo,
         storage=mock_storage,
         memory_lock=asyncio.Lock(),
-        logger=mock_logger,
     )
 
-    await agent.process(
-        inbound=_make_inbound(),
-        resolution=_make_resolution_with_task("TSK-AB-0006-ATM"),
-        agent_id="main",
-        user_id="usr-001",
-    )
+    with caplog.at_level(logging.ERROR, logger="graphclaw.inbound.intelligence_agent"):
+        await agent.process(
+            inbound=_make_inbound(),
+            resolution=_make_resolution_with_task("TSK-AB-0006-ATM"),
+            agent_id="main",
+            user_id="usr-001",
+        )
 
-    # Two log calls: one for parse_error, one for the final intelligence_update event
-    assert mock_logger.log.call_count >= 1
-    all_positional = [call[0] for call in mock_logger.log.call_args_list]
-    event_types = [args[1] for args in all_positional if len(args) > 1]
+    error_records = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert len(error_records) >= 1
+    event_types = [getattr(r, "event_type", "") for r in error_records]
     assert "agent.intelligence_parse_error" in event_types
 
 
@@ -524,8 +521,8 @@ async def test_process_scrubs_pii_in_task_entry() -> None:
 # ---------------------------------------------------------------------------
 
 
-async def test_process_logs_event_when_logger_provided() -> None:
-    """AsyncLogger.log() is called once for an 'agent.intelligence_update' event."""
+async def test_process_logs_event_when_logger_provided(caplog) -> None:
+    """stdlib logger emits 'agent.intelligence_update' event after successful processing."""
     llm_resp = _make_llm_response("email | inbound | update", None)
     mock_llm = AsyncMock()
     mock_llm.complete = AsyncMock(return_value=llm_resp)
@@ -535,26 +532,25 @@ async def test_process_logs_event_when_logger_provided() -> None:
     mock_storage = AsyncMock()
     mock_storage.read = AsyncMock(return_value=b"# Working Context\n")
     mock_storage.write = AsyncMock()
-    mock_logger = AsyncMock()
 
     agent = InboundIntelligenceAgent(
         llm=mock_llm,
         graph_repo=mock_repo,
         storage=mock_storage,
         memory_lock=asyncio.Lock(),
-        logger=mock_logger,
     )
 
-    await agent.process(
-        inbound=_make_inbound(),
-        resolution=_make_resolution_with_task("TSK-AB-0008-ATM"),
-        agent_id="main",
-        user_id="usr-001",
-    )
+    with caplog.at_level(logging.INFO, logger="graphclaw.inbound.intelligence_agent"):
+        await agent.process(
+            inbound=_make_inbound(),
+            resolution=_make_resolution_with_task("TSK-AB-0008-ATM"),
+            agent_id="main",
+            user_id="usr-001",
+        )
 
-    mock_logger.log.assert_called_once()
-    call_args = mock_logger.log.call_args[0]
-    assert "agent.intelligence_update" in call_args
+    info_records = [r for r in caplog.records if r.levelno == logging.INFO]
+    event_types = [getattr(r, "event_type", "") for r in info_records]
+    assert "agent.intelligence_update" in event_types
 
 
 async def test_process_no_logger_does_not_crash() -> None:

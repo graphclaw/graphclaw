@@ -57,7 +57,6 @@ from graphclaw.infra.broker import AGENT_JOBS, TRIGGER_EVENTS, MessageBroker
 from graphclaw.models.base import utcnow
 
 if TYPE_CHECKING:
-    from graphclaw.infra.logger import AsyncLogger
     from graphclaw.infra.storage import StorageClient
     from graphclaw.llm.base import LLMClient
     from graphclaw.mcp.registry import MCPRegistry
@@ -207,6 +206,16 @@ class SubAgentPool:
         Hard timeout applied to each delegated run.
     tool_timeout_seconds:
         Per-tool-call timeout applied inside each runner.
+    tool_max_retries:
+        Maximum retries for retry-eligible tool calls.
+    retry_backoff_base_ms:
+        Base backoff for retry-eligible tool calls.
+    retry_backoff_max_ms:
+        Maximum backoff for retry-eligible tool calls.
+    retryable_skills:
+        Skill-name allowlist for retry-safe ``invoke_skill`` calls.
+    retryable_mcp_tools:
+        MCP tool allowlist for retry-safe ``call_mcp_tool`` calls.
     """
 
     def __init__(
@@ -218,10 +227,14 @@ class SubAgentPool:
         worker_pool: WorkerPool | None = None,
         skill_registry: SkillRegistryService | None = None,
         mcp_registry: MCPRegistry | None = None,
-        async_logger: AsyncLogger | None = None,
         heartbeat_interval: int = 60,
         execution_timeout_seconds: int = 600,
         tool_timeout_seconds: int = 120,
+        tool_max_retries: int = 0,
+        retry_backoff_base_ms: int = 200,
+        retry_backoff_max_ms: int = 1000,
+        retryable_skills: set[str] | None = None,
+        retryable_mcp_tools: set[str] | None = None,
     ) -> None:
         self._max_size = max_size
         self._broker = broker
@@ -230,16 +243,23 @@ class SubAgentPool:
         self._worker_pool = worker_pool
         self._skill_registry = skill_registry
         self._mcp_registry = mcp_registry
-        self._logger = async_logger
         self._heartbeat_interval = heartbeat_interval
         self._execution_timeout_seconds = execution_timeout_seconds
         self._tool_timeout_seconds = tool_timeout_seconds
+        self._tool_max_retries = max(0, tool_max_retries)
+        self._retry_backoff_base_ms = max(0, retry_backoff_base_ms)
+        self._retry_backoff_max_ms = max(self._retry_backoff_base_ms, retry_backoff_max_ms)
+        self._retryable_skills = retryable_skills or set()
+        self._retryable_mcp_tools = retryable_mcp_tools or set()
 
         self._semaphore: asyncio.Semaphore = asyncio.Semaphore(max_size)
         self._active_runners: dict[str, SubAgentRunner] = {}  # runner_id → runner
         self._runner_counter: int = 0
         self._consumer_task: asyncio.Task | None = None
         self._running: bool = False
+        self._queued_count: int = 0
+        self._active_count: int = 0
+        self._metrics_lock = asyncio.Lock()
         self.batch_coordinator: BatchCoordinator = BatchCoordinator(broker)
 
     # ------------------------------------------------------------------
@@ -274,12 +294,12 @@ class SubAgentPool:
     @property
     def active_count(self) -> int:
         """Number of currently running runners."""
-        return self._max_size - self._semaphore._value  # noqa: SLF001
+        return self._active_count
 
     @property
     def queue_depth(self) -> int:
-        """Approximate number of waiters blocked on the semaphore."""
-        return len(self._semaphore._waiters) if hasattr(self._semaphore, "_waiters") else 0  # noqa: SLF001
+        """Number of jobs currently waiting for an available runner slot."""
+        return self._queued_count
 
     # ------------------------------------------------------------------
     # Dispatch plan registration
@@ -333,7 +353,14 @@ class SubAgentPool:
                     continue
 
                 # Acquire semaphore slot — blocks until a runner slot is free
-                await self._semaphore.acquire()
+                async with self._metrics_lock:
+                    self._queued_count += 1
+
+                try:
+                    await self._semaphore.acquire()
+                finally:
+                    async with self._metrics_lock:
+                        self._queued_count = max(0, self._queued_count - 1)
 
                 # Spawn runner as background task; semaphore released in _run_job
                 asyncio.create_task(self._run_job(job))
@@ -355,18 +382,26 @@ class SubAgentPool:
             worker_pool=self._worker_pool,
             skill_registry=self._skill_registry,
             mcp_registry=self._mcp_registry,
-            async_logger=self._logger,
             heartbeat_interval=self._heartbeat_interval,
             execution_timeout_seconds=self._execution_timeout_seconds,
             tool_timeout_seconds=self._tool_timeout_seconds,
+            tool_max_retries=self._tool_max_retries,
+            retry_backoff_base_ms=self._retry_backoff_base_ms,
+            retry_backoff_max_ms=self._retry_backoff_max_ms,
+            retryable_skills=self._retryable_skills,
+            retryable_mcp_tools=self._retryable_mcp_tools,
         )
         self._active_runners[runner_id] = runner
+        async with self._metrics_lock:
+            self._active_count += 1
 
         try:
             await runner.execute(job)
         except Exception as exc:
             logger.exception("SubAgentPool: runner %s raised: %s", runner_id, exc)
         finally:
+            async with self._metrics_lock:
+                self._active_count = max(0, self._active_count - 1)
             self._active_runners.pop(runner_id, None)
             self._semaphore.release()
 

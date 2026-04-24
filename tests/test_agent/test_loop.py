@@ -5,6 +5,7 @@ All database calls are mocked via AsyncMock so no live DB is required.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -209,7 +210,7 @@ class TestRunCycle:
         repo.list_nodes.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_run_cycle_logs_trigger_source(self):
+    async def test_run_cycle_logs_trigger_source(self, caplog):
         task = _make_task(title="Triggered Task")
         entry = _make_queue_entry(task, rank=1, score=0.84)
 
@@ -219,13 +220,14 @@ class TestRunCycle:
         repo.get_node = AsyncMock(return_value=None)
         engine.score_all = AsyncMock(return_value=[entry])
 
-        loop._logger = MagicMock()
+        with caplog.at_level(logging.INFO, logger="graphclaw.agent.main_orchestrator"):
+            await loop.run_cycle(trigger_source="on_demand")
 
-        await loop.run_cycle(trigger_source="on_demand")
-
-        assert loop._logger.log.call_count == 1
-        kwargs = loop._logger.log.call_args.kwargs
-        assert kwargs["trigger_source"] == "on_demand"
+        scoring_records = [
+            r for r in caplog.records if getattr(r, "event_type", "") == "agent.scoring_cycle"
+        ]
+        assert len(scoring_records) == 1
+        assert getattr(scoring_records[0], "trigger_source", None) == "on_demand"
 
 
 # ---------------------------------------------------------------------------
@@ -572,7 +574,9 @@ class TestSmartRetrievalBehaviors:
         assert dependent.id in updated_ids
         assert parent.id in updated_ids
 
-        dependent_payload = next(payload for node_id, payload in persisted if node_id == dependent.id)
+        dependent_payload = next(
+            payload for node_id, payload in persisted if node_id == dependent.id
+        )
         assert dependent_payload["state"] == TaskState.ACTIVE.value
 
         parent_payload = next(payload for node_id, payload in persisted if node_id == parent.id)

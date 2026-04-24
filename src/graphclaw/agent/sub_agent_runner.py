@@ -59,7 +59,6 @@ from graphclaw.infra.broker import AGENT_UPDATES, MessageBroker
 from graphclaw.models.base import utcnow
 
 if TYPE_CHECKING:
-    from graphclaw.infra.logger import AsyncLogger
     from graphclaw.infra.storage import StorageClient
     from graphclaw.llm.base import LLMClient
     from graphclaw.mcp.registry import MCPRegistry
@@ -111,7 +110,7 @@ class AgentUpdateEvent(BaseModel):
     parent_task_id: str | None = None
     batch_id: str = ""
     message: str | None = None
-    status: str | None = None  # COMPLETED | FAILED | TIMED_OUT (completed only)
+    status: str | None = None  # COMPLETED | FAILED | TIMED_OUT | CANCELLED
     duration_ms: int | None = None  # completed events only
     emitted_at: datetime = Field(default_factory=utcnow)
 
@@ -124,6 +123,7 @@ class RunnerState(str, Enum):
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
     TIMED_OUT = "TIMED_OUT"
+    CANCELLED = "CANCELLED"
 
 
 class RunnerStatus(BaseModel):
@@ -174,6 +174,16 @@ class SubAgentRunner:
         transitions to TIMED_OUT and emits a BLOCKED update.
     tool_timeout_seconds:
         Per-tool-call timeout applied to ``invoke_skill`` and ``call_mcp_tool``.
+    tool_max_retries:
+        Maximum retries for retry-eligible tool calls.
+    retry_backoff_base_ms:
+        Base backoff in milliseconds between retry attempts.
+    retry_backoff_max_ms:
+        Maximum backoff in milliseconds between retry attempts.
+    retryable_skills:
+        Skill-name allowlist for retry-safe ``invoke_skill`` calls.
+    retryable_mcp_tools:
+        MCP tool allowlist for retry-safe ``call_mcp_tool`` calls.
     """
 
     def __init__(
@@ -185,10 +195,14 @@ class SubAgentRunner:
         worker_pool: WorkerPool | None = None,
         skill_registry: SkillRegistryService | None = None,
         mcp_registry: MCPRegistry | None = None,
-        async_logger: AsyncLogger | None = None,
         heartbeat_interval: int = 60,
         execution_timeout_seconds: int = 600,
         tool_timeout_seconds: int = 120,
+        tool_max_retries: int = 0,
+        retry_backoff_base_ms: int = 200,
+        retry_backoff_max_ms: int = 1000,
+        retryable_skills: set[str] | None = None,
+        retryable_mcp_tools: set[str] | None = None,
     ) -> None:
         self._runner_id = runner_id
         self._broker = broker
@@ -197,10 +211,14 @@ class SubAgentRunner:
         self._worker_pool = worker_pool
         self._skill_registry = skill_registry
         self._mcp_registry = mcp_registry
-        self._logger = async_logger
         self._heartbeat_interval = heartbeat_interval
         self._execution_timeout_seconds = max(1, execution_timeout_seconds)
         self._tool_timeout_seconds = max(1, tool_timeout_seconds)
+        self._tool_max_retries = max(0, tool_max_retries)
+        self._retry_backoff_base_ms = max(0, retry_backoff_base_ms)
+        self._retry_backoff_max_ms = max(self._retry_backoff_base_ms, retry_backoff_max_ms)
+        self._retryable_skills = retryable_skills or set()
+        self._retryable_mcp_tools = retryable_mcp_tools or set()
 
         self._state: RunnerState = RunnerState.IDLE
         self._current_job: AgentJobEvent | None = None
@@ -222,6 +240,7 @@ class SubAgentRunner:
             RunnerState.COMPLETED,
             RunnerState.FAILED,
             RunnerState.TIMED_OUT,
+            RunnerState.CANCELLED,
         )
 
     @property
@@ -255,7 +274,8 @@ class SubAgentRunner:
             job: The ``AgentJobEvent`` describing what to execute.
 
         Returns:
-            Final status string: ``"COMPLETED"``, ``"FAILED"``, or ``"TIMED_OUT"``.
+            Final status string: ``"COMPLETED"``, ``"FAILED"``, ``"TIMED_OUT"``,
+            or ``"CANCELLED"``.
         """
         self._state = RunnerState.RUNNING
         self._current_job = job
@@ -270,6 +290,8 @@ class SubAgentRunner:
         heartbeat_task = asyncio.create_task(self._heartbeat_loop(job))
 
         final_status = "COMPLETED"
+        blocked_reason: str | None = None
+        cancellation_exc: asyncio.CancelledError | None = None
         try:
             await asyncio.wait_for(
                 self._run_llm_loop(job),
@@ -279,39 +301,38 @@ class SubAgentRunner:
         except asyncio.TimeoutError:
             final_status = "TIMED_OUT"
             self._state = RunnerState.TIMED_OUT
-            reason = (
+            blocked_reason = (
                 f"Runner exceeded timeout of {self._execution_timeout_seconds}s "
                 f"for task {job.task_id}"
             )
-            logger.warning("SubAgentRunner %s timed out: %s", self._runner_id, reason)
-            await self._emit(
-                AgentUpdateEventType.BLOCKED,
-                job,
-                message=reason,
-            )
-            self._audit_blocked(job, reason=reason)
-        except asyncio.CancelledError:
-            final_status = "TIMED_OUT"
-            self._state = RunnerState.TIMED_OUT
-            raise
+            logger.warning("SubAgentRunner %s timed out: %s", self._runner_id, blocked_reason)
+        except asyncio.CancelledError as exc:
+            final_status = "CANCELLED"
+            self._state = RunnerState.CANCELLED
+            blocked_reason = f"Runner cancelled while executing task {job.task_id}"
+            cancellation_exc = exc
         except Exception as exc:
             final_status = "FAILED"
             self._state = RunnerState.FAILED
             logger.exception(
                 "SubAgentRunner %s failed on task %s: %s", self._runner_id, job.task_id, exc
             )
-            await self._emit(
-                AgentUpdateEventType.BLOCKED,
-                job,
-                message=f"Runner failed: {exc!s}",
-            )
-            self._audit_blocked(job, reason=str(exc))
+            blocked_reason = f"Runner failed: {exc!s}"
         finally:
             heartbeat_task.cancel()
             try:
                 await heartbeat_task
             except asyncio.CancelledError:
                 pass
+
+            if blocked_reason:
+                await self._emit(
+                    AgentUpdateEventType.BLOCKED,
+                    job,
+                    message=blocked_reason,
+                )
+                self._audit_blocked(job, reason=blocked_reason)
+
             duration_ms = int((time.monotonic() - start_ts) * 1000)
             await self._emit(
                 AgentUpdateEventType.COMPLETED,
@@ -322,6 +343,9 @@ class SubAgentRunner:
             )
             self._audit_completed(job, status=final_status, duration_ms=duration_ms)
             self._current_job = None
+
+        if cancellation_exc is not None:
+            raise cancellation_exc
 
         return final_status
 
@@ -490,27 +514,93 @@ class SubAgentRunner:
         self, tool_name: str, tool_input: dict[str, Any], job: AgentJobEvent
     ) -> dict[str, Any]:
         """Dispatch a tool call and return the result dict."""
-        try:
-            if tool_name == "invoke_skill":
-                return await asyncio.wait_for(
-                    self._tool_invoke_skill(tool_input, job),
-                    timeout=self._tool_timeout_seconds,
-                )
-            if tool_name == "call_mcp_tool":
-                return await asyncio.wait_for(
-                    self._tool_call_mcp(tool_input),
-                    timeout=self._tool_timeout_seconds,
-                )
-            return {"error": f"Unknown tool: {tool_name}"}
-        except asyncio.TimeoutError:
-            return {
-                "error": (f"Tool '{tool_name}' exceeded timeout of {self._tool_timeout_seconds}s")
-            }
-        except Exception as exc:  # noqa: BLE001
-            logger.exception(
-                "SubAgentRunner %s tool '%s' failed: %s", self._runner_id, tool_name, exc
+        if tool_name == "invoke_skill":
+            skill_name = str(tool_input.get("skill_name", "")).strip()
+            retry_allowed = skill_name in self._retryable_skills
+            return await self._execute_tool_with_retries(
+                tool_name=tool_name,
+                op=lambda: self._tool_invoke_skill(tool_input, job),
+                retry_allowed=retry_allowed,
+                is_retryable_result=self._is_retryable_skill_result,
             )
-            return {"error": f"Tool '{tool_name}' failed: {exc!s}"}
+
+        if tool_name == "call_mcp_tool":
+            server_id = str(tool_input.get("server_id", "")).strip()
+            mcp_tool = str(tool_input.get("tool_name", "")).strip()
+            retry_key = f"{server_id}:{mcp_tool}" if server_id and mcp_tool else ""
+            retry_allowed = (
+                mcp_tool in self._retryable_mcp_tools or retry_key in self._retryable_mcp_tools
+            )
+            return await self._execute_tool_with_retries(
+                tool_name=tool_name,
+                op=lambda: self._tool_call_mcp(tool_input),
+                retry_allowed=retry_allowed,
+                is_retryable_result=self._is_retryable_mcp_result,
+            )
+
+        return {"error": f"Unknown tool: {tool_name}"}
+
+    async def _execute_tool_with_retries(
+        self,
+        tool_name: str,
+        op: Any,
+        retry_allowed: bool,
+        is_retryable_result: Any,
+    ) -> dict[str, Any]:
+        """Execute a tool op with bounded retries for transient failures."""
+        max_attempts = 1 + (self._tool_max_retries if retry_allowed else 0)
+
+        for attempt in range(1, max_attempts + 1):
+            try:
+                result = await asyncio.wait_for(op(), timeout=self._tool_timeout_seconds)
+            except asyncio.TimeoutError:
+                result = {
+                    "error": f"Tool '{tool_name}' exceeded timeout of {self._tool_timeout_seconds}s"
+                }
+            except Exception as exc:  # noqa: BLE001
+                logger.exception(
+                    "SubAgentRunner %s tool '%s' failed: %s",
+                    self._runner_id,
+                    tool_name,
+                    exc,
+                )
+                result = {"error": f"Tool '{tool_name}' failed: {exc!s}"}
+
+            should_retry = attempt < max_attempts and is_retryable_result(result)
+            if not should_retry:
+                return result
+
+            backoff_ms = min(
+                self._retry_backoff_max_ms,
+                self._retry_backoff_base_ms * (2 ** (attempt - 1)),
+            )
+            await asyncio.sleep(backoff_ms / 1000)
+
+        return result
+
+    def _is_retryable_skill_result(self, result: dict[str, Any]) -> bool:
+        """Return True when skill result appears to be transient."""
+        error = str(result.get("error", "")).lower()
+        if not error:
+            return False
+        return "no idle skill workers" in error or "timeout" in error
+
+    def _is_retryable_mcp_result(self, result: dict[str, Any]) -> bool:
+        """Return True when MCP result appears to be transient."""
+        if result.get("success") is True:
+            return False
+        error = str(result.get("error", "")).lower()
+        if not error:
+            return False
+        transient_markers = (
+            "timeout",
+            "temporarily unavailable",
+            "connection",
+            "reset",
+            "refused",
+            "unreachable",
+        )
+        return any(marker in error for marker in transient_markers)
 
     async def _tool_invoke_skill(self, args: dict[str, Any], job: AgentJobEvent) -> dict[str, Any]:
         """Invoke a skill via the dedicated sub-agent worker pool."""
@@ -623,85 +713,65 @@ class SubAgentRunner:
     # ------------------------------------------------------------------
 
     def _audit_started(self, job: AgentJobEvent) -> None:
-        if self._logger:
-            from graphclaw.infra.logger import AgentTaskStartedEvent
-
-            self._logger.log(
-                "INFO",
-                "agent.task.started",
-                job.session_id,
-                **AgentTaskStartedEvent(
-                    agent_id=job.agent_id,
-                    task_id=job.task_id,
-                    session_id=job.session_id,
-                    parent_task_id=job.parent_task_id,
-                    batch_id=job.batch_id,
-                ).model_dump(),
-            )
+        logger.info(
+            "agent.task.started",
+            extra={
+                "event_type": "agent.task.started",
+                "agent_id": job.agent_id,
+                "task_id": job.task_id,
+                "session_id": job.session_id,
+                "parent_task_id": job.parent_task_id,
+                "batch_id": job.batch_id,
+            },
+        )
 
     def _audit_progress(self, job: AgentJobEvent, message: str, iteration: int) -> None:
-        if self._logger:
-            from graphclaw.infra.logger import AgentTaskProgressEvent
-
-            self._logger.log(
-                "INFO",
-                "agent.task.progress",
-                job.session_id,
-                **AgentTaskProgressEvent(
-                    agent_id=job.agent_id,
-                    task_id=job.task_id,
-                    session_id=job.session_id,
-                    message=message,
-                    iteration=iteration,
-                ).model_dump(),
-            )
+        logger.info(
+            "agent.task.progress",
+            extra={
+                "event_type": "agent.task.progress",
+                "agent_id": job.agent_id,
+                "task_id": job.task_id,
+                "session_id": job.session_id,
+                "message": message,
+                "iteration": iteration,
+            },
+        )
 
     def _audit_completed(self, job: AgentJobEvent, status: str, duration_ms: int) -> None:
-        if self._logger:
-            from graphclaw.infra.logger import AgentTaskCompletedEvent
-
-            self._logger.log(
-                "INFO",
-                "agent.task.completed",
-                job.session_id,
-                **AgentTaskCompletedEvent(
-                    agent_id=job.agent_id,
-                    task_id=job.task_id,
-                    session_id=job.session_id,
-                    status=status,
-                    duration_ms=duration_ms,
-                    parent_task_id=job.parent_task_id,
-                    batch_id=job.batch_id,
-                ).model_dump(),
-            )
+        logger.info(
+            "agent.task.completed",
+            extra={
+                "event_type": "agent.task.completed",
+                "agent_id": job.agent_id,
+                "task_id": job.task_id,
+                "session_id": job.session_id,
+                "status": status,
+                "duration_ms": duration_ms,
+                "parent_task_id": job.parent_task_id,
+                "batch_id": job.batch_id,
+            },
+        )
 
     def _audit_blocked(self, job: AgentJobEvent, reason: str) -> None:
-        if self._logger:
-            from graphclaw.infra.logger import AgentTaskBlockedEvent
-
-            self._logger.log(
-                "WARNING",
-                "agent.task.blocked",
-                job.session_id,
-                **AgentTaskBlockedEvent(
-                    agent_id=job.agent_id,
-                    task_id=job.task_id,
-                    session_id=job.session_id,
-                    reason=reason,
-                ).model_dump(),
-            )
+        logger.warning(
+            "agent.task.blocked",
+            extra={
+                "event_type": "agent.task.blocked",
+                "agent_id": job.agent_id,
+                "task_id": job.task_id,
+                "session_id": job.session_id,
+                "reason": reason,
+            },
+        )
 
     def _audit_heartbeat(self, job: AgentJobEvent) -> None:
-        if self._logger:
-            from graphclaw.infra.logger import AgentHeartbeatEvent
-
-            self._logger.log(
-                "DEBUG",
-                "agent.heartbeat",
-                job.session_id,
-                **AgentHeartbeatEvent(
-                    agent_id=job.agent_id,
-                    task_id=job.task_id,
-                    session_id=job.session_id,
-                ).model_dump(),
-            )
+        logger.debug(
+            "agent.heartbeat",
+            extra={
+                "event_type": "agent.heartbeat",
+                "agent_id": job.agent_id,
+                "task_id": job.task_id,
+                "session_id": job.session_id,
+            },
+        )

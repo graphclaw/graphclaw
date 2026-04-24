@@ -55,6 +55,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import re
 from datetime import datetime, timezone
@@ -66,8 +67,9 @@ from graphclaw.llm.base import LLMClient, LLMMessage
 
 if TYPE_CHECKING:
     from graphclaw.gateway.schemas import InboundMessage
-    from graphclaw.infra.logger import AsyncLogger
     from graphclaw.infra.storage import StorageClient
+
+logger = logging.getLogger(__name__)
 
 from graphclaw.infra.storage import StoragePaths
 
@@ -249,13 +251,11 @@ class InboundIntelligenceAgent:
         graph_repo: Any,
         storage: StorageClient,
         memory_lock: asyncio.Lock,
-        logger: AsyncLogger | None = None,
     ) -> None:
         self._llm = llm
         self._graph_repo = graph_repo
         self._storage = storage
         self._memory_lock = memory_lock
-        self._logger = logger
         self._model = os.getenv(INTELLIGENCE_AGENT_MODEL_ENV, DEFAULT_INTELLIGENCE_MODEL)
 
     async def process(
@@ -341,14 +341,15 @@ class InboundIntelligenceAgent:
             task_entry, memory_note = _parse_extraction_payload(response.content)
         except (json.JSONDecodeError, KeyError, ValueError) as exc:
             parse_error = True
-            if self._logger:
-                await self._logger.log(
-                    "ERROR",
-                    "agent.intelligence_parse_error",
-                    session_id=inbound.session_id,
-                    task_id=task_id,
-                    error=str(exc),
-                )
+            logger.error(
+                "agent.intelligence_parse_error",
+                extra={
+                    "event_type": "agent.intelligence_parse_error",
+                    "session_id": inbound.session_id,
+                    "task_id": task_id,
+                    "error": str(exc),
+                },
+            )
 
         # 4. Scrub PII from extracted strings
         if task_entry:
@@ -440,16 +441,17 @@ class InboundIntelligenceAgent:
             action_taken = "unmatched"
 
         # 8. Log the event
-        if self._logger:
-            await self._logger.log(
-                "INFO",
-                "agent.intelligence_update",
-                session_id=inbound.session_id,
-                task_id=task_id,
-                channel=inbound.channel,
-                direction="inbound",
-                action_taken=action_taken,
-            )
+        logger.info(
+            "agent.intelligence_update",
+            extra={
+                "event_type": "agent.intelligence_update",
+                "session_id": inbound.session_id,
+                "task_id": task_id,
+                "channel": inbound.channel,
+                "direction": "inbound",
+                "action_taken": action_taken,
+            },
+        )
 
         # 9. Return result
         return IntelligenceUpdate(
