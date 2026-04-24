@@ -72,6 +72,39 @@ from graphclaw.infra.broker import INBOUND_MESSAGES, MessageBroker
 
 logger = logging.getLogger(__name__)
 
+_CRITICAL_DEPENDENCIES = ("broker", "database", "storage")
+
+
+def _build_dependency_status(ok: bool, reason: str = "", critical: bool = True) -> dict[str, Any]:
+    return {
+        "ok": ok,
+        "critical": critical,
+        "reason": reason,
+    }
+
+
+def _compute_readiness(app: FastAPI) -> tuple[bool, dict[str, dict[str, Any]]]:
+    """Compute readiness state from startup diagnostics or fallback runtime state."""
+    startup_health = getattr(app.state, "startup_health", None)
+    if isinstance(startup_health, dict) and startup_health:
+        dependencies = startup_health
+    else:
+        broker_ok = getattr(app.state, "broker", None) is not None
+        dependencies = {
+            "broker": _build_dependency_status(
+                ok=broker_ok,
+                reason="" if broker_ok else "broker not configured",
+            )
+        }
+
+    is_ready = True
+    for dep_name, dep in dependencies.items():
+        if dep_name in _CRITICAL_DEPENDENCIES and bool(dep.get("critical", True)):
+            if not bool(dep.get("ok", False)):
+                is_ready = False
+                break
+    return is_ready, dependencies
+
 
 def create_app(broker: MessageBroker | None = None) -> FastAPI:
     """Construct and return a fully configured FastAPI gateway application.
@@ -94,6 +127,22 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
     async def lifespan(app: FastAPI):  # type: ignore[type-arg]
         # ── Startup ──────────────────────────────────────────────────────
         app.state.broker = broker
+        startup_mode = os.environ.get("GRAPHCLAW_STARTUP_MODE", "degraded").strip().lower()
+        if startup_mode not in {"degraded", "strict"}:
+            logger.warning(
+                "GraphClaw: invalid GRAPHCLAW_STARTUP_MODE=%s; defaulting to degraded",
+                startup_mode,
+            )
+            startup_mode = "degraded"
+        app.state.startup_mode = startup_mode
+        app.state.startup_health = {
+            "broker": _build_dependency_status(
+                ok=broker is not None,
+                reason="" if broker is not None else "broker not configured",
+            ),
+            "database": _build_dependency_status(ok=False, reason="database not initialised"),
+            "storage": _build_dependency_status(ok=False, reason="storage not initialised"),
+        }
 
         # Initialise the deps module singletons so sub-router Depends work
         await init_services()
@@ -123,25 +172,56 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
                 _db_pool = await create_pgbouncer_pool()
                 app.state.graph_store = create_graph_store("age", pool=_db_pool)
                 app.state.query_engine = create_query_engine("age", pool=_db_pool)
+                app.state.startup_health["database"] = _build_dependency_status(ok=True)
                 logger.info("GraphClaw: graph store and query engine initialised")
             else:
+                app.state.startup_health["database"] = _build_dependency_status(
+                    ok=False,
+                    reason="DATABASE_URL not set",
+                )
                 logger.warning("GraphClaw: DATABASE_URL not set — graph store unavailable")
 
             # Storage (MinIO in dev, S3 in production)
-            app.state.storage_client = S3StorageClient(
-                bucket=os.environ.get("STORAGE_BUCKET", "graphclaw"),
-                endpoint_url=os.environ.get("STORAGE_ENDPOINT_URL") or None,
-                region=os.environ.get("STORAGE_REGION", "us-east-1"),
-            )
-            logger.info("GraphClaw: storage client initialised")
+            app.state.storage_client = None
+            try:
+                app.state.storage_client = S3StorageClient(
+                    bucket=os.environ.get("STORAGE_BUCKET", "graphclaw"),
+                    endpoint_url=os.environ.get("STORAGE_ENDPOINT_URL") or None,
+                    region=os.environ.get("STORAGE_REGION", "us-east-1"),
+                )
+                app.state.startup_health["storage"] = _build_dependency_status(ok=True)
+                logger.info("GraphClaw: storage client initialised")
+            except Exception as exc:  # noqa: BLE001
+                app.state.startup_health["storage"] = _build_dependency_status(
+                    ok=False,
+                    reason=str(exc),
+                )
+                logger.error("GraphClaw: storage client initialisation failed — %s", exc)
+
+            if startup_mode == "strict":
+                failed_critical = [
+                    dep
+                    for dep in _CRITICAL_DEPENDENCIES
+                    if not app.state.startup_health.get(dep, {}).get("ok", False)
+                ]
+                if failed_critical:
+                    reasons = ", ".join(
+                        f"{dep}: {app.state.startup_health[dep].get('reason', 'unhealthy')}"
+                        for dep in failed_critical
+                    )
+                    raise RuntimeError(
+                        "GraphClaw strict startup failed due to critical dependencies: "
+                        f"{reasons}"
+                    )
 
             # Seed system content (idempotent — skips existing objects)
-            try:
-                from graphclaw.gateway.seeding import seed_system_content  # noqa: PLC0415
+            if app.state.storage_client is not None:
+                try:
+                    from graphclaw.gateway.seeding import seed_system_content  # noqa: PLC0415
 
-                await seed_system_content(app.state.storage_client)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("GraphClaw: system content seeding failed — %s", exc)
+                    await seed_system_content(app.state.storage_client)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("GraphClaw: system content seeding failed — %s", exc)
 
             # Secrets backend
             secrets_backend = os.environ.get("SECRETS_BACKEND", "env_file")
@@ -173,23 +253,26 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
                     _skill_registry = None
                     _worker_pool = None
                     _mcp_registry = None
-                    try:
-                        from graphclaw.skills.registry import SkillRegistryService  # noqa: PLC0415
+                    if app.state.storage_client is not None:
+                        try:
+                            from graphclaw.skills.registry import (
+                                SkillRegistryService,  # noqa: PLC0415
+                            )
 
-                        _skill_registry = SkillRegistryService(
-                            storage_client=app.state.storage_client,
-                        )
-                    except Exception:
-                        pass
-                    try:
-                        from graphclaw.mcp.registry import MCPRegistry  # noqa: PLC0415
+                            _skill_registry = SkillRegistryService(
+                                storage_client=app.state.storage_client,
+                            )
+                        except Exception:
+                            pass
+                        try:
+                            from graphclaw.mcp.registry import MCPRegistry  # noqa: PLC0415
 
-                        _mcp_registry = MCPRegistry(
-                            storage_client=app.state.storage_client,
-                            secrets_client=app.state.secrets_client,
-                        )
-                    except Exception:
-                        pass
+                            _mcp_registry = MCPRegistry(
+                                storage_client=app.state.storage_client,
+                                secrets_client=app.state.secrets_client,
+                            )
+                        except Exception:
+                            pass
                     try:
                         from graphclaw.skills.llm_router import LLMRouter  # noqa: PLC0415
                         from graphclaw.skills.worker import WorkerPool  # noqa: PLC0415
@@ -243,6 +326,11 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
                                     pool_cfg.subagent_execution_timeout_seconds
                                 ),
                                 tool_timeout_seconds=pool_cfg.subagent_tool_timeout_seconds,
+                                tool_max_retries=pool_cfg.subagent_tool_max_retries,
+                                retry_backoff_base_ms=pool_cfg.subagent_retry_backoff_base_ms,
+                                retry_backoff_max_ms=pool_cfg.subagent_retry_backoff_max_ms,
+                                retryable_skills=set(pool_cfg.subagent_retryable_skills),
+                                retryable_mcp_tools=set(pool_cfg.subagent_retryable_mcp_tools),
                             )
 
                             _agent_health_monitor = AgentHealthMonitor(
@@ -345,7 +433,7 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
                         loaded_trigger_count = 0
                         trigger_user_id = os.environ.get("GRAPHCLAW_USER_ID", "")
 
-                        if trigger_user_id:
+                        if trigger_user_id and app.state.storage_client is not None:
                             trigger_path = f"{trigger_user_id}/agents/{agent_id}/triggers.json"
                             try:
                                 raw_bytes = await app.state.storage_client.read(trigger_path)
@@ -551,6 +639,12 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
 
     app.add_middleware(JWTRoleMiddleware)
 
+    # Logging middleware: sets session_id ContextVar, logs every HTTP request.
+    # Added after JWTRoleMiddleware so request.state.user_role is available.
+    from graphclaw.infra.logging.middleware import LoggingMiddleware
+
+    app.add_middleware(LoggingMiddleware)
+
     # ── Include sub-routers (Swagger-documented API) ─────────────────────
     from graphclaw.a2a.routes import a2a_router, task_update_router
     from graphclaw.api.router import app_router
@@ -578,15 +672,20 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
 
     @app.get("/health/ready", tags=["health"])
     async def readiness(request: Request) -> JSONResponse:
-        """Readiness probe — checks broker connectivity."""
-        current_broker: MessageBroker | None = getattr(request.app.state, "broker", None)
-        if current_broker is None:
-            return JSONResponse(
-                status_code=503,
-                content={"status": "degraded", "reason": "broker not configured"},
-            )
+        """Readiness probe — reports critical dependency readiness."""
         try:
-            return JSONResponse(status_code=200, content={"status": "ready"})
+            is_ready, dependencies = _compute_readiness(request.app)
+            startup_mode = getattr(request.app.state, "startup_mode", "degraded")
+            status_code = 200 if is_ready else 503
+            status = "ready" if is_ready else "degraded"
+            return JSONResponse(
+                status_code=status_code,
+                content={
+                    "status": status,
+                    "mode": startup_mode,
+                    "dependencies": dependencies,
+                },
+            )
         except Exception as exc:  # noqa: BLE001
             logger.warning("Readiness check failed", exc_info=exc)
             return JSONResponse(
@@ -691,7 +790,7 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
         return PlainTextResponse(content=challenge)
 
     @app.post("/webhooks/whatsapp", status_code=200, tags=["inbound"])
-    async def whatsapp_inbound(request: Request) -> dict[str, str]:
+    async def whatsapp_inbound(request: Request) -> Any:
         """Receive and process a WhatsApp Cloud API webhook event (POST).
 
         Validates the ``X-Hub-Signature-256`` header before processing.
@@ -724,7 +823,7 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
     # ── Telegram webhook route ────────────────────────────────────────────────
 
     @app.post("/webhooks/telegram", status_code=200, tags=["inbound"])
-    async def telegram_inbound(request: Request) -> dict[str, str]:
+    async def telegram_inbound(request: Request) -> Any:
         """Receive a Telegram Update via webhook (POST).
 
         Validates the optional ``X-Telegram-Bot-Api-Secret-Token`` header
@@ -798,7 +897,7 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
     # ── SES inbound email webhook ─────────────────────────────────────────────
 
     @app.post("/webhooks/email/ses", tags=["webhooks"])
-    async def ses_email_webhook(request: Request) -> dict[str, str]:
+    async def ses_email_webhook(request: Request) -> Any:
         """SES inbound email via Lambda → Gateway POST.
 
         Accepts a JSON payload from the Lambda function that is triggered by
@@ -853,7 +952,7 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
     # ── Teams webhook route ───────────────────────────────────────────────────
 
     @app.post("/webhooks/teams", status_code=200, tags=["inbound"])
-    async def teams_inbound(request: Request) -> dict[str, str]:
+    async def teams_inbound(request: Request) -> Any:
         """Receive a Microsoft Teams Bot Framework Activity (POST).
 
         Returns ``{"status": "ok"}`` immediately; message processing is
