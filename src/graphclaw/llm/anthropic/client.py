@@ -37,9 +37,10 @@ from graphclaw.llm.base import (
     ToolCall,
     ToolDefinition,
 )
+from graphclaw.llm.logging_mixin import LLMTraceMixin
 
 
-class AnthropicLLMClient(LLMClient):
+class AnthropicLLMClient(LLMTraceMixin, LLMClient):
     """LLMClient backed by the Anthropic SDK (Claude models).
 
     Args:
@@ -195,15 +196,46 @@ class AnthropicLLMClient(LLMClient):
         if tools:
             kwargs["tools"] = self._translate_tools(tools)
 
+        t0 = self._now_ms()
+        error_msg: str | None = None
         try:
             response = await client.messages.create(**kwargs)
         except Exception as exc:
+            error_msg = str(exc)
+            self._trace_llm_call(
+                provider="anthropic",
+                model=target_model,
+                call_type="complete",
+                messages=[{"role": m.role, "content": m.content} for m in messages],
+                params={"max_tokens": max_tokens, "temperature": temperature},
+                response_content="",
+                response_tool_calls=[],
+                prompt_tokens=0,
+                completion_tokens=0,
+                cost_usd=0.0,
+                latency_ms=self._now_ms() - t0,
+                error=error_msg,
+            )
             raise RuntimeError(f"Anthropic API call failed: {exc}") from exc
 
         content = self._extract_text(response.content)
         tool_calls = self._extract_tool_calls(response.content)
         prompt_tokens = response.usage.input_tokens
         completion_tokens = response.usage.output_tokens
+
+        self._trace_llm_call(
+            provider="anthropic",
+            model=target_model,
+            call_type="complete",
+            messages=[{"role": m.role, "content": m.content} for m in messages],
+            params={"max_tokens": max_tokens, "temperature": temperature},
+            response_content=content,
+            response_tool_calls=[{"name": tc.name, "arguments": tc.arguments} for tc in tool_calls],
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            cost_usd=0.0,
+            latency_ms=self._now_ms() - t0,
+        )
 
         return LLMResponse(
             content=content,
@@ -241,6 +273,7 @@ class AnthropicLLMClient(LLMClient):
         if tools:
             kwargs["tools"] = self._translate_tools(tools)
 
+        t0 = self._now_ms()
         accumulated_content = ""
         try:
             async with client.messages.stream(**kwargs) as stream:
@@ -249,10 +282,37 @@ class AnthropicLLMClient(LLMClient):
                     yield LLMStreamChunk(content_delta=text)
                 final = await stream.get_final_message()
         except Exception as exc:
+            self._trace_llm_call(
+                provider="anthropic",
+                model=target_model,
+                call_type="stream",
+                messages=[{"role": m.role, "content": m.content} for m in messages],
+                params={"max_tokens": max_tokens, "temperature": temperature},
+                response_content=accumulated_content,
+                response_tool_calls=[],
+                prompt_tokens=0,
+                completion_tokens=0,
+                cost_usd=0.0,
+                latency_ms=self._now_ms() - t0,
+                error=str(exc),
+            )
             raise RuntimeError(f"Anthropic stream failed: {exc}") from exc
 
         prompt_tokens = final.usage.input_tokens
         completion_tokens = final.usage.output_tokens
+        self._trace_llm_call(
+            provider="anthropic",
+            model=target_model,
+            call_type="stream",
+            messages=[{"role": m.role, "content": m.content} for m in messages],
+            params={"max_tokens": max_tokens, "temperature": temperature},
+            response_content=accumulated_content,
+            response_tool_calls=[],
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            cost_usd=0.0,
+            latency_ms=self._now_ms() - t0,
+        )
         final_response = LLMResponse(
             content=accumulated_content,
             model=target_model,

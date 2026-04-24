@@ -43,9 +43,10 @@ from graphclaw.llm.base import (
     ToolCall,
     ToolDefinition,
 )
+from graphclaw.llm.logging_mixin import LLMTraceMixin
 
 
-class OpenAILLMClient(LLMClient):
+class OpenAILLMClient(LLMTraceMixin, LLMClient):
     """LLMClient backed by the OpenAI SDK (GPT models).
 
     Args:
@@ -162,9 +163,24 @@ class OpenAILLMClient(LLMClient):
         if tools:
             kwargs["tools"] = self._translate_tools(tools)
 
+        t0 = self._now_ms()
         try:
             response = await client.chat.completions.create(**kwargs)
         except Exception as exc:
+            self._trace_llm_call(
+                provider="openai",
+                model=target_model,
+                call_type="complete",
+                messages=[{"role": m.role, "content": m.content} for m in messages],
+                params={"max_tokens": max_tokens, "temperature": temperature},
+                response_content="",
+                response_tool_calls=[],
+                prompt_tokens=0,
+                completion_tokens=0,
+                cost_usd=0.0,
+                latency_ms=self._now_ms() - t0,
+                error=str(exc),
+            )
             raise RuntimeError(f"OpenAI API call failed: {exc}") from exc
 
         choice = response.choices[0]
@@ -173,6 +189,20 @@ class OpenAILLMClient(LLMClient):
         usage = response.usage
         prompt_tokens = usage.prompt_tokens if usage else 0
         completion_tokens = usage.completion_tokens if usage else 0
+
+        self._trace_llm_call(
+            provider="openai",
+            model=target_model,
+            call_type="complete",
+            messages=[{"role": m.role, "content": m.content} for m in messages],
+            params={"max_tokens": max_tokens, "temperature": temperature},
+            response_content=content,
+            response_tool_calls=[{"name": tc.name, "arguments": tc.arguments} for tc in tool_calls],
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            cost_usd=0.0,
+            latency_ms=self._now_ms() - t0,
+        )
 
         return LLMResponse(
             content=content,
