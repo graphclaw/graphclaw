@@ -470,12 +470,16 @@ It intentionally excludes already completed historical observations captured in 
   Remaining requirement:
   - Collect green, non-mock evidence for DB + broker + storage in the same environment after mandatory services-up precheck.
 
-- [-] N-030 | Priority: P1 | Status: In Progress (Commit Policy Locked)
+- [-] N-030 | Priority: P1 | Status: In Progress (Policy Applied for N-028)
   Commit in small batches per approved observation group with test evidence in commit messages.
   Commit evidence decision (2026-04-24):
   - Each commit/batch summary must include explicit pass/fail summary for executed validation commands.
-  Current evidence gap:
-  - No observation-scoped commit batch sequence with pass/fail evidence summary has been executed in this pass yet.
+  Evidence now present:
+  - `4efbd84` (N-028): includes explicit validation summary with
+    - PASS: `ruff check src/ tests/`
+    - PASS: `ruff format --check src/ tests/`
+  Remaining requirement:
+  - Continue the same commit-evidence format for remaining open observations (notably N-029).
 
 ## Status Snapshot (2026-04-24)
 
@@ -490,4 +494,4 @@ It intentionally excludes already completed historical observations captured in 
 - N-027: Completed.
 - N-028: Completed (strict full-repo lint/format gates now passing).
 - N-029: In Progress (services-up precheck now enforced; DB/storage non-mock green evidence still pending).
-- N-030: In Progress (commit evidence policy locked; pass/fail summary still to be applied in commit batches).
+- N-030: In Progress (commit evidence format now applied on N-028 batch; continue for remaining open items).
