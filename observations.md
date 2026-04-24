@@ -296,7 +296,7 @@ It intentionally excludes already completed historical observations captured in 
   Closure note:
   - No first-class DependencyGate node/type will be added in this requirement wave.
 
-- [-] N-020 | Priority: P1 | Status: In Progress (Core Wiring Implemented)
+- [-] N-020 | Priority: P1 | Status: In Progress (E2E Integration Test Added; Environment Blocked)
   Connect inbound processor to live channels (email/Slack/etc.) with production-ready ingestion path.
   Acceptance scope decision (2026-04-24):
   - Required channel scope for closure is email only.
@@ -312,7 +312,13 @@ It intentionally excludes already completed historical observations captured in 
     - `src/graphclaw/agent/event_consumer.py` processes inbound messages.
   Validation status:
   - Unit/API tests exist for inbound route publishing and adapter behavior.
-  - Remaining for closure: non-mock end-to-end evidence for email ingestion path across DB + broker + storage in one run.
+  - New non-mock integration test added for one-run DB + broker + storage evidence:
+    - `tests/test_inbound/test_email_ingestion_integration.py`
+    - Covers: task ID resolution via DB, status update publish to Redis broker, inbox recent/archive writes to object storage.
+  - Current blocker in this environment:
+    - `pytest tests/test_inbound/test_email_ingestion_integration.py -q --run-integration`
+      fails at mandatory services precheck (DB timeout on `localhost:5432`, storage endpoint unreachable at `http://localhost:9000`).
+  - Remaining for closure: re-run the new integration test in a services-up environment and capture green evidence.
 
 - [x] N-021 | Priority: P1 | Status: Completed (Implemented + Validated)
   Enable real embedding generation on create/update and verify vector fallback resolution in inbound matching.
@@ -474,7 +480,7 @@ It intentionally excludes already completed historical observations captured in 
 ## Status Snapshot (2026-04-24)
 
 - N-019: Completed (metadata-only gate model accepted as intentional simplification).
-- N-020: In Progress (email-only acceptance scope locked; full non-mock closure pending).
+- N-020: In Progress (email-only non-mock integration test added; waiting on services-up environment for green run).
 - N-021: Completed (fail-open + manual match candidate UX implemented and validated).
 - N-022: Completed.
 - N-023: Completed.
