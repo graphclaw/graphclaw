@@ -433,13 +433,29 @@ It intentionally excludes already completed historical observations captured in 
     broad integration failures tied to environment setup (storage auth and DB test infra), so N-028
     remains in progress pending stable full-gate execution in a clean environment.
 
-- [-] N-029 | Priority: P0 | Status: In Progress (Evidence Collection Started)
+- [-] N-029 | Priority: P0 | Status: In Progress (Mandatory Precheck Implemented)
   Require non-mock integration evidence for DB, broker, and storage paths before marking observation as done.
   Test execution decision (2026-04-24):
   - Required services-up precheck is mandatory before running integration suites.
+  Implemented in this pass:
+  - Added centralized readiness probe helper for integration dependencies:
+    - `tests/integration_precheck.py` (DB + Redis + storage checks).
+  - Added CLI precheck script for manual/operator use:
+    - `scripts/precheck_services.py`.
+  - Enforced integration gate in pytest collection flow:
+    - `tests/conftest.py` adds `--run-integration` / `GRAPHCLAW_RUN_INTEGRATION=1` control and
+      runs mandatory services precheck before executing `@pytest.mark.integration` tests.
+    - Integration tests are skipped unless explicitly enabled; when enabled and services are down,
+      pytest exits with a precheck failure message.
+  - Added unit coverage:
+    - `tests/test_infra/test_integration_precheck.py`.
   Evidence collected:
   - Broker path (live Redis) succeeded:
     - `pytest tests/test_infra/test_user_events.py -q` → `10 passed`.
+  - Precheck runtime behavior validated:
+    - `python scripts/precheck_services.py` → explicit FAIL with dependency-specific reasons when services are down.
+  - Integration gate behavior validated:
+    - `pytest tests/test_db/test_graph_repository.py -q` → integration tests skipped by default unless enabled.
   Blockers observed in current environment:
   - DB integration path failed to initialize pool:
     - `pytest tests/test_db/test_graph_repository.py -q` → `psycopg_pool.PoolTimeout` during test DB pool setup.
@@ -467,5 +483,5 @@ It intentionally excludes already completed historical observations captured in 
 - N-026: Completed.
 - N-027: Completed.
 - N-028: In Progress (strict full-repo gate policy locked; full-suite pass not yet achieved).
-- N-029: In Progress (services-up precheck required; DB/storage non-mock evidence still blocked).
+- N-029: In Progress (services-up precheck now enforced; DB/storage non-mock green evidence still pending).
 - N-030: In Progress (commit evidence policy locked; pass/fail summary still to be applied in commit batches).
