@@ -45,7 +45,7 @@ from __future__ import annotations
 
 import re
 
-from graphclaw.inbound.models import TaskResolution
+from graphclaw.inbound.models import CandidateNodeMatch, TaskResolution
 from graphclaw.models.enums import ConfidenceLevel, MatchedBy
 
 # ---------------------------------------------------------------------------
@@ -57,6 +57,24 @@ from graphclaw.models.enums import ConfidenceLevel, MatchedBy
 TASK_ID_REGEX: re.Pattern[str] = re.compile(
     r"\bTSK-[A-Z]{2,}-\d{4,}-(?:DEL|ATM|FLW|CMP|APR|MIL|RVW|REC|DEC|CHK|RES)\b"
 )
+
+_STOP_WORDS = {
+    "the",
+    "and",
+    "for",
+    "with",
+    "this",
+    "that",
+    "from",
+    "have",
+    "about",
+    "just",
+    "into",
+    "your",
+    "please",
+    "update",
+    "status",
+}
 
 
 class TaskResolver:
@@ -93,7 +111,12 @@ class TaskResolver:
         self._pool = pool
         self._embedding_client = embedding_client
 
-    async def resolve(self, message_text: str, subject: str = "") -> TaskResolution:
+    async def resolve(
+        self,
+        message_text: str,
+        subject: str = "",
+        user_id: str | None = None,
+    ) -> TaskResolution:
         """Run the full resolution pipeline on *message_text* and *subject*.
 
         Args:
@@ -135,8 +158,23 @@ class TaskResolver:
             )
 
         # Steps 4-6: Vector search fallback when a pool is available.
-        if self._pool is not None:
-            return await self._vector_search(message_text, subject)
+        if self._pool is not None and self._embedding_client is not None:
+            vector_result = await self._vector_search(message_text, subject)
+            if vector_result.task_id:
+                return vector_result
+
+            candidates = await self._suggest_candidates(message_text, subject, user_id)
+            return TaskResolution(
+                match_unavailable_reason="low_embedding_confidence",
+                candidate_nodes=candidates,
+            )
+
+        if self._repo is not None:
+            candidates = await self._suggest_candidates(message_text, subject, user_id)
+            return TaskResolution(
+                match_unavailable_reason="embedding_service_unavailable",
+                candidate_nodes=candidates,
+            )
 
         # No match possible without a pool.
         return TaskResolution()
@@ -236,3 +274,69 @@ class TaskResolver:
             pass
 
         return TaskResolution()
+
+    async def _suggest_candidates(
+        self,
+        body: str,
+        subject: str,
+        user_id: str | None,
+    ) -> list[CandidateNodeMatch]:
+        """Suggest likely task candidates for manual matching.
+
+        Uses lightweight lexical overlap between inbound text and task
+        title/description as a fail-open fallback when embedding search
+        cannot produce a confident match.
+        """
+        if self._repo is None:
+            return []
+
+        tasks: list[dict] = []
+        try:
+            if user_id and hasattr(self._repo, "list_nodes_by_user"):
+                tasks = await self._repo.list_nodes_by_user("TaskNode", user_id)  # type: ignore[union-attr]
+            else:
+                tasks = await self._repo.list_nodes("TaskNode")  # type: ignore[union-attr]
+        except Exception:
+            return []
+
+        query_text = f"{subject} {body}".lower()
+        tokens = {
+            token
+            for token in re.findall(r"[a-z0-9]{3,}", query_text)
+            if token not in _STOP_WORDS
+        }
+
+        scored: list[CandidateNodeMatch] = []
+        fallback: list[CandidateNodeMatch] = []
+        for task in tasks:
+            task_id = str(task.get("id", "")).strip()
+            if not task_id:
+                continue
+
+            state = str(task.get("state", "")) or None
+            if state in {"COMPLETE", "CANCELLED", "SNOOZED"}:
+                continue
+
+            title = str(task.get("title", task_id)).strip() or task_id
+            description = str(task.get("description", "")).strip()
+            haystack = f"{title} {description}".lower()
+
+            overlap = len([token for token in tokens if token in haystack])
+            score = (overlap / len(tokens)) if tokens else 0.0
+
+            candidate = CandidateNodeMatch(
+                node_id=task_id,
+                title=title,
+                node_type=str(task.get("node_type", "TaskNode")),
+                state=state,
+                score=round(score, 3),
+            )
+            if score > 0:
+                scored.append(candidate)
+            else:
+                fallback.append(candidate)
+
+        ranked = sorted(scored, key=lambda item: item.score, reverse=True)
+        if ranked:
+            return ranked[:5]
+        return fallback[:5]

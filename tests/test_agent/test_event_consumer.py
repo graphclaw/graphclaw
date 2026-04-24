@@ -53,7 +53,9 @@ def _make_consumer(
     mock_broker.consume = MagicMock(side_effect=_empty_gen)
 
     mock_loop = AsyncMock()
-    mock_loop._llm = None  # No LLM so intelligence_agent is not wired
+    mock_loop.llm_client = None  # No LLM so intelligence_agent is not wired
+    mock_loop.graph_repo = None
+    mock_loop.agent_id = "main"
     mock_loop.run_cycle = AsyncMock(return_value=[])
     mock_loop.generate_briefing = AsyncMock(return_value="Your daily briefing")
     mock_loop.process_chat_message = AsyncMock(return_value=None)
@@ -367,7 +369,7 @@ async def test_notify_user_unmatched_broadcasts_when_channels_registered() -> No
         user_channels={"usr-001": [{"channel": "email", "to": "u@x.com"}]}
     )
     inbound = InboundMessage(**_make_inbound_dict(body="Hi, what is the status?"))
-    await consumer._notify_user_unmatched(inbound, "usr-001")
+    await consumer._notify_user_unmatched(inbound, "usr-001", None)
 
     mock_dispatcher.broadcast.assert_called_once()
     call_kwargs = mock_dispatcher.broadcast.call_args[1]
@@ -382,7 +384,7 @@ async def test_notify_user_unmatched_skips_empty_body() -> None:
         user_channels={"usr-001": [{"channel": "email", "to": "u@x.com"}]}
     )
     inbound = InboundMessage(**_make_inbound_dict(body=""))
-    await consumer._notify_user_unmatched(inbound, "usr-001")
+    await consumer._notify_user_unmatched(inbound, "usr-001", None)
 
     mock_dispatcher.broadcast.assert_not_called()
 
@@ -393,6 +395,45 @@ async def test_notify_user_unmatched_skips_when_no_channels() -> None:
 
     consumer, _, _, mock_dispatcher = _make_consumer(user_channels={})
     inbound = InboundMessage(**_make_inbound_dict(body="Hey"))
-    await consumer._notify_user_unmatched(inbound, "usr-001")
+    await consumer._notify_user_unmatched(inbound, "usr-001", None)
 
     mock_dispatcher.broadcast.assert_not_called()
+
+
+async def test_notify_user_unmatched_includes_manual_match_candidates() -> None:
+    """Manual-match notifications should include candidate nodes and reason text."""
+    from graphclaw.gateway.schemas import InboundMessage
+    from graphclaw.inbound.models import (
+        CandidateNodeMatch,
+        InboundResult,
+        StatusExtraction,
+        TaskResolution,
+    )
+
+    consumer, _, _, mock_dispatcher = _make_consumer(
+        user_channels={"usr-001": [{"channel": "email", "to": "u@x.com"}]}
+    )
+    inbound = InboundMessage(**_make_inbound_dict(body="Any update on API deploy?"))
+    result = InboundResult(
+        message_id="msg-001",
+        session_id="SES-test",
+        resolution=TaskResolution(
+            task_id=None,
+            match_unavailable_reason="embedding_service_unavailable",
+            candidate_nodes=[
+                CandidateNodeMatch(
+                    node_id="TSK-AA-1001-ATM",
+                    title="Deploy API service",
+                    state="IN_PROGRESS",
+                )
+            ],
+        ),
+        status=StatusExtraction(signal="UNKNOWN"),
+    )
+
+    await consumer._notify_user_unmatched(inbound, "usr-001", result)
+
+    mock_dispatcher.broadcast.assert_called_once()
+    body = mock_dispatcher.broadcast.call_args[1]["body"]
+    assert "embedding service is unavailable" in body
+    assert "TSK-AA-1001-ATM" in body

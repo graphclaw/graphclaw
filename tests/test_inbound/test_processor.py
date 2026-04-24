@@ -200,6 +200,30 @@ async def test_process_unmatched_needs_followup() -> None:
     assert result.resolution.task_id is None
 
 
+@pytest.mark.asyncio
+async def test_process_manual_match_required_when_embedding_unavailable() -> None:
+    """Unmatched + embedding unavailable should request manual match."""
+    resolution = _make_resolution(task_id=None, matched_by=None, score=0.0)
+    resolution.match_unavailable_reason = "embedding_service_unavailable"
+
+    processor = _make_processor(
+        resolution=resolution,
+        extraction=_make_extraction(signal=StatusSignal.INFO_ONLY, suggested_state=None),
+    )
+
+    result = await processor.process(
+        message_id="MSG-004A",
+        session_id="SES-manual-match",
+        subject="Unknown",
+        body="Random message with no task reference.",
+        channel="email",
+        user_id="USER-1",
+    )
+
+    assert result.action_taken == "manual_match_required"
+    assert result.followup_needed is True
+
+
 # ---------------------------------------------------------------------------
 # test_process_info_only_no_state_update
 # ---------------------------------------------------------------------------

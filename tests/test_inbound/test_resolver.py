@@ -129,6 +129,43 @@ async def test_resolve_no_match_no_pool() -> None:
     assert result.score == 0.0
 
 
+async def test_resolve_embedding_unavailable_returns_manual_candidates() -> None:
+    """When embedding search is unavailable, resolver should fail-open with candidates."""
+    mock_repo = AsyncMock()
+    mock_repo.get_node = AsyncMock(return_value=None)
+    mock_repo.list_nodes_by_user = AsyncMock(
+        return_value=[
+            {
+                "id": "TSK-AA-1001-ATM",
+                "title": "Deploy API service",
+                "description": "Deploying API to production",
+                "state": "IN_PROGRESS",
+                "node_type": "TaskNode",
+            },
+            {
+                "id": "TSK-AA-1002-ATM",
+                "title": "Prepare release notes",
+                "description": "Write notes",
+                "state": "PENDING",
+                "node_type": "TaskNode",
+            },
+        ]
+    )
+
+    resolver = TaskResolver(graph_repo=mock_repo)
+    result = await resolver.resolve(
+        "Can you check status of API deployment",
+        subject="API deployment",
+        user_id="USER-1",
+    )
+
+    assert result.task_id is None
+    assert result.match_unavailable_reason == "embedding_service_unavailable"
+    assert len(result.candidate_nodes) >= 1
+    assert result.candidate_nodes[0].node_id == "TSK-AA-1001-ATM"
+    mock_repo.list_nodes_by_user.assert_called_once_with("TaskNode", "USER-1")
+
+
 # ---------------------------------------------------------------------------
 # resolve — vector search
 # ---------------------------------------------------------------------------

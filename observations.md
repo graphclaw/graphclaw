@@ -157,68 +157,315 @@ It intentionally excludes already completed historical observations captured in 
 
 ## 3) Reliability and Runtime Safety
 
-- [ ] N-011 | Priority: P0 | Status: Proposed
+- [x] N-011 | Priority: P0 | Status: Completed (Implemented)
   Add execution timeout and cancellation handling in SubAgentRunner loop with explicit timeout events and blocked-state escalation.
+  Design details (Implemented):
+  - Runtime path: src/graphclaw/agent/sub_agent_runner.py execute().
+  - Explicit terminal statuses include COMPLETED, FAILED, TIMED_OUT, CANCELLED.
+  - Timeout and cancellation both emit BLOCKED followed by terminal COMPLETED(status=...).
+  - Cancellation path records duration and re-raises asyncio.CancelledError for cooperative shutdown.
+  - Event consumer BLOCKED handling routes blocked outcomes to BLOCKED task state.
+  Completion evidence:
+  - Implementation: src/graphclaw/agent/sub_agent_runner.py, src/graphclaw/agent/event_consumer.py.
+  - Tests: tests/test_agent/test_sub_agent_orchestration.py::test_execute_times_out_when_runner_exceeds_execution_limit and ::test_execute_emits_cancelled_status_when_task_is_cancelled.
 
-- [ ] N-012 | Priority: P1 | Status: Proposed
+- [x] N-012 | Priority: P1 | Status: Completed (Implemented)
   Add per-call timeout wrappers for worker.execute and MCP client calls with retry policy where safe and idempotent.
+  Design details (Implemented):
+  - Runtime path: src/graphclaw/agent/sub_agent_runner.py _dispatch_tool().
+  - Tool calls are wrapped in per-call asyncio.wait_for timeouts.
+  - Retry policy is bounded and allowlist-based (retryable skills + retryable MCP tools).
+  - Defaults remain safe-by-default (0 retries unless explicitly configured).
+  - Exponential backoff knobs are config-driven via env-backed AgentPoolConfig.
+  Completion evidence:
+  - Implementation: src/graphclaw/agent/sub_agent_runner.py, src/graphclaw/infra/config.py.
+  - Tests: tests/test_agent/test_sub_agent_orchestration.py::test_dispatch_tool_returns_timeout_error_for_slow_tool and ::test_dispatch_tool_retries_retryable_skill.
 
-- [ ] N-013 | Priority: P1 | Status: Proposed
+- [x] N-013 | Priority: P1 | Status: Completed (Implemented)
   Remove dependence on private semaphore internals in SubAgentPool metrics and track active/waiting counts explicitly.
+  Design details (Implemented):
+  - Runtime path: src/graphclaw/agent/sub_agent_pool.py active_count/queue_depth properties.
+  - Explicit counters (_queued_count, _active_count) replace private semaphore internals for metrics.
+  - active_count and queue_depth are exposed from explicit tracked state.
+  - Concurrency limit still uses semaphore for throttling, but metrics do not read semaphore internals.
+  Completion evidence:
+  - Implementation: src/graphclaw/agent/sub_agent_pool.py.
+  - Tests: tests/test_agent/test_sub_agent_orchestration.py::test_initial_active_count_zero.
 
-- [ ] N-014 | Priority: P1 | Status: Proposed
+- [x] N-014 | Priority: P1 | Status: Completed (Implemented)
   Fail fast for critical startup dependencies (DB, storage, broker) or expose explicit degraded-mode readiness with alarms.
+  Design details (Implemented):
+  - Startup path: src/graphclaw/gateway/app.py lifespan().
+  - Startup mode supports strict and degraded via GRAPHCLAW_STARTUP_MODE.
+  - startup_health diagnostics now track broker/database/storage readiness.
+  - /health/ready returns structured dependency health payload and degraded status when critical deps are unhealthy.
+  - strict mode raises startup failure when critical dependencies are missing.
+  Completion evidence:
+  - Implementation: src/graphclaw/gateway/app.py.
+  - Tests: tests/test_gateway/test_app.py::test_readiness_endpoint_with_broker and ::test_readiness_endpoint_no_broker_returns_503.
 
-- [ ] N-015 | Priority: P1 | Status: Proposed
+- [ ] N-015 | Priority: P1 | Status: Partially Implemented (Validation Complete)
   Add startup/runtime validation to ensure heartbeat interval and timeout values are coherent.
+  Design details (Current state):
+  - Config path: src/graphclaw/infra/config.py AgentPoolConfig.
+  - Implemented:
+    - Pydantic invariants for heartbeat, timeout ordering, and retry backoff coherence.
+    - Env parsing for retry allowlists and retry timing knobs.
+    - Validation matrix tests for AgentPoolConfig.
+  - Remaining gap vs planned scope:
+    - degraded-mode fallback normalization to safe defaults is not implemented; invalid AgentPoolConfig currently fails sub-agent pool initialization (logged), rather than auto-normalizing values.
+  Verification evidence:
+  - Implementation: src/graphclaw/infra/config.py, src/graphclaw/gateway/app.py.
+  - Tests: tests/test_infra/test_agent_pool_config.py.
 
 ## 4) Functional Gaps vs Product Design
 
-- [ ] N-016 | Priority: P0 | Status: Proposed
+- [x] N-016 | Priority: P0 | Status: Completed (Implemented)
   Implement propose-plan review lifecycle: draft plan persistence, human approval/edit stage, then atomic execute-plan commit.
+  Design details:
+  - Runtime path: src/graphclaw/agent/main_orchestrator.py planning tools.
+  - Lifecycle states: DRAFT -> APPROVED -> EXECUTED.
+  - Draft persistence:
+    - propose_plan now persists plan objects with status DRAFT and revision metadata.
+    - persistence uses StorageClient key: {user_id}/agents/{agent_id}/state/pending_plans/{plan_id}.json plus in-memory cache.
+  - Human review stage:
+    - Added edit_plan tool to patch goal fields and optionally replace tasks.
+    - Editing an APPROVED plan resets status back to DRAFT and requires re-approval.
+    - Added approve_plan tool to explicitly transition DRAFT -> APPROVED.
+  - Execute guardrails:
+    - execute_plan now requires status APPROVED and rejects DRAFT/unknown states.
+    - optional approved_task_ids allow partial execution by draft_task_id.
+  - Atomicity model:
+    - execute_plan uses compensating rollback semantics.
+    - if any goal/task create step fails, all created nodes from the same execution attempt are deleted in reverse order and plan status remains non-executed.
+  - Tool contract alignment:
+    - planning toolset now exposes propose_plan, edit_plan, approve_plan, execute_plan.
+    - propose_plan accepts either free-form description or goal_or_task_id/context for backward-compatible invocation.
+  Completion evidence:
+  - Implementation:
+    - src/graphclaw/agent/main_orchestrator.py (draft persistence helpers, edit/approve tools, approval-gated execute, rollback logic).
+    - src/graphclaw/agent/tool_registry.py (new planning tools and updated schemas/descriptions).
+  - Tests:
+    - tests/test_agent/test_plan_lifecycle.py (draft persistence, approval gating, edit resets approval, rollback on failure).
+    - tests/test_agent/test_tool_registry.py (planning set includes edit_plan and approve_plan).
 
-- [ ] N-017 | Priority: P1 | Status: Proposed
+- [-] N-017 | Priority: P1 | Status: In Progress (Implementation Initiated)
   Implement bottom-up goal inference from task clusters and relationship patterns.
+  Design details (approved):
+  - Runtime path: src/graphclaw/agent/main_orchestrator.py planning tools.
+  - Added storage-backed goal-inference draft lifecycle under
+    `{user_id}/agents/{agent_id}/state/pending_goal_inferences/{inference_id}.json`.
+  - Added `propose_goal_inference` tool: clusters ungrouped active tasks using relationship patterns
+    (shared assignee, deadline window, shared tags/task-type topic), scores confidence, and persists DRAFT proposals.
+  - Added `approve_goal_inference` tool: requires explicit inference_id approval, then creates
+    GoalNode (`origin=AGENT_INFERRED`, `inferred_from`, `confirmed_by_user=true`) and wires PART_OF edges.
+  - Safety behavior: commit path uses compensating rollback (`delete_node(goal_id)`) on failure.
+  Implementation progress:
+  - Code updated: src/graphclaw/agent/main_orchestrator.py, src/graphclaw/agent/tool_registry.py.
+  - Tests added/updated:
+    - tests/test_agent/test_goal_inference.py
+    - tests/test_agent/test_tool_registry.py
 
-- [ ] N-018 | Priority: P1 | Status: Proposed
+- [-] N-018 | Priority: P1 | Status: In Progress (Implementation Initiated)
   Implement HandoffNode schema and related edge wiring where required by design spec.
+  Design details (approved):
+  - Added `HandoffNode` coordination schema (`task_id`, `from_owner`, `to_owner`, context payload)
+    with dedicated ID format `HND-*` and validator/generator helpers.
+  - Added graph schema wiring for coordination linkage:
+    - vertex labels: `CheckinNode`, `HandoffNode`
+    - edge label: `REFERRED_BY`
+    - baseline + forward migration coverage via migration `0007`.
+  - Delegation runtime now records ownership transitions:
+    - `delegate_to_agent` creates a `HandoffNode` when assignee changes and links it to the task
+      via `REFERRED_BY` edge (non-fatal if DB labels are not yet migrated).
+  - Check-in linkage aligned to canonical edge label by using `REFERRED_BY`.
+  Implementation progress:
+  - Code updated: src/graphclaw/models/base.py, src/graphclaw/models/nodes.py,
+    src/graphclaw/models/enums.py, src/graphclaw/models/edges.py,
+    src/graphclaw/agent/main_orchestrator.py, src/graphclaw/db/age/repository.py,
+    scripts/init-db.sql, src/graphclaw/migrations/catalogue.py.
+  - Tests added/updated:
+    - tests/test_models/test_nodes.py
+    - tests/test_agent/test_sub_agent_orchestration.py
 
-- [ ] N-019 | Priority: P1 | Status: Proposed
+- [x] N-019 | Priority: P1 | Status: Completed (Design Decision Locked - Simplified Model)
   Evaluate and implement Dependency Gate as a first-class node if required by final design decision.
+  Final decision (2026-04-24):
+  - Keep metadata-only gate model (Option 1).
+  - Existing semantics via `GateType` and `completion_gate` are accepted as the intentional design.
+  Closure note:
+  - No first-class DependencyGate node/type will be added in this requirement wave.
 
-- [ ] N-020 | Priority: P1 | Status: Proposed
+- [-] N-020 | Priority: P1 | Status: In Progress (Core Wiring Implemented)
   Connect inbound processor to live channels (email/Slack/etc.) with production-ready ingestion path.
+  Acceptance scope decision (2026-04-24):
+  - Required channel scope for closure is email only.
+  Implementation evidence present in code:
+  - Gateway ingress and queue publishing:
+    - `src/graphclaw/gateway/app.py` (`/api/v1/inbound`, `/api/v1/trigger`, SES/Slack/Telegram/WhatsApp/Teams webhooks)
+    - inbound payloads are published to `INBOUND_MESSAGES`.
+  - Channel adapters publish normalized inbound payloads:
+    - `src/graphclaw/gateway/channels/*/adapter.py`
+    - `src/graphclaw/gateway/channels/email/poller.py`.
+  - Trigger/event bridge and processing path:
+    - `src/graphclaw/triggers/engine.py` converts `INBOUND_MESSAGES` to trigger events.
+    - `src/graphclaw/agent/event_consumer.py` processes inbound messages.
+  Validation status:
+  - Unit/API tests exist for inbound route publishing and adapter behavior.
+  - Remaining for closure: non-mock end-to-end evidence for email ingestion path across DB + broker + storage in one run.
 
-- [ ] N-021 | Priority: P1 | Status: Proposed
+- [x] N-021 | Priority: P1 | Status: Completed (Implemented + Validated)
   Enable real embedding generation on create/update and verify vector fallback resolution in inbound matching.
+  Runtime behavior decision (2026-04-24):
+  - Fail open when embedding service is unavailable.
+  - User-facing behavior must:
+    - show that automatic match is unavailable due to embedding service unavailability,
+    - present relevant candidate nodes,
+    - request manual user selection/input to resolve matching.
+  Implemented:
+  - Embedding client abstraction available: `src/graphclaw/infra/embeddings.py`.
+  - Repository embedding persistence implemented:
+    - `src/graphclaw/db/age/repository.py` has background embedding generation on task create/update
+      and upsert into `node_embeddings`.
+  - Resolver includes vector-search path:
+    - `src/graphclaw/inbound/resolver.py` supports embedding-client-driven fallback.
+  Completed in this pass:
+  - Added fail-open resolution metadata + manual candidate list support:
+    - `src/graphclaw/inbound/models.py` (`CandidateNodeMatch`, `match_unavailable_reason`, `candidate_nodes`).
+  - Resolver now returns ranked manual candidates when embedding path is unavailable or low confidence:
+    - `src/graphclaw/inbound/resolver.py` (`resolve(..., user_id=...)`, `_suggest_candidates`).
+  - Processor now emits explicit `manual_match_required` action for fail-open cases:
+    - `src/graphclaw/inbound/processor.py`.
+  - Event consumer user notification now explains unavailability reason and includes candidate task IDs for manual selection:
+    - `src/graphclaw/agent/event_consumer.py`.
+  Validation evidence:
+  - `pytest tests/test_inbound/test_resolver.py tests/test_inbound/test_processor.py tests/test_agent/test_event_consumer.py -q` -> `50 passed`.
+  - Added regression tests:
+    - `tests/test_inbound/test_resolver.py::test_resolve_embedding_unavailable_returns_manual_candidates`
+    - `tests/test_inbound/test_processor.py::test_process_manual_match_required_when_embedding_unavailable`
+    - `tests/test_agent/test_event_consumer.py::test_notify_user_unmatched_includes_manual_match_candidates`
 
-- [ ] N-022 | Priority: P2 | Status: Proposed
+- [x] N-022 | Priority: P2 | Status: Completed
   Seed runtime system skill definitions into system/skills/definitions and make seeding file-driven instead of inline literals.
+  Completion details:
+  - Seeding moved to file-driven source for prompt header, knowledge, and system agent assets:
+    - `src/graphclaw/gateway/seeding.py`
+    - `src/graphclaw/gateway/prompts/**`
+  - Added file-driven runtime skill-definition seeding from repository source:
+    - source: `src/graphclaw/skills/definitions/*/SKILL.md`
+    - destination: `system/skills/definitions/{skill}/SKILL.md`
+    - implementation: `src/graphclaw/gateway/seeding.py` (`_iter_system_skill_definition_files`).
+  - Startup wiring calls seeding during gateway bootstrap:
+    - `src/graphclaw/gateway/app.py`.
+  - Tests added:
+    - `tests/test_gateway/test_seeding.py` (unit, non-integration).
+    - `tests/test_gateway/test_seeding_integration.py` extended with skill-definition checks.
+  Validation evidence:
+  - `pytest tests/test_gateway/test_seeding.py tests/test_models/test_deserialization.py tests/test_scoring/test_factor_guards.py -q` → passed.
+
+  Status refresh (2026-04-24):
+  - Recent workspace edits in `state/machine.py`, `tests/test_models/test_deserialization.py`, and `tests/test_gateway/test_seeding.py`
+    preserve the implemented behavior for N-022 and do not change completion status.
 
 ## 5) Code Quality and Maintainability
 
-- [ ] N-023 | Priority: P1 | Status: Proposed
+- [x] N-023 | Priority: P1 | Status: Completed
   Replace private attribute access patterns in event consumer with explicit public orchestrator interfaces.
+  Completion evidence:
+  - `src/graphclaw/agent/event_consumer.py` uses dedicated public accessor helpers
+    (`_graph_repo`, `_llm_client`, `_agent_id`) and no longer relies on direct private-attribute reach-through.
 
-- [ ] N-024 | Priority: P2 | Status: Proposed
+- [x] N-024 | Priority: P2 | Status: Completed
   Consolidate duplicate task field deserialization utilities used by state and cascade modules.
+  Completion evidence:
+  - Added shared helper module:
+    - `src/graphclaw/models/deserialization.py` (`deserialize_task_node_props`).
+  - Replaced duplicate call-sites:
+    - `src/graphclaw/api/state.py`
+    - `src/graphclaw/state/cascade.py`
+    - `src/graphclaw/agent/main_orchestrator.py`.
+  - Added tests:
+    - `tests/test_models/test_deserialization.py`.
 
-- [ ] N-025 | Priority: P2 | Status: Proposed
+- [x] N-025 | Priority: P2 | Status: Completed
   Replace module-level state machine singleton usage with injected dependency for improved testability.
+  Completion evidence:
+  - `src/graphclaw/state/cascade.py` resolves to injected `StateMachine` and
+    passes it through cascade helpers instead of relying on module singleton state.
+  - API and orchestrator call-sites pass explicit `state_machine` dependencies.
 
-- [ ] N-026 | Priority: P2 | Status: Proposed
+- [x] N-026 | Priority: P2 | Status: Completed
   Correct typing and guard edge cases in scoring and briefing paths (including empty factor handling).
+  Completion evidence:
+  - Defensive factor handling and type normalization in scoring factors:
+    - `src/graphclaw/scoring/factors/constraint.py`
+    - `src/graphclaw/scoring/factors/blocker.py`
+    - `src/graphclaw/scoring/factors/resource_risk.py`.
+  - Briefing formatter handles malformed/non-numeric optional values safely:
+    - `src/graphclaw/agent/briefing.py`.
+  - Added guard tests:
+    - `tests/test_scoring/test_factor_guards.py`.
 
-- [ ] N-027 | Priority: P2 | Status: Proposed
+- [x] N-027 | Priority: P2 | Status: Completed
   Add structured logging for state-machine guard rejection reasons for operational debugging.
+  Completion evidence:
+  - Added guard rejection logger hook with structured fields in
+    `src/graphclaw/state/machine.py` (`_log_guard_rejection`) and wired it
+    across guard failure branches.
+  - Guard rejection reason is emitted both as structured metadata and in log message text,
+    with test coverage in `tests/test_state/test_machine.py`.
 
 ## 6) Validation and Release Gates
 
-- [ ] N-028 | Priority: P0 | Status: Proposed
+- [-] N-028 | Priority: P0 | Status: In Progress (Gates Executed, Partial Blockers)
   For each approved observation: implement code, run targeted tests against real services, then run full lint/format gates.
+  Gate policy decision (2026-04-24):
+  - Strict full-repo gates must pass before closure.
+  Current evidence:
+  - Targeted validation completed for N-022..N-027 scope:
+    - `pytest tests/test_gateway/test_seeding.py tests/test_models/test_deserialization.py tests/test_scoring/test_factor_guards.py tests/test_state/test_machine.py tests/test_agent/test_event_consumer.py -q` → `57 passed`.
+    - focused lint passed on touched files (`ruff check ...`).
+    - focused format check passed on touched files (`ruff format --check ...`).
+  - Full workspace gates remain blocked by repository-wide/environment issues outside the N-022..N-027 patch surface.
 
-- [ ] N-029 | Priority: P0 | Status: Proposed
+  Status refresh (2026-04-24):
+  - Latest recorded full-suite runs (see `test_results_new.txt` / `test_results_final.txt`) indicate
+    broad integration failures tied to environment setup (storage auth and DB test infra), so N-028
+    remains in progress pending stable full-gate execution in a clean environment.
+
+- [-] N-029 | Priority: P0 | Status: In Progress (Evidence Collection Started)
   Require non-mock integration evidence for DB, broker, and storage paths before marking observation as done.
+  Test execution decision (2026-04-24):
+  - Required services-up precheck is mandatory before running integration suites.
+  Evidence collected:
+  - Broker path (live Redis) succeeded:
+    - `pytest tests/test_infra/test_user_events.py -q` → `10 passed`.
+  Blockers observed in current environment:
+  - DB integration path failed to initialize pool:
+    - `pytest tests/test_db/test_graph_repository.py -q` → `psycopg_pool.PoolTimeout` during test DB pool setup.
+  - Storage integration path is blocked by object-storage credential/access issues in latest runs
+    (`InvalidAccessKeyId` / `403 Forbidden` against seeded system paths).
+  Remaining requirement:
+  - Collect green, non-mock evidence for DB + broker + storage in the same environment after mandatory services-up precheck.
 
-- [ ] N-030 | Priority: P1 | Status: Proposed
+- [-] N-030 | Priority: P1 | Status: In Progress (Commit Policy Locked)
   Commit in small batches per approved observation group with test evidence in commit messages.
+  Commit evidence decision (2026-04-24):
+  - Each commit/batch summary must include explicit pass/fail summary for executed validation commands.
+  Current evidence gap:
+  - No observation-scoped commit batch sequence with pass/fail evidence summary has been executed in this pass yet.
+
+## Status Snapshot (2026-04-24)
+
+- N-019: Completed (metadata-only gate model accepted as intentional simplification).
+- N-020: In Progress (email-only acceptance scope locked; full non-mock closure pending).
+- N-021: Completed (fail-open + manual match candidate UX implemented and validated).
+- N-022: Completed.
+- N-023: Completed.
+- N-024: Completed.
+- N-025: Completed.
+- N-026: Completed.
+- N-027: Completed.
+- N-028: In Progress (strict full-repo gate policy locked; full-suite pass not yet achieved).
+- N-029: In Progress (services-up precheck required; DB/storage non-mock evidence still blocked).
+- N-030: In Progress (commit evidence policy locked; pass/fail summary still to be applied in commit batches).

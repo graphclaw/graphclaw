@@ -107,6 +107,19 @@ class AgentEventConsumer:
     # Lifecycle
     # ------------------------------------------------------------------
 
+    def _graph_repo(self) -> Any:
+        """Return graph repo via public orchestrator interface when available."""
+        return getattr(self._loop, "graph_repo", None)
+
+    def _llm_client(self) -> Any:
+        """Return llm client via public orchestrator interface when available."""
+        return getattr(self._loop, "llm_client", None)
+
+    def _agent_id(self) -> str:
+        """Return orchestrator agent id via public interface."""
+        value = getattr(self._loop, "agent_id", None)
+        return str(value) if value else "main"
+
     async def start(self) -> None:
         """Start the background consumer task."""
         self._running = True
@@ -115,19 +128,15 @@ class AgentEventConsumer:
         self._agent_updates_task = asyncio.create_task(self._consume_agent_updates_loop())
 
         # Wire InboundIntelligenceAgent if LLM is available
-        if (
-            self._loop is not None
-            and hasattr(self._loop, "_llm")
-            and self._loop._llm is not None  # noqa: SLF001
-            and self._storage is not None
-        ):
+        llm_client = self._llm_client()
+        if llm_client is not None and self._storage is not None:
             from graphclaw.inbound.intelligence_agent import (
                 InboundIntelligenceAgent,  # noqa: PLC0415
             )
 
             self._intelligence_agent = InboundIntelligenceAgent(
-                llm=self._loop._llm,  # noqa: SLF001
-                graph_repo=getattr(self._loop, "_repo", None),
+                llm=llm_client,
+                graph_repo=self._graph_repo(),
                 storage=self._storage,
                 memory_lock=self._memory_lock,
                 logger=None,
@@ -365,7 +374,7 @@ class AgentEventConsumer:
         else:
             # Fallback: update task state directly
             try:
-                repo = getattr(self._loop, "_repo", None)
+                repo = self._graph_repo()
                 if repo and event.task_id:
                     import datetime as _dt
 
@@ -395,7 +404,7 @@ class AgentEventConsumer:
             self._health_monitor.remove_agent(event.agent_id)
 
         try:
-            repo = getattr(self._loop, "_repo", None)
+            repo = self._graph_repo()
             if repo and event.task_id:
                 await repo.update_node(event.task_id, {"state": "BLOCKED"})
         except Exception as exc:
@@ -411,14 +420,14 @@ class AgentEventConsumer:
     async def _process_raw_inbound(self, inbound: Any) -> None:
         """Process an inbound message: resolve task, update intelligence, write inbox, optionally reply."""
         user_id = self._default_user_id
-        agent_id = self._loop._agent_id if hasattr(self._loop, "_agent_id") else "main"  # noqa: SLF001
+        agent_id = self._agent_id()
 
         # 1. Run InboundProcessor — resolves task, extracts signal
         from graphclaw.inbound.extractor import StatusExtractor  # noqa: PLC0415
         from graphclaw.inbound.processor import InboundProcessor  # noqa: PLC0415
         from graphclaw.inbound.resolver import TaskResolver  # noqa: PLC0415
 
-        resolver = TaskResolver(graph_repo=getattr(self._loop, "_repo", None))
+        resolver = TaskResolver(graph_repo=self._graph_repo())
         extractor = StatusExtractor()
         processor = InboundProcessor(resolver, extractor, broker=self._broker)
         try:
@@ -428,6 +437,7 @@ class AgentEventConsumer:
                 subject=inbound.subject or "",
                 body=inbound.body or "",
                 channel=inbound.channel,
+                user_id=user_id,
             )
         except Exception as exc:  # noqa: BLE001
             logger.error("AgentEventConsumer: InboundProcessor failed: %s", exc)
@@ -451,7 +461,7 @@ class AgentEventConsumer:
         # 4. Handle unmatched — Betty asks user
         task_id = result.resolution.task_id if (result and result.resolution) else None
         if task_id is None and self._dispatcher is not None:
-            await self._notify_user_unmatched(inbound, user_id)
+            await self._notify_user_unmatched(inbound, user_id, result)
 
         # 5. Use AgentLoop.process_chat_message to compose a reply
         try:
@@ -530,7 +540,7 @@ class AgentEventConsumer:
         """Append an outbound log entry to the task node's intelligence field."""
         if not task_id:
             return
-        repo = getattr(self._loop, "_repo", None)
+        repo = self._graph_repo()
         if repo is None:
             return
         try:
@@ -556,8 +566,8 @@ class AgentEventConsumer:
         recipient: str,
     ) -> None:
         """Create CheckinNode in graph and store Redis key for reply matching."""
-        repo = getattr(self._loop, "_repo", None)
-        agent_id = self._loop._agent_id if hasattr(self._loop, "_agent_id") else "main"  # noqa: SLF001
+        repo = self._graph_repo()
+        agent_id = self._agent_id()
         if repo is None:
             return
         try:
@@ -651,18 +661,50 @@ class AgentEventConsumer:
         except Exception as exc:  # noqa: BLE001
             logger.warning("AgentEventConsumer: failed to write inbox entries: %s", exc)
 
-    async def _notify_user_unmatched(self, inbound: Any, user_id: str) -> None:
-        """For unmatched inbound from a known sender, Betty actively asks the user."""
+    async def _notify_user_unmatched(self, inbound: Any, user_id: str, result: Any | None) -> None:
+        """For unmatched inbound, ask the user to manually resolve task mapping."""
         # Brief body summary — no LLM, just truncation
         summary = (inbound.body or "")[:200].strip()
         if not summary:
             return
 
+        resolution = result.resolution if (result and getattr(result, "resolution", None)) else None
+        unavailable_reason = (
+            resolution.match_unavailable_reason
+            if (resolution and hasattr(resolution, "match_unavailable_reason"))
+            else None
+        )
+        candidate_lines: list[str] = []
+        if resolution and hasattr(resolution, "candidate_nodes"):
+            for candidate in (resolution.candidate_nodes or [])[:5]:
+                state_part = f" [{candidate.state}]" if candidate.state else ""
+                candidate_lines.append(
+                    f"- {candidate.node_id}: {candidate.title}{state_part}"
+                )
+
+        unavailable_text = (
+            "Automatic task matching is temporarily unavailable because the embedding "
+            "service is unavailable. "
+            if unavailable_reason == "embedding_service_unavailable"
+            else (
+                "Automatic task matching could not find a confident match. "
+                if unavailable_reason == "low_embedding_confidence"
+                else ""
+            )
+        )
+        candidates_text = (
+            "\n\nClosest candidate tasks:\n" + "\n".join(candidate_lines)
+            if candidate_lines
+            else ""
+        )
+
         message = (
             f"I received a message from {inbound.sender} via {inbound.channel} "
             f"that I couldn't match to any active task.\n\n"
+            f"{unavailable_text}"
             f'It says: "{summary}{"..." if len(inbound.body or "") > 200 else ""}"\n\n'
-            f"What should I do with it? (Reply with a task ID or instructions.)"
+            f"Please reply with the matching task ID (or say create new task + title)."
+            f"{candidates_text}"
         )
 
         # Look up user's preferred channel from loop config if available

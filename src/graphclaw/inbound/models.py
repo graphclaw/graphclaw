@@ -44,7 +44,7 @@ from __future__ import annotations
 
 from enum import Enum
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from graphclaw.models.enums import ConfidenceLevel, MatchedBy, TaskState
 
@@ -67,6 +67,16 @@ class StatusSignal(str, Enum):
     UNKNOWN = "UNKNOWN"
 
 
+class CandidateNodeMatch(BaseModel):
+    """Candidate node returned when automatic matching is unavailable/low-confidence."""
+
+    node_id: str
+    title: str
+    node_type: str = "TaskNode"
+    state: str | None = None
+    score: float = 0.0
+
+
 class TaskResolution(BaseModel):
     """Result of resolving an inbound message to a graph task.
 
@@ -87,6 +97,12 @@ class TaskResolution(BaseModel):
     matched_text:
         The raw text fragment that triggered the match (the task ID string
         for ID matches, or the task title for vector matches).
+    match_unavailable_reason:
+        Optional machine-readable reason for why automatic matching could not
+        run (e.g. embedding service unavailable).
+    candidate_nodes:
+        Ranked candidates that can be presented to the user for manual match
+        selection when automatic matching is unavailable.
     """
 
     task_id: str | None = None
@@ -94,6 +110,8 @@ class TaskResolution(BaseModel):
     confidence: ConfidenceLevel = ConfidenceLevel.LOW
     score: float = 0.0
     matched_text: str = ""
+    match_unavailable_reason: str | None = None
+    candidate_nodes: list[CandidateNodeMatch] = Field(default_factory=list)
 
 
 class StatusExtraction(BaseModel):

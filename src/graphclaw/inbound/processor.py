@@ -95,6 +95,7 @@ class InboundProcessor:
         subject: str,
         body: str,
         channel: str,
+        user_id: str | None = None,
     ) -> InboundResult:
         """Process a single inbound message through the full pipeline.
 
@@ -104,13 +105,14 @@ class InboundProcessor:
             subject: Message subject line or title.
             body: Plain-text message body.
             channel: Originating channel (e.g. ``"email"``, ``"api"``).
+            user_id: Optional user id used to scope candidate-node fallback.
 
         Returns:
             An ``InboundResult`` recording the resolution, extracted status,
             action taken, and whether human follow-up is needed.
         """
         # Step 1: Resolve to task.
-        resolution = await self._resolver.resolve(body, subject)
+        resolution = await self._resolver.resolve(body, subject, user_id=user_id)
 
         # Step 2: Extract status signal.
         status = self._extractor.extract(body)
@@ -136,7 +138,11 @@ class InboundProcessor:
                 followup_needed = True
 
         elif not resolution.task_id:
-            action = "unmatched"
+            action = (
+                "manual_match_required"
+                if resolution.match_unavailable_reason is not None
+                else "unmatched"
+            )
             followup_needed = True  # Human routing required.
 
         # Step 4: Log the outcome.
