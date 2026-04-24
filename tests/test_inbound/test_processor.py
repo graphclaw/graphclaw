@@ -10,6 +10,7 @@ graceful operation when optional dependencies are absent.
 
 from __future__ import annotations
 
+import logging
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -62,7 +63,6 @@ def _make_processor(
     resolution: TaskResolution | None = None,
     extraction: StatusExtraction | None = None,
     broker: object | None = None,
-    logger: object | None = None,
 ) -> InboundProcessor:
     mock_resolver = AsyncMock(spec=TaskResolver)
     mock_resolver.resolve = AsyncMock(return_value=resolution or _make_resolution())
@@ -74,7 +74,6 @@ def _make_processor(
         resolver=mock_resolver,
         extractor=mock_extractor,
         broker=broker,
-        logger=logger,
     )
 
 
@@ -263,36 +262,27 @@ async def test_process_info_only_no_state_update() -> None:
 
 
 @pytest.mark.asyncio
-async def test_process_logs_result() -> None:
-    """Logger.log should be called once with correct fields."""
-    mock_logger = MagicMock()
-    mock_logger.log = MagicMock()
-
+async def test_process_logs_result(caplog) -> None:
+    """stdlib logger emits inbound.processed with correct fields."""
     processor = _make_processor(
         resolution=_make_resolution(),
         extraction=_make_extraction(),
-        logger=mock_logger,
     )
 
-    result = await processor.process(
-        message_id="MSG-006",
-        session_id="SES-log",
-        subject="Done",
-        body="Task is done.",
-        channel="email",
-    )
+    with caplog.at_level(logging.INFO, logger="graphclaw.inbound.processor"):
+        result = await processor.process(
+            message_id="MSG-006",
+            session_id="SES-log",
+            subject="Done",
+            body="Task is done.",
+            channel="email",
+        )
 
-    mock_logger.log.assert_called_once()
-    call_kwargs = mock_logger.log.call_args
-    # Positional args: level, event_type, session_id
-    args = call_kwargs[0]
-    assert args[0] == "INFO"
-    assert args[1] == "inbound.processed"
-    assert args[2] == "SES-log"
-    # Keyword args
-    kwargs = call_kwargs[1]
-    assert kwargs["message_id"] == "MSG-006"
-    assert kwargs["task_id"] == "TSK-AB-0001-ATM"
+    records = [r for r in caplog.records if getattr(r, "event_type", "") == "inbound.processed"]
+    assert len(records) == 1
+    record = records[0]
+    assert getattr(record, "message_id", None) == "MSG-006"
+    assert getattr(record, "task_id", None) == "TSK-AB-0001-ATM"
 
 
 # ---------------------------------------------------------------------------
@@ -324,12 +314,11 @@ async def test_process_no_broker_still_works() -> None:
 
 
 @pytest.mark.asyncio
-async def test_process_no_logger_still_works() -> None:
-    """Processor without a logger should not raise."""
+async def test_process_no_broker_no_logger_still_works() -> None:
+    """Processor without broker should not raise and returns a valid result."""
     processor = _make_processor(
         resolution=_make_resolution(),
         extraction=_make_extraction(),
-        logger=None,
     )
 
     result = await processor.process(

@@ -45,12 +45,14 @@ and any downstream cascade logic.
 from __future__ import annotations
 
 import json
+import logging
 
 from graphclaw.inbound.extractor import StatusExtractor
 from graphclaw.inbound.models import InboundResult, StatusSignal
 from graphclaw.inbound.resolver import TaskResolver
 from graphclaw.infra.broker import STATUS_UPDATES, MessageBroker
-from graphclaw.infra.logger import AsyncLogger
+
+logger = logging.getLogger(__name__)
 
 
 class InboundProcessor:
@@ -81,12 +83,10 @@ class InboundProcessor:
         resolver: TaskResolver,
         extractor: StatusExtractor,
         broker: MessageBroker | None = None,
-        logger: AsyncLogger | None = None,
     ) -> None:
         self._resolver = resolver
         self._extractor = extractor
         self._broker = broker
-        self._logger = logger
 
     async def process(
         self,
@@ -146,17 +146,17 @@ class InboundProcessor:
             followup_needed = True  # Human routing required.
 
         # Step 4: Log the outcome.
-        if self._logger is not None:
-            self._logger.log(
-                "INFO",
-                "inbound.processed",
-                session_id,
-                message_id=message_id,
-                task_id=resolution.task_id or "none",
-                signal=status.signal.value,
-                action=action,
-                channel=channel,
-            )
+        logger.info(
+            "inbound.processed",
+            extra={
+                "event_type": "inbound.processed",
+                "message_id": message_id,
+                "task_id": resolution.task_id or "none",
+                "signal": status.signal.value,
+                "action": action,
+                "channel": channel,
+            },
+        )
 
         # Step 5: Return the complete result.
         return InboundResult(

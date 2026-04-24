@@ -18,18 +18,18 @@ Design Patterns
 - Strategy (private section builders): Each section is built by a focused
   private method, making it easy to extend or replace individual sections
   without touching the public ``generate`` method.
-- Dependency Injection: The optional ``AsyncLogger`` is injected at
+- Logging via stdlib: structured log emitted via ``logging.getLogger(__name__)``
   construction time, keeping the class testable without a real logger.
 
 Public API
 ----------
-- BriefingGenerator.__init__: Construct with an optional AsyncLogger.
+- BriefingGenerator.__init__: Construct the generator (no external deps).
 - BriefingGenerator.generate: Async method; returns a ``DailyBriefing``.
 
 Dependencies
 ------------
 - datetime: datetime (type annotation only; instances supplied by callers).
-- graphclaw.infra.logger: AsyncLogger, generate_session_id.
+- graphclaw.infra.logging.context: generate_session_id, set_session_id.
 - graphclaw.models.base: utcnow.
 - graphclaw.triggers.models: BriefingSection, DailyBriefing.
 
@@ -44,9 +44,12 @@ comparable to ``utcnow()``.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 
-from graphclaw.infra.logger import AsyncLogger, generate_session_id
+from graphclaw.infra.logging.context import generate_session_id, set_session_id
+
+logger = logging.getLogger(__name__)
 from graphclaw.models.base import utcnow
 from graphclaw.triggers.models import BriefingSection, DailyBriefing
 
@@ -62,8 +65,8 @@ class BriefingGenerator:
 
     CRITICAL_MAX: int = 3
 
-    def __init__(self, logger: AsyncLogger | None = None) -> None:
-        self._logger = logger
+    def __init__(self) -> None:
+        pass
 
     # ------------------------------------------------------------------
     # Public API
@@ -86,6 +89,7 @@ class BriefingGenerator:
             A populated ``DailyBriefing`` instance.
         """
         session_id = generate_session_id()
+        set_session_id(session_id)
         now = utcnow()
 
         critical = self._build_critical_section(tasks, now)
@@ -94,14 +98,14 @@ class BriefingGenerator:
         ahead = self._build_ahead_section(tasks)
         deferred = self._build_deferred_section(tasks)
 
-        if self._logger is not None:
-            self._logger.log(
-                "INFO",
-                "briefing.generated",
-                session_id,
-                critical_count=len(critical.items),
-                completed_count=len(completed.items),
-            )
+        logger.info(
+            "briefing.generated",
+            extra={
+                "event_type": "briefing.generated",
+                "critical_count": len(critical.items),
+                "completed_count": len(completed.items),
+            },
+        )
 
         return DailyBriefing(
             generated_at=now,

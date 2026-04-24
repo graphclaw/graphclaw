@@ -61,15 +61,14 @@ from graphclaw.infra.broker import (
 )
 from graphclaw.infra.config import BrokerConfig, LoggingConfig, StorageConfig
 from graphclaw.infra.embeddings import EmbeddingClient, create_embedding_client
-from graphclaw.infra.logger import (
+from graphclaw.infra.logging.context import generate_session_id
+from graphclaw.infra.logging.events import (
     AgentMessageEvent,
     AgentScoringCycleEvent,
     AgentToolCallEvent,
-    AsyncLogger,
     InboundProcessedEvent,
     IntelligenceUpdateEvent,
     OutboundSentEvent,
-    generate_session_id,
 )
 from graphclaw.infra.secrets import EnvFileSecretsClient, SecretsClient
 from graphclaw.infra.storage import S3StorageClient, StorageClient, StoragePaths
@@ -90,8 +89,7 @@ __all__ = [
     "SKILL_JOBS",
     "STATUS_UPDATES",
     "OUTBOUND_MESSAGES",
-    # Logger
-    "AsyncLogger",
+    # Logging
     "generate_session_id",
     # PII-safe log events
     "AgentToolCallEvent",

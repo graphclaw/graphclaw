@@ -69,7 +69,6 @@ from graphclaw.skills.models import (
 )
 
 if TYPE_CHECKING:
-    from graphclaw.infra.logger import AsyncLogger
     from graphclaw.skills.llm_router import LLMRouter
 
 
@@ -89,11 +88,9 @@ class SkillWorker:
         self,
         worker_id: str,
         llm_router: LLMRouter,
-        logger: AsyncLogger | None = None,
     ) -> None:
         self._worker_id = worker_id
         self._llm_router = llm_router
-        self._logger = logger
         self._state: ThreadState = ThreadState.SPAWNING
         self._current_job: SkillJob | None = None
         self._last_heartbeat = utcnow()
@@ -226,11 +223,9 @@ class WorkerPool:
         self,
         pool_size: int = 4,
         llm_router: LLMRouter | None = None,
-        logger: AsyncLogger | None = None,
     ) -> None:
         self._pool_size = pool_size
         self._llm_router = llm_router
-        self._logger = logger
         self._workers: dict[str, SkillWorker] = {}
         self._job_queue: asyncio.PriorityQueue = asyncio.PriorityQueue()
         self._running: bool = False
@@ -253,7 +248,6 @@ class WorkerPool:
             self._workers[wid] = SkillWorker(
                 worker_id=wid,
                 llm_router=self._llm_router,
-                logger=self._logger,
             )
 
     async def stop(self) -> None:
