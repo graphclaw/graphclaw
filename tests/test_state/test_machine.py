@@ -279,3 +279,68 @@ class TestBlockedGuard:
         task = _make_task(state=TaskState.BLOCKED)
         with pytest.raises(InvalidTransitionError):
             sm.transition(task, TaskState.ACTIVE, ChangedBy.AGENT, "Agent forcing")
+
+
+# ---------------------------------------------------------------------------
+# Timeline auto-stamping
+# ---------------------------------------------------------------------------
+
+
+class TestTimelineStamping:
+    def test_started_at_set_on_first_in_progress(self):
+        sm = StateMachine()
+        task = _make_task(state=TaskState.ACTIVE)
+        assert task.timeline.started_at is None
+        before = datetime.now(timezone.utc)
+        sm.transition(task, TaskState.IN_PROGRESS, ChangedBy.HUMAN)
+        assert task.timeline.started_at is not None
+        assert task.timeline.started_at >= before
+
+    def test_started_at_not_overwritten_on_re_entry(self):
+        sm = StateMachine()
+        task = _make_task(state=TaskState.ACTIVE)
+        sm.transition(task, TaskState.IN_PROGRESS, ChangedBy.HUMAN)
+        original_started = task.timeline.started_at
+        # Simulate DELAYED → IN_PROGRESS re-entry.
+        task.state = TaskState.DELAYED
+        sm.transition(task, TaskState.IN_PROGRESS, ChangedBy.HUMAN)
+        assert task.timeline.started_at == original_started
+
+    def test_completed_at_set_on_complete(self):
+        sm = StateMachine()
+        task = _make_task(state=TaskState.IN_PROGRESS)
+        assert task.timeline.completed_at is None
+        before = datetime.now(timezone.utc)
+        sm.transition(task, TaskState.COMPLETE, ChangedBy.HUMAN)
+        assert task.timeline.completed_at is not None
+        assert task.timeline.completed_at >= before
+
+    def test_completed_at_not_set_for_other_transitions(self):
+        sm = StateMachine()
+        task = _make_task(state=TaskState.ACTIVE)
+        sm.transition(task, TaskState.IN_PROGRESS, ChangedBy.HUMAN)
+        assert task.timeline.completed_at is None
+
+    def test_active_cascade_complete_stamps_both(self):
+        sm = StateMachine()
+        task = _make_task(state=TaskState.ACTIVE)
+        # ACTIVE → COMPLETE via CASCADE auto-complete skips IN_PROGRESS.
+        before = datetime.now(timezone.utc)
+        sm.transition(task, TaskState.COMPLETE, ChangedBy.CASCADE)
+        assert task.timeline.completed_at is not None
+        assert task.timeline.completed_at >= before
+        # started_at not set because the task never entered IN_PROGRESS.
+        assert task.timeline.started_at is None
+
+
+class TestGuardRejectionLogging:
+    def test_guard_rejection_logs_reason(self, caplog: pytest.LogCaptureFixture):
+        sm = StateMachine()
+        task = _make_task(state=TaskState.CANCELLED)
+
+        with caplog.at_level("WARNING"):
+            with pytest.raises(InvalidTransitionError):
+                sm.transition(task, TaskState.ACTIVE, ChangedBy.HUMAN, "Reopen")
+
+        assert "state_transition_guard_rejected" in caplog.text
+        assert "CANCELLED is a terminal state" in caplog.text

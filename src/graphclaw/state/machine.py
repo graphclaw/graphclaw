@@ -30,10 +30,14 @@ Dependencies
 
 from __future__ import annotations
 
+import logging
+
 from graphclaw.models.base import utcnow
 from graphclaw.models.enums import ChangedBy, ConfidenceLevel, TaskState, TaskType
 from graphclaw.models.nodes import StateHistoryEntry, TaskNode
 from graphclaw.state.transitions import VALID_TRANSITIONS, InvalidTransitionError
+
+logger = logging.getLogger(__name__)
 
 
 class StateMachine:
@@ -81,10 +85,10 @@ class StateMachine:
         from_state = task.state
 
         # 1. Check the transition table first.
-        self._check_transition_table(from_state, new_state)
+        self._check_transition_table(task, from_state, new_state)
 
         # 2. Apply guards.
-        self._guard_terminal_cancelled(from_state, new_state)
+        self._guard_terminal_cancelled(task, from_state, new_state)
         self._guard_terminal_complete(task, from_state, new_state)
         self._guard_approval_auto_resolve(task, new_state, changed_by)
         self._guard_inactive_pending_activation(task, from_state, new_state, changed_by)
@@ -93,6 +97,13 @@ class StateMachine:
 
         # 3. Apply the transition.
         task.state = new_state
+
+        # Stamp timeline on key transitions.
+        now = utcnow()
+        if new_state == TaskState.IN_PROGRESS and task.timeline.started_at is None:
+            task.timeline.started_at = now
+        if new_state == TaskState.COMPLETE:
+            task.timeline.completed_at = now
 
         # 4. Record history.
         entry = StateHistoryEntry(
@@ -109,7 +120,35 @@ class StateMachine:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _check_transition_table(from_state: TaskState, new_state: TaskState) -> None:
+    def _log_guard_rejection(
+        task: TaskNode,
+        from_state: TaskState,
+        new_state: TaskState,
+        guard_name: str,
+        reason: str,
+    ) -> None:
+        """Emit structured logs for transition guard rejections."""
+        logger.warning(
+            "state_transition_guard_rejected guard=%s from=%s to=%s task_id=%s reason=%s",
+            guard_name,
+            from_state.value,
+            new_state.value,
+            task.id,
+            reason,
+            extra={
+                "task_id": task.id,
+                "task_type": task.task_type.value,
+                "from_state": from_state.value,
+                "to_state": new_state.value,
+                "guard": guard_name,
+                "reason": reason,
+            },
+        )
+
+    @classmethod
+    def _check_transition_table(
+        cls, task: TaskNode, from_state: TaskState, new_state: TaskState
+    ) -> None:
         """Raise if new_state is not in the allowed list for from_state."""
         allowed = VALID_TRANSITIONS.get(from_state, [])
         # Special case: COMPLETE → NEEDS_REVIEW is allowed (low-confidence reopen).
@@ -120,17 +159,25 @@ class StateMachine:
                 reason = f"{from_state.value} is a terminal state"
             else:
                 reason = f"Allowed from {from_state.value}: " + ", ".join(s.value for s in allowed)
+            cls._log_guard_rejection(task, from_state, new_state, "transition_table", reason)
             raise InvalidTransitionError(from_state, new_state, reason)
 
-    @staticmethod
-    def _guard_terminal_cancelled(from_state: TaskState, new_state: TaskState) -> None:
+    @classmethod
+    def _guard_terminal_cancelled(
+        cls,
+        task: TaskNode,
+        from_state: TaskState,
+        new_state: TaskState,
+    ) -> None:
         """CANCELLED is an absolute terminal state."""
         if from_state == TaskState.CANCELLED:
-            raise InvalidTransitionError(from_state, new_state, "CANCELLED is a terminal state")
+            reason = "CANCELLED is a terminal state"
+            cls._log_guard_rejection(task, from_state, new_state, "terminal_cancelled", reason)
+            raise InvalidTransitionError(from_state, new_state, reason)
 
-    @staticmethod
+    @classmethod
     def _guard_terminal_complete(
-        task: TaskNode, from_state: TaskState, new_state: TaskState
+        cls, task: TaskNode, from_state: TaskState, new_state: TaskState
     ) -> None:
         """COMPLETE is terminal except for low-confidence reopen to NEEDS_REVIEW."""
         if from_state != TaskState.COMPLETE:
@@ -139,15 +186,22 @@ class StateMachine:
             # Only allowed if the task's confidence is LOW.
             if task.progress.confidence == ConfidenceLevel.LOW:
                 return
+            reason = "COMPLETE → NEEDS_REVIEW only allowed when confidence is LOW"
+            cls._log_guard_rejection(
+                task, from_state, new_state, "terminal_complete_low_conf", reason
+            )
             raise InvalidTransitionError(
                 from_state,
                 new_state,
-                "COMPLETE → NEEDS_REVIEW only allowed when confidence is LOW",
+                reason,
             )
-        raise InvalidTransitionError(from_state, new_state, "COMPLETE is a terminal state")
+        reason = "COMPLETE is a terminal state"
+        cls._log_guard_rejection(task, from_state, new_state, "terminal_complete", reason)
+        raise InvalidTransitionError(from_state, new_state, reason)
 
-    @staticmethod
+    @classmethod
     def _guard_approval_auto_resolve(
+        cls,
         task: TaskNode,
         new_state: TaskState,
         changed_by: ChangedBy,
@@ -156,14 +210,17 @@ class StateMachine:
         if task.task_type != TaskType.APPROVAL:
             return
         if new_state == TaskState.COMPLETE and changed_by != ChangedBy.HUMAN:
+            reason = "APPROVAL tasks must be completed by a human (HUMAN changed_by required)"
+            cls._log_guard_rejection(task, task.state, new_state, "approval_auto_resolve", reason)
             raise InvalidTransitionError(
                 task.state,
                 new_state,
-                "APPROVAL tasks must be completed by a human (HUMAN changed_by required)",
+                reason,
             )
 
-    @staticmethod
+    @classmethod
     def _guard_inactive_pending_activation(
+        cls,
         task: TaskNode,
         from_state: TaskState,
         new_state: TaskState,
@@ -173,15 +230,22 @@ class StateMachine:
         if from_state != TaskState.INACTIVE_PENDING or new_state != TaskState.ACTIVE:
             return
         if changed_by not in (ChangedBy.CASCADE, ChangedBy.HUMAN, ChangedBy.SYSTEM):
+            reason = (
+                "INACTIVE_PENDING → ACTIVE requires CASCADE, HUMAN, or SYSTEM as changed_by "
+                "(predecessor task must have completed)"
+            )
+            cls._log_guard_rejection(
+                task, from_state, new_state, "inactive_pending_activation", reason
+            )
             raise InvalidTransitionError(
                 from_state,
                 new_state,
-                "INACTIVE_PENDING → ACTIVE requires CASCADE, HUMAN, or SYSTEM as changed_by "
-                "(predecessor task must have completed)",
+                reason,
             )
 
-    @staticmethod
+    @classmethod
     def _guard_blocked_activation(
+        cls,
         task: TaskNode,
         from_state: TaskState,
         new_state: TaskState,
@@ -191,15 +255,20 @@ class StateMachine:
         if from_state != TaskState.BLOCKED or new_state != TaskState.ACTIVE:
             return
         if changed_by not in (ChangedBy.CASCADE, ChangedBy.HUMAN, ChangedBy.SYSTEM):
+            reason = (
+                "BLOCKED → ACTIVE requires CASCADE, HUMAN, or SYSTEM as changed_by "
+                "(blocker must have been resolved)"
+            )
+            cls._log_guard_rejection(task, from_state, new_state, "blocked_activation", reason)
             raise InvalidTransitionError(
                 from_state,
                 new_state,
-                "BLOCKED → ACTIVE requires CASCADE, HUMAN, or SYSTEM as changed_by "
-                "(blocker must have been resolved)",
+                reason,
             )
 
-    @staticmethod
+    @classmethod
     def _guard_autonomy(
+        cls,
         task: TaskNode,
         new_state: TaskState,
         changed_by: ChangedBy,
@@ -217,12 +286,16 @@ class StateMachine:
         if changed_by != ChangedBy.AGENT:
             return  # HUMAN, CASCADE, SYSTEM are always allowed
         if not task.autonomy.auto_update_allowed:
+            reason = (
+                f"Task {task.id} does not permit autonomous AI state updates "
+                f"(autonomy.auto_update_allowed=False). "
+                f"Request human approval or set auto_update_allowed=True."
+            )
+            cls._log_guard_rejection(task, task.state, new_state, "autonomy_guard", reason)
             raise InvalidTransitionError(
                 task.state,
                 new_state,
-                f"Task {task.id} does not permit autonomous AI state updates "
-                f"(autonomy.auto_update_allowed=False). "
-                f"Request human approval or set auto_update_allowed=True.",
+                reason,
             )
 
 
