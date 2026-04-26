@@ -54,6 +54,30 @@ from graphclaw.api.deps import CurrentUserDep, SkillRegistryDep, StorageClientDe
 from graphclaw.infra.storage import StoragePaths
 from graphclaw.skills.registry_models import SkillSource, SkillSourceType
 
+_OVERRIDES_SUFFIX = "skills/registry/overrides.json"
+
+
+def _overrides_path(user_id: str) -> str:
+    """Per-user skill overrides JSON (enabled flag + per-skill config)."""
+    user = user_id.replace("/", "")
+    return f"{user}/{_OVERRIDES_SUFFIX}"
+
+
+async def _load_overrides(user_id: str, storage_client: any) -> dict:
+    path = _overrides_path(user_id)
+    try:
+        raw = await storage_client.read(path)
+        return json.loads(raw.decode())
+    except FileNotFoundError:
+        return {}
+    except Exception:
+        return {}
+
+
+async def _save_overrides(user_id: str, storage_client: any, overrides: dict) -> None:
+    path = _overrides_path(user_id)
+    await storage_client.write(path, json.dumps(overrides).encode(), "application/json")
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/skills", tags=["app-api"])
@@ -74,6 +98,39 @@ class SkillEntry(BaseModel):
     source_type: str = "local"
     tags: list[str] = []
     enabled: bool = True
+    usage_count: int = 0
+    avg_quality_score: float = 0.0
+
+
+class SkillToggleRequest(BaseModel):
+    """Request body for PATCH /app/v1/skills/{skill_id}."""
+
+    enabled: bool
+
+
+class SkillConfigRequest(BaseModel):
+    """Request body for PATCH /app/v1/skills/{skill_id}/config."""
+
+    llm_override: str | None = None
+    model_override: str | None = None
+    output_type: str = "DRAFT_FOR_REVIEW"
+    requires_approval: bool = False
+
+
+class SkillConfigResponse(BaseModel):
+    """Response for PATCH /app/v1/skills/{skill_id}/config."""
+
+    skill_id: str
+    llm_override: str | None = None
+    model_override: str | None = None
+    output_type: str = "DRAFT_FOR_REVIEW"
+    requires_approval: bool = False
+
+
+class SkillDetailEntry(SkillEntry):
+    """Extended skill entry including per-skill config."""
+
+    config: SkillConfigResponse | None = None
 
 
 class SkillInstallRequest(BaseModel):
@@ -102,6 +159,63 @@ class SkillSourceAddRequest(BaseModel):
     auth_secret_ref: str | None = None
 
 
+class SkillFeedbackRequest(BaseModel):
+    """Request body for POST /skills/{id}/feedback."""
+
+    rating: float  # 0.0 – 1.0
+    comment: str | None = None
+
+
+class SkillFeedbackResponse(BaseModel):
+    """Response body confirming feedback was recorded."""
+
+    skill_id: str
+    recorded: bool = True
+
+
+class WorkerStatusOut(BaseModel):
+    """Status snapshot for a single skill worker."""
+
+    worker_id: str
+    state: str
+    current_job_id: str | None = None
+    last_heartbeat: datetime | None = None
+    jobs_completed: int = 0
+    jobs_failed: int = 0
+
+
+class SkillExecutionOut(BaseModel):
+    """A single skill execution record."""
+
+    job_id: str
+    skill_name: str
+    task_id: str
+    session_id: str
+    status: str
+    output: str = ""
+    error: str | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    tokens_used: int = 0
+    cost_usd: float = 0.0
+
+
+class SkillTestRequest(BaseModel):
+    """Request body for POST /skills/{id}/test."""
+
+    input_data: dict[str, Any] = {}
+    task_id: str = "TSK-TEST-0000-TST"
+
+
+class SkillTestResponse(BaseModel):
+    """Response confirming a test job was submitted."""
+
+    job_id: str
+    skill_id: str
+    status: str = "submitted"
+    submitted_at: datetime
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -117,10 +231,12 @@ class SkillSourceAddRequest(BaseModel):
 async def list_skills(
     user_id: CurrentUserDep,
     skill_registry: SkillRegistryDep,
+    storage_client: StorageClientDep,
 ) -> list[SkillEntry]:
     """List all installed skills for the authenticated user."""
     installed = await skill_registry.list_installed(user_id)
-    return [_installed_to_entry(sk) for sk in installed]
+    overrides = await _load_overrides(user_id, storage_client)
+    return [_installed_to_entry(sk, overrides.get(sk.skill_id, {})) for sk in installed]
 
 
 @router.get(
@@ -182,27 +298,8 @@ async def install_skill(
     return _installed_to_entry(installed_skill)
 
 
-@router.delete(
-    "/{skill_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    summary="Uninstall a skill",
-    description="Remove an installed skill by its skill_id.",
-)
-async def uninstall_skill(
-    skill_id: str,
-    user_id: CurrentUserDep,
-    skill_registry: SkillRegistryDep,
-) -> None:
-    """Uninstall a skill for the authenticated user."""
-    try:
-        await skill_registry.uninstall(user_id, skill_id)
-    except KeyError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Skill '{skill_id}' not found",
-        )
-    logger.info("skills: uninstalled '%s' for user_id=%s", skill_id, user_id)
-
+# NOTE: /sources and /workers routes must be declared before /{skill_id} so that
+# FastAPI's ordered matching does not swallow them as skill_id path parameters.
 
 @router.get(
     "/sources",
@@ -226,8 +323,8 @@ async def list_sources(
     status_code=status.HTTP_201_CREATED,
     summary="Add a skill source",
     description=(
-        "Register a new skill source.  Immediately fetches the source index to "
-        "validate the URI is reachable."
+        "Register a new skill source.  Attempts to fetch the source index "
+        "to populate last_fetched_at; saves the source regardless."
     ),
 )
 async def add_source(
@@ -285,13 +382,147 @@ async def remove_source(
     logger.info("skills: removed source '%s' for user_id=%s", source_uri, user_id)
 
 
+@router.get(
+    "/workers",
+    response_model=list[WorkerStatusOut],
+    status_code=status.HTTP_200_OK,
+    summary="List skill workers",
+    description=(
+        "Return the status of all skill worker threads in the pool.  Returns "
+        "an empty list when no worker pool is initialised."
+    ),
+)
+async def list_workers(
+    user_id: CurrentUserDep,
+    request: Request,
+) -> list[WorkerStatusOut]:
+    """Return worker pool status snapshots; gracefully handles absent pool."""
+    worker_pool = getattr(request.app.state, "worker_pool", None)
+    if worker_pool is None or not hasattr(worker_pool, "get_worker_statuses"):
+        return []
+
+    statuses = worker_pool.get_worker_statuses()
+    return [
+        WorkerStatusOut(
+            worker_id=ws.worker_id,
+            state=(ws.state.value if hasattr(ws.state, "value") else str(ws.state)),
+            current_job_id=ws.current_job_id,
+            last_heartbeat=ws.last_heartbeat,
+            jobs_completed=ws.jobs_completed,
+            jobs_failed=ws.jobs_failed,
+        )
+        for ws in statuses
+    ]
+
+
+@router.get(
+    "/{skill_id}",
+    response_model=SkillDetailEntry,
+    status_code=status.HTTP_200_OK,
+    summary="Get skill detail",
+    description="Return detail for a single installed skill including per-skill config.",
+)
+async def get_skill(
+    skill_id: str,
+    user_id: CurrentUserDep,
+    skill_registry: SkillRegistryDep,
+    storage_client: StorageClientDep,
+) -> SkillDetailEntry:
+    """Return a single installed skill with config overrides."""
+    installed = await skill_registry.list_installed(user_id)
+    sk = next((s for s in installed if s.skill_id == skill_id), None)
+    if sk is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Skill '{skill_id}' not found")
+    overrides = await _load_overrides(user_id, storage_client)
+    entry = _installed_to_entry(sk, overrides.get(skill_id, {}))
+    cfg_data = overrides.get(skill_id, {}).get("config", {})
+    config = SkillConfigResponse(skill_id=skill_id, **cfg_data) if cfg_data else None
+    return SkillDetailEntry(**entry.model_dump(), config=config)
+
+
+@router.patch(
+    "/{skill_id}",
+    response_model=SkillEntry,
+    status_code=status.HTTP_200_OK,
+    summary="Toggle skill enabled state",
+    description="Enable or disable an installed skill.",
+)
+async def toggle_skill(
+    skill_id: str,
+    body: SkillToggleRequest,
+    user_id: CurrentUserDep,
+    skill_registry: SkillRegistryDep,
+    storage_client: StorageClientDep,
+) -> SkillEntry:
+    """Update the enabled/disabled state for an installed skill."""
+    installed = await skill_registry.list_installed(user_id)
+    sk = next((s for s in installed if s.skill_id == skill_id), None)
+    if sk is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Skill '{skill_id}' not found")
+    overrides = await _load_overrides(user_id, storage_client)
+    skill_override = overrides.setdefault(skill_id, {})
+    skill_override["enabled"] = body.enabled
+    await _save_overrides(user_id, storage_client, overrides)
+    logger.info("skills: toggled '%s' enabled=%s for user_id=%s", skill_id, body.enabled, user_id)
+    return _installed_to_entry(sk, skill_override)
+
+
+@router.patch(
+    "/{skill_id}/config",
+    response_model=SkillConfigResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Update skill config",
+    description="Update per-skill LLM/model/output-type/approval configuration.",
+)
+async def update_skill_config(
+    skill_id: str,
+    body: SkillConfigRequest,
+    user_id: CurrentUserDep,
+    skill_registry: SkillRegistryDep,
+    storage_client: StorageClientDep,
+) -> SkillConfigResponse:
+    """Persist per-skill configuration overrides."""
+    installed = await skill_registry.list_installed(user_id)
+    if not any(s.skill_id == skill_id for s in installed):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Skill '{skill_id}' not found")
+    overrides = await _load_overrides(user_id, storage_client)
+    skill_override = overrides.setdefault(skill_id, {})
+    skill_override["config"] = body.model_dump()
+    await _save_overrides(user_id, storage_client, overrides)
+    logger.info("skills: config updated '%s' for user_id=%s", skill_id, user_id)
+    return SkillConfigResponse(skill_id=skill_id, **body.model_dump())
+
+
+@router.delete(
+    "/{skill_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Uninstall a skill",
+    description="Remove an installed skill by its skill_id.",
+)
+async def uninstall_skill(
+    skill_id: str,
+    user_id: CurrentUserDep,
+    skill_registry: SkillRegistryDep,
+) -> None:
+    """Uninstall a skill for the authenticated user."""
+    try:
+        await skill_registry.uninstall(user_id, skill_id)
+    except KeyError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Skill '{skill_id}' not found",
+        )
+    logger.info("skills: uninstalled '%s' for user_id=%s", skill_id, user_id)
+
+
 # ---------------------------------------------------------------------------
 # Mapping helpers
 # ---------------------------------------------------------------------------
 
 
-def _installed_to_entry(sk: Any) -> SkillEntry:
+def _installed_to_entry(sk: Any, override: dict | None = None) -> SkillEntry:
     """Convert an ``InstalledSkill`` dataclass to a ``SkillEntry`` response."""
+    ov = override or {}
     return SkillEntry(
         skill_id=sk.skill_id,
         skill_name=sk.name,
@@ -302,7 +533,9 @@ def _installed_to_entry(sk: Any) -> SkillEntry:
         if hasattr(sk.source_type, "value")
         else str(sk.source_type),
         tags=list(sk.tags) if sk.tags else [],
-        enabled=True,
+        enabled=ov.get("enabled", True),
+        usage_count=getattr(sk, "usage_count", 0),
+        avg_quality_score=getattr(sk, "avg_quality_score", 0.0),
     )
 
 
@@ -346,63 +579,6 @@ def _executions_path(user_id: str, skill_id: str) -> str:
     return StoragePaths.skill_executions(user_id, skill_id)
 
 
-class SkillFeedbackRequest(BaseModel):
-    """Request body for POST /skills/{id}/feedback."""
-
-    rating: float  # 0.0 – 1.0
-    comment: str | None = None
-
-
-class SkillFeedbackResponse(BaseModel):
-    """Response body confirming feedback was recorded."""
-
-    skill_id: str
-    recorded: bool = True
-
-
-class WorkerStatusOut(BaseModel):
-    """Status snapshot for a single skill worker."""
-
-    worker_id: str
-    state: str
-    current_job_id: str | None = None
-    last_heartbeat: datetime | None = None
-    jobs_completed: int = 0
-    jobs_failed: int = 0
-
-
-class SkillExecutionOut(BaseModel):
-    """A single skill execution record."""
-
-    job_id: str
-    skill_name: str
-    task_id: str
-    session_id: str
-    status: str
-    output: str = ""
-    error: str | None = None
-    started_at: datetime | None = None
-    completed_at: datetime | None = None
-    tokens_used: int = 0
-    cost_usd: float = 0.0
-
-
-class SkillTestRequest(BaseModel):
-    """Request body for POST /skills/{id}/test."""
-
-    input_data: dict[str, Any] = {}
-    task_id: str = "TSK-TEST-0000-TST"
-
-
-class SkillTestResponse(BaseModel):
-    """Response confirming a test job was submitted."""
-
-    job_id: str
-    skill_id: str
-    status: str = "submitted"
-    submitted_at: datetime
-
-
 @router.post(
     "/{skill_id}/feedback",
     response_model=SkillFeedbackResponse,
@@ -433,39 +609,6 @@ async def submit_skill_feedback(
         )
     logger.debug("skills: feedback recorded skill_id=%s rating=%.2f", skill_id, body.rating)
     return SkillFeedbackResponse(skill_id=skill_id, recorded=True)
-
-
-@router.get(
-    "/workers",
-    response_model=list[WorkerStatusOut],
-    status_code=status.HTTP_200_OK,
-    summary="List skill workers",
-    description=(
-        "Return the status of all skill worker threads in the pool.  Returns "
-        "an empty list when no worker pool is initialised."
-    ),
-)
-async def list_workers(
-    user_id: CurrentUserDep,
-    request: Request,
-) -> list[WorkerStatusOut]:
-    """Return worker pool status snapshots; gracefully handles absent pool."""
-    worker_pool = getattr(request.app.state, "worker_pool", None)
-    if worker_pool is None or not hasattr(worker_pool, "get_worker_statuses"):
-        return []
-
-    statuses = worker_pool.get_worker_statuses()
-    return [
-        WorkerStatusOut(
-            worker_id=ws.worker_id,
-            state=(ws.state.value if hasattr(ws.state, "value") else str(ws.state)),
-            current_job_id=ws.current_job_id,
-            last_heartbeat=ws.last_heartbeat,
-            jobs_completed=ws.jobs_completed,
-            jobs_failed=ws.jobs_failed,
-        )
-        for ws in statuses
-    ]
 
 
 @router.get(

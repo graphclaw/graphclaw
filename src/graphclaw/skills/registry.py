@@ -423,8 +423,12 @@ class SkillRegistryService:
         # Replace if URI already exists
         sources = [s for s in sources if s.uri != source.uri]
 
-        listings = await self._fetch_listings(source)
-        source.last_fetched_at = _utcnow()
+        try:
+            listings = await self._fetch_listings(source)
+            source.last_fetched_at = _utcnow()
+        except Exception:
+            listings = []
+
         sources.append(source)
         await self._save_sources(user_id, sources)
         return listings
