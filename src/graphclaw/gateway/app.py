@@ -210,8 +210,7 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
                         for dep in failed_critical
                     )
                     raise RuntimeError(
-                        "GraphClaw strict startup failed due to critical dependencies: "
-                        f"{reasons}"
+                        f"GraphClaw strict startup failed due to critical dependencies: {reasons}"
                     )
 
             # Seed system content (idempotent — skips existing objects)
@@ -236,6 +235,22 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
             # Scoring engine — stateless, no external deps
             app.state.scoring_engine = ScoringEngine()
             logger.info("GraphClaw: scoring engine initialised")
+
+            # Redis — required for auth OTC exchange and user event publishing
+            app.state.redis = None
+            redis_url = os.environ.get("REDIS_URL", "")
+            if redis_url:
+                try:
+                    import redis.asyncio as aioredis  # noqa: PLC0415
+
+                    _redis_client = aioredis.from_url(redis_url, decode_responses=True)
+                    await _redis_client.ping()
+                    app.state.redis = _redis_client
+                    logger.info("GraphClaw: Redis client initialised (%s)", redis_url)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("GraphClaw: Redis connection failed — %s", exc)
+            else:
+                logger.warning("GraphClaw: REDIS_URL not set — auth OTC exchange unavailable")
 
             # AgentLoop + LLM client + AgentEventConsumer
             if database_url:
@@ -401,6 +416,7 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
                         dispatch_planner=_dispatch_planner,
                         sub_agent_pool=_sub_agent_pool,
                         event_publisher=_event_publisher,
+                        redis_client=getattr(app.state, "redis", None),
                     )
                     app.state.agent_loop = agent_loop
                     logger.info("GraphClaw: agent loop initialised (agent_id=%s)", agent_id)

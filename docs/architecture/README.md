@@ -16,6 +16,8 @@
 | [05 — Data Flow & UML](05-data-flow.md) | Inbound message lifecycle, outbound delivery, agent loop sequence diagrams |
 | [06 — Local Deployment](06-deployment-local.md) | Docker Compose stack, container wiring, port map |
 | [07 — AWS Deployment](07-deployment-aws.md) | ECS Fargate topology, managed services, IAM, ALB routing |
+| [08 — Object Storage Model](08-object-storage-model.md) | Bucket layout, multi-tenant isolation, StoragePaths API, object lifecycle |
+| [09 — Infrastructure Abstractions](09-infrastructure-abstractions.md) | ABC pattern, backend swapping (MinIO→S3, Redis→SQS, env→Vault), **two-tier caching design** (in-process TTL + Redis), full env var reference, cockpit full-stack compose |
 
 ---
 

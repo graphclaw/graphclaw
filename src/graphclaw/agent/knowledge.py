@@ -63,6 +63,7 @@ class KnowledgeBase:
     def __init__(self, storage_client: StorageClient) -> None:
         self._storage = storage_client
         self._cache: dict[str, str] = {}
+        self._topics: list[str] | None = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -120,8 +121,14 @@ class KnowledgeBase:
     async def list_topics(self) -> list[str]:
         """Return the list of available knowledge topic names from storage.
 
+        Result is cached for the lifetime of this instance (topics only change
+        on deployment, and the orchestrator is a singleton).
+
         Falls back to ``KNOWN_TOPICS`` if the storage prefix cannot be listed.
         """
+        if self._topics is not None:
+            return self._topics
+
         prefix = StoragePaths.system_knowledge_prefix()
         try:
             keys = await self._storage.list_objects(prefix)
@@ -134,10 +141,12 @@ class KnowledgeBase:
                         name = name[:-3]
                     if name:
                         topics.append(name)
-            return sorted(topics) if topics else list(KNOWN_TOPICS)
+            self._topics = sorted(topics) if topics else list(KNOWN_TOPICS)
         except Exception as exc:
             logger.warning("knowledge.list_topics.failed", extra={"error": str(exc)})
-            return list(KNOWN_TOPICS)
+            self._topics = list(KNOWN_TOPICS)
+
+        return self._topics
 
 
 __all__ = ["KnowledgeBase", "KNOWN_TOPICS"]

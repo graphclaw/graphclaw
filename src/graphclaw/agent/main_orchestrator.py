@@ -151,7 +151,16 @@ class MainOrchestrator:
         Optional WorkerPool for executing skill jobs.
     mcp_registry:
         Optional MCPRegistry for discovering user's MCP servers and tools.
+    redis_client:
+        Optional async Redis client.  When provided, user agent profiles are
+        cached at ``graphclaw:profile:{user_id}`` with a 15-minute TTL and the
+        ``AgentCatalog`` uses Redis for user manifest caching.
     """
+
+    # TTL constants for in-process caches
+    _SYSTEM_HEADER_TTL: float = 3600.0   # 1 hour
+    _USER_PROFILE_REDIS_TTL: int = 900   # 15 minutes
+    _USER_PROFILE_KEY_PREFIX = "graphclaw:profile:"
 
     def __init__(
         self,
@@ -168,6 +177,7 @@ class MainOrchestrator:
         dispatch_planner: AgentDispatchPlanner | None = None,
         sub_agent_pool: SubAgentPool | None = None,
         event_publisher: UserEventPublisher | None = None,
+        redis_client: Any | None = None,
     ) -> None:
         self._repo = graph_repo
         self._engine = scoring_engine
@@ -182,6 +192,7 @@ class MainOrchestrator:
         self._dispatch_planner = dispatch_planner
         self._sub_agent_pool = sub_agent_pool
         self._event_publisher: UserEventPublisher | None = event_publisher
+        self._redis = redis_client
         # Cache last action queue so system prompt can include current priorities.
         self._last_queue: list[ActionQueueEntry] = []
         self._last_queue_by_scope: dict[str, list[ActionQueueEntry]] = {}
@@ -193,6 +204,10 @@ class MainOrchestrator:
         # Buffer for delegation calls within a single LLM turn (batch dispatch)
         self._turn_delegation_calls: list[dict[str, Any]] = []
 
+        # Tier 1: in-process TTL cache for system_header.md
+        self._system_header: str | None = None
+        self._system_header_at: float = 0.0
+
         # --- New intelligence components ---
         self._tool_registry = ToolSetRegistry(
             has_skill_registry=skill_registry is not None,
@@ -200,7 +215,9 @@ class MainOrchestrator:
         )
         if storage_client is not None:
             self._knowledge_base: KnowledgeBase | None = KnowledgeBase(storage_client)
-            self._agent_catalog: AgentCatalog | None = AgentCatalog(storage_client)
+            self._agent_catalog: AgentCatalog | None = AgentCatalog(
+                storage_client, redis_client=redis_client
+            )
             self._context_manager: ContextManager | None = (
                 ContextManager(llm_client) if llm_client is not None else None
             )
@@ -1125,30 +1142,97 @@ class MainOrchestrator:
         return "\n".join(parts)
 
     async def _load_system_header(self) -> str:
-        """Load the system prompt header from MinIO; fallback to hardcoded default."""
+        """Load system_header.md with a 1-hour in-process TTL cache.
+
+        Falls back to the hardcoded default when storage is unavailable or the
+        file does not exist.  The cached value is refreshed after TTL expires
+        without requiring a restart (useful for live header updates).
+        """
+        now = time.monotonic()
+        if (
+            self._system_header is not None
+            and now - self._system_header_at < self._SYSTEM_HEADER_TTL
+        ):
+            return self._system_header
+
         if self._storage is None:
             return _SYSTEM_PROMPT_HEADER
         try:
             from graphclaw.infra.storage import StoragePaths
 
             raw = await self._storage.read(StoragePaths.system_prompt_header())
-            return raw.decode(errors="replace")
+            header = raw.decode(errors="replace")
         except Exception:  # noqa: BLE001
-            return _SYSTEM_PROMPT_HEADER
+            header = _SYSTEM_PROMPT_HEADER
+
+        self._system_header = header
+        self._system_header_at = now
+        return header
 
     async def _load_agent_profile(self, user_id: str) -> str:
-        """Load profile.md from MinIO; return empty string on any failure."""
+        """Load profile.md with a 15-minute Redis cache (Tier 2).
+
+        Falls back to a direct MinIO read when Redis is unavailable.
+        Returns empty string on any storage failure.
+        """
         if self._storage is None:
             return ""
+
+        key = f"{self._USER_PROFILE_KEY_PREFIX}{user_id}"
+
+        if self._redis is not None:
+            try:
+                cached = await self._redis.get(key)
+                if cached is not None:
+                    return cached
+            except Exception as exc:
+                logger.warning(
+                    "orchestrator.profile_cache.redis_get_failed",
+                    extra={"user_id": user_id, "error": str(exc)},
+                )
+
         try:
             from graphclaw.infra.storage import StoragePaths
 
             path = StoragePaths.agent_profile(user_id, self._agent_id)
             raw = await self._storage.read(path)
-            return raw.decode(errors="replace")
-        except Exception as exc:  # noqa: BLE001
+            profile = raw.decode(errors="replace")
+        except Exception as exc:
             logger.debug("AgentLoop: could not load agent profile: %s", exc)
             return ""
+
+        if self._redis is not None:
+            try:
+                await self._redis.setex(key, self._USER_PROFILE_REDIS_TTL, profile)
+            except Exception as exc:
+                logger.warning(
+                    "orchestrator.profile_cache.redis_set_failed",
+                    extra={"user_id": user_id, "error": str(exc)},
+                )
+
+        return profile
+
+    async def invalidate_user_profile(self, user_id: str) -> None:
+        """Evict the Redis cache entry for *user_id*'s agent profile.
+
+        Call this from the update-profile API endpoint so the next chat turn
+        loads the updated profile.md immediately.  Does nothing when Redis is
+        unavailable.
+        """
+        if self._redis is None:
+            return
+        key = f"{self._USER_PROFILE_KEY_PREFIX}{user_id}"
+        try:
+            await self._redis.delete(key)
+            logger.debug(
+                "orchestrator.invalidate_user_profile",
+                extra={"user_id": user_id},
+            )
+        except Exception as exc:
+            logger.warning(
+                "orchestrator.invalidate_user_profile.error",
+                extra={"user_id": user_id, "error": str(exc)},
+            )
 
     async def _build_graph_summary(self, user_id: str) -> str:
         """Build a goal-first, user-scoped task graph snapshot (§12.4).
