@@ -312,6 +312,9 @@ def test_create_authored_skill(client: TestClient) -> None:
     assert r.status_code == 201
     body = r.json()
     assert body["skill_id"] == "my-test-skill"
+    assert body["name"] == "test-authored-skill"
+    assert body["version"] == "1.0.0"
+    assert body["description"] == "A test authored skill"
     assert body["content"] == _SAMPLE_SKILL_MD
 
 
@@ -343,6 +346,7 @@ def test_get_authored_skill(client: TestClient) -> None:
     )
     r = client.get("/app/v1/intelligence/skills/authored/fetch-skill")
     assert r.status_code == 200
+    assert r.json()["name"] == "test-authored-skill"
     assert r.json()["content"] == _SAMPLE_SKILL_MD
 
 
@@ -362,6 +366,7 @@ def test_update_authored_skill(client: TestClient) -> None:
         json={"content": new_content},
     )
     assert r.status_code == 200
+    assert r.json()["description"] == "Updated description"
     assert "Updated description" in r.json()["content"]
 
 
@@ -386,6 +391,9 @@ def test_fork_authored_skill(client: TestClient) -> None:
     assert r.status_code == 201
     body = r.json()
     assert body["original_skill_id"] == "fork-source"
+    assert body["skill_id"] == body["forked_skill_id"]
+    assert body["name"] == "test-authored-skill"
+    assert body["content"] == _SAMPLE_SKILL_MD
     assert "fork-source-fork-" in body["forked_skill_id"]
 
 
@@ -394,14 +402,32 @@ def test_fork_missing_skill_returns_404(client: TestClient) -> None:
     assert r.status_code == 404
 
 
+def test_fork_authored_skill_accepts_name_override(client: TestClient) -> None:
+    client.post(
+        "/app/v1/intelligence/skills/authored",
+        json={"skill_id": "fork-body-source", "content": _SAMPLE_SKILL_MD},
+    )
+    r = client.post(
+        "/app/v1/intelligence/skills/authored/fork-body-source/fork",
+        json={"name": "My Named Fork"},
+    )
+    assert r.status_code == 201
+    assert r.json()["forked_skill_id"].startswith("my-named-fork")
+
+
 def test_list_authored_skills_shows_created(client: TestClient) -> None:
     client.post(
         "/app/v1/intelligence/skills/authored",
         json={"skill_id": "listed-skill", "content": _SAMPLE_SKILL_MD},
     )
     r = client.get("/app/v1/intelligence/skills/authored")
-    ids = [e["skill_id"] for e in r.json()]
+    items = r.json()
+    ids = [e["skill_id"] for e in items]
     assert "listed-skill" in ids
+    listed = next(item for item in items if item["skill_id"] == "listed-skill")
+    assert listed["name"] == "test-authored-skill"
+    assert listed["version"] == "1.0.0"
+    assert listed["content"] == _SAMPLE_SKILL_MD
 
 
 # ---------------------------------------------------------------------------

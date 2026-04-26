@@ -74,6 +74,7 @@ Dependencies
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from typing import Any
 
@@ -95,6 +96,39 @@ def _utcnow_str() -> str:
 
 def _today_str() -> str:
     return utcnow().strftime("%Y-%m-%d")
+
+
+def _normalize_skill_id(value: str) -> str:
+    slug = re.sub(r"[^a-z0-9-]+", "-", value.strip().lower())
+    slug = re.sub(r"-+", "-", slug).strip("-")
+    return slug
+
+
+def _extract_skill_metadata(skill_id: str, content: str) -> tuple[str, str, str]:
+    """Parse SKILL.md metadata, falling back to safe defaults on errors."""
+    try:
+        from graphclaw.skills.parser import SkillParser
+
+        parsed = SkillParser().parse(content)
+        name = (parsed.name or skill_id).strip() or skill_id
+        description = (parsed.description or "").strip()
+        version = (parsed.version or "0.1.0").strip() or "0.1.0"
+        return name, description, version
+    except Exception:  # noqa: BLE001
+        return skill_id, "", "0.1.0"
+
+
+def _authored_skill_response(skill_id: str, path: str, content: str) -> AuthoredSkillResponse:
+    name, description, version = _extract_skill_metadata(skill_id, content)
+    return AuthoredSkillResponse(
+        skill_id=skill_id,
+        name=name,
+        description=description,
+        version=version,
+        content=content,
+        path=path,
+        updated_at=_utcnow_str(),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -169,6 +203,12 @@ class AuthoredSkillEntry(BaseModel):
     """Metadata for a user-authored skill."""
 
     skill_id: str
+    name: str
+    version: str = "0.1.0"
+    description: str = ""
+    created_at: str | None = None
+    updated_at: str | None = None
+    content: str | None = None
     path: str
 
 
@@ -176,13 +216,22 @@ class AuthoredSkillResponse(BaseModel):
     """Response for a single authored skill."""
 
     skill_id: str
+    name: str
+    version: str = "0.1.0"
+    description: str = ""
     content: str
+    path: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
 
 
 class AuthoredSkillCreateRequest(BaseModel):
     """Request body for creating a new authored skill."""
 
     skill_id: str | None = None
+    name: str | None = None
+    description: str | None = None
+    version: str | None = None
     content: str
 
 
@@ -190,6 +239,9 @@ class AuthoredSkillUpdateRequest(BaseModel):
     """Request body for updating an authored skill."""
 
     content: str
+    name: str | None = None
+    description: str | None = None
+    version: str | None = None
 
 
 class SkillValidateRequest(BaseModel):
@@ -211,7 +263,18 @@ class ForkResponse(BaseModel):
 
     original_skill_id: str
     forked_skill_id: str
+    skill_id: str
+    name: str
+    version: str = "0.1.0"
+    description: str = ""
+    content: str
     path: str
+
+
+class AuthoredSkillForkRequest(BaseModel):
+    """Optional request body for forking a skill."""
+
+    name: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -604,7 +667,24 @@ async def list_authored_skills(
             parts = key.split("/")
             if len(parts) >= 4:
                 skill_id = parts[-2]
-                results.append(AuthoredSkillEntry(skill_id=skill_id, path=key))
+                try:
+                    raw = await storage_client.read(key)
+                    content = raw.decode()
+                except FileNotFoundError:
+                    continue
+                name, description, version = _extract_skill_metadata(skill_id, content)
+                results.append(
+                    AuthoredSkillEntry(
+                        skill_id=skill_id,
+                        name=name,
+                        version=version,
+                        description=description,
+                        content=content,
+                        path=key,
+                        updated_at=_utcnow_str(),
+                    )
+                )
+    results.sort(key=lambda item: item.skill_id)
     return results
 
 
@@ -624,7 +704,11 @@ async def create_authored_skill(
     storage_client: StorageClientDep,
 ) -> AuthoredSkillResponse:
     """Create a new authored skill in object storage."""
-    skill_id = body.skill_id or f"authored-{uuid.uuid4().hex[:10]}"
+    requested_id = body.skill_id
+    if not requested_id and body.name:
+        requested_id = _normalize_skill_id(body.name)
+
+    skill_id = requested_id or f"authored-{uuid.uuid4().hex[:10]}"
     path = StoragePaths.skill_authored(user_id, skill_id)
 
     if await storage_client.exists(path):
@@ -635,7 +719,7 @@ async def create_authored_skill(
 
     await storage_client.write(path, body.content.encode(), content_type="text/markdown")
     logger.info("intelligence: authored skill created skill_id=%s user_id=%s", skill_id, user_id)
-    return AuthoredSkillResponse(skill_id=skill_id, content=body.content)
+    return _authored_skill_response(skill_id=skill_id, path=path, content=body.content)
 
 
 @router.get(
@@ -659,7 +743,8 @@ async def get_authored_skill(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Authored skill '{skill_id}' not found",
         )
-    return AuthoredSkillResponse(skill_id=skill_id, content=raw.decode())
+    content = raw.decode()
+    return _authored_skill_response(skill_id=skill_id, path=path, content=content)
 
 
 @router.put(
@@ -679,7 +764,7 @@ async def update_authored_skill(
     path = StoragePaths.skill_authored(user_id, skill_id)
     await storage_client.write(path, body.content.encode(), content_type="text/markdown")
     logger.info("intelligence: authored skill updated skill_id=%s user_id=%s", skill_id, user_id)
-    return AuthoredSkillResponse(skill_id=skill_id, content=body.content)
+    return _authored_skill_response(skill_id=skill_id, path=path, content=body.content)
 
 
 @router.delete(
@@ -713,6 +798,7 @@ async def fork_authored_skill(
     skill_id: str,
     user_id: CurrentUserDep,
     storage_client: StorageClientDep,
+    body: AuthoredSkillForkRequest | None = None,
 ) -> ForkResponse:
     """Copy an authored skill to a new fork ID."""
     source_path = StoragePaths.skill_authored(user_id, skill_id)
@@ -724,8 +810,13 @@ async def fork_authored_skill(
             detail=f"Authored skill '{skill_id}' not found — cannot fork",
         )
 
-    fork_id = f"{skill_id}-fork-{uuid.uuid4().hex[:6]}"
+    preferred_id = _normalize_skill_id((body.name if body else "") or "")
+    fork_id = preferred_id or f"{skill_id}-fork-{uuid.uuid4().hex[:6]}"
     fork_path = StoragePaths.skill_authored(user_id, fork_id)
+    if await storage_client.exists(fork_path):
+        fork_id = f"{fork_id}-{uuid.uuid4().hex[:6]}"
+        fork_path = StoragePaths.skill_authored(user_id, fork_id)
+
     await storage_client.write(fork_path, raw, content_type="text/markdown")
     logger.info(
         "intelligence: skill forked original=%s fork=%s user_id=%s",
@@ -733,7 +824,18 @@ async def fork_authored_skill(
         fork_id,
         user_id,
     )
-    return ForkResponse(original_skill_id=skill_id, forked_skill_id=fork_id, path=fork_path)
+    content = raw.decode()
+    name, description, version = _extract_skill_metadata(fork_id, content)
+    return ForkResponse(
+        original_skill_id=skill_id,
+        forked_skill_id=fork_id,
+        skill_id=fork_id,
+        name=name,
+        version=version,
+        description=description,
+        content=content,
+        path=fork_path,
+    )
 
 
 @router.post(
@@ -808,4 +910,4 @@ async def import_skill_file(
 
     await storage_client.write(path, raw, content_type="text/markdown")
     logger.info("intelligence: skill imported skill_id=%s user_id=%s", skill_id, user_id)
-    return AuthoredSkillResponse(skill_id=skill_id, content=content)
+    return _authored_skill_response(skill_id=skill_id, path=path, content=content)
