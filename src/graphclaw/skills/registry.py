@@ -325,40 +325,140 @@ class SkillRegistryService:
         marketplace_url, owner, repo, branch, subpath = _github_marketplace_url(source.uri)
         headers = await self._auth_headers(source)
         http = await self._get_http()
-        resp = await http.get(marketplace_url, headers=headers)
+        try:
+            resp = await http.get(marketplace_url, headers=headers)
+            resp.raise_for_status()
+            payload = resp.json()
+
+            listings: list[SkillListing] = []
+            for entry in payload.get("skills", []):
+                raw_skill_file = entry.get("skill_file_url", "")
+                skill_file_url = _github_skill_file_url(owner, repo, branch, subpath, raw_skill_file)
+                listing = SkillListing(
+                    name=entry["name"],
+                    version=entry.get("version", "1.0.0"),
+                    description=entry.get("description", ""),
+                    tags=entry.get("tags", []),
+                    source_uri=source.uri,
+                    source_type=SkillSourceType.GITHUB,
+                    skill_file_url=skill_file_url,
+                    requires=entry.get("requires", []),
+                )
+                listings.append(listing)
+
+            # If marketplace exists but has no entries, fall back to repo scan.
+            if listings:
+                return listings
+        except Exception:
+            # Graceful fallback for repos that publish SKILL.md files directly
+            # without a marketplace.json index.
+            pass
+
+        return await self._fetch_github_tree_listings(
+            source=source,
+            owner=owner,
+            repo=repo,
+            branch=branch,
+            subpath=subpath,
+        )
+
+    async def _fetch_github_tree_listings(
+        self,
+        source: SkillSource,
+        owner: str,
+        repo: str,
+        branch: str,
+        subpath: str,
+    ) -> list[SkillListing]:
+        """Discover SKILL.md files via GitHub tree API as a fallback path."""
+        headers = await self._auth_headers(source)
+        api_headers = {
+            **headers,
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "graphclaw-skill-registry",
+        }
+        http = await self._get_http()
+        tree_url = f"https://api.github.com/repos/{owner}/{repo}/git/trees/{branch}?recursive=1"
+
+        resp = await http.get(tree_url, headers=api_headers)
         resp.raise_for_status()
         payload = resp.json()
 
+        tree = payload.get("tree", [])
+        if not isinstance(tree, list):
+            return []
+
+        normalized_subpath = subpath.strip("/")
+        subpath_prefix = f"{normalized_subpath}/" if normalized_subpath else ""
+
         listings: list[SkillListing] = []
-        for entry in payload.get("skills", []):
-            raw_skill_file = entry.get("skill_file_url", "")
-            skill_file_url = _github_skill_file_url(owner, repo, branch, subpath, raw_skill_file)
-            listing = SkillListing(
-                name=entry["name"],
-                version=entry.get("version", "1.0.0"),
-                description=entry.get("description", ""),
-                tags=entry.get("tags", []),
-                source_uri=source.uri,
-                source_type=SkillSourceType.GITHUB,
-                skill_file_url=skill_file_url,
-                requires=entry.get("requires", []),
+        seen_names: set[str] = set()
+
+        for item in tree:
+            if not isinstance(item, dict):
+                continue
+
+            path = item.get("path")
+            if item.get("type") != "blob" or not isinstance(path, str):
+                continue
+
+            is_skill_file = path == "SKILL.md" or path.endswith("/SKILL.md")
+            if not is_skill_file:
+                continue
+
+            if subpath_prefix and not path.startswith(subpath_prefix):
+                continue
+
+            parent_name = pathlib.PurePosixPath(path).parent.name
+            skill_name = parent_name or pathlib.PurePosixPath(path).stem.lower()
+            if skill_name in seen_names:
+                continue
+            seen_names.add(skill_name)
+
+            skill_file_url = _github_skill_file_url(owner, repo, branch, "", path)
+            listings.append(
+                SkillListing(
+                    name=skill_name,
+                    version="1.0.0",
+                    description="",
+                    tags=[],
+                    source_uri=source.uri,
+                    source_type=SkillSourceType.GITHUB,
+                    skill_file_url=skill_file_url,
+                    requires=[],
+                )
             )
-            listings.append(listing)
+
         return listings
 
     async def _fetch_website_listings(self, source: SkillSource) -> list[SkillListing]:
         """Fetch marketplace.json from a website URL."""
         headers = await self._auth_headers(source)
         http = await self._get_http()
-        resp = await http.get(source.uri, headers=headers)
-        resp.raise_for_status()
-        payload = resp.json()
 
-        listings: list[SkillListing] = []
-        for entry in payload.get("skills", []):
-            listing = _deserialize_listing(entry, source.uri, SkillSourceType.WEBSITE)
-            listings.append(listing)
-        return listings
+        candidate_urls = [source.uri]
+        normalized_uri = source.uri.rstrip("/")
+        if not normalized_uri.endswith("marketplace.json"):
+            candidate_urls.append(f"{normalized_uri}/marketplace.json")
+
+        last_error: Exception | None = None
+        for url in candidate_urls:
+            try:
+                resp = await http.get(url, headers=headers)
+                resp.raise_for_status()
+                payload = resp.json()
+
+                listings: list[SkillListing] = []
+                for entry in payload.get("skills", []):
+                    listing = _deserialize_listing(entry, source.uri, SkillSourceType.WEBSITE)
+                    listings.append(listing)
+                return listings
+            except Exception as exc:
+                last_error = exc
+
+        if last_error is not None:
+            raise last_error
+        return []
 
     def _scan_local_listings(self) -> list[SkillListing]:
         """Scan the built-in definitions directory and return SkillListings."""
