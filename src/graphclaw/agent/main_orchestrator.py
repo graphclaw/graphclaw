@@ -158,8 +158,8 @@ class MainOrchestrator:
     """
 
     # TTL constants for in-process caches
-    _SYSTEM_HEADER_TTL: float = 3600.0   # 1 hour
-    _USER_PROFILE_REDIS_TTL: int = 900   # 15 minutes
+    _SYSTEM_HEADER_TTL: float = 3600.0  # 1 hour
+    _USER_PROFILE_REDIS_TTL: int = 900  # 15 minutes
     _USER_PROFILE_KEY_PREFIX = "graphclaw:profile:"
 
     def __init__(
@@ -3573,29 +3573,23 @@ class MainOrchestrator:
             cleaned = "".join(ch for ch in raw if ch.isalnum() or ch == "-").strip("-")
             return cleaned or "agent"
 
-        # Generate/normalise agent_id.
-        # If caller supplied agent_id use it; otherwise derive from name.
-        agent_id_base = _slugify(requested_agent_id or name)[:40]
-        if requested_agent_id:
-            agent_id = agent_id_base
-        else:
-            agent_id = f"{agent_id_base}-{uuid.uuid4().hex[:6]}"
+        # Generate/normalise agent_id — always deterministic from name, never UUID-suffixed.
+        # This guarantees idempotency: creating "Research Agent" twice gives the same agent_id.
+        agent_id = _slugify(requested_agent_id or name)[:40]
 
         profile_path = StoragePaths.agent_profile(user_id, agent_id)
         manifest_path = StoragePaths.agent_manifest(user_id, agent_id)
         config_path = StoragePaths.agent_config(user_id, agent_id)
         context_path = StoragePaths.agent_memory_working(user_id, agent_id)
 
-        # If a caller-supplied id already exists, keep behavior explicit.
-        if requested_agent_id:
-            try:
-                if await self._storage.exists(profile_path) or await self._storage.exists(
-                    manifest_path
-                ):
-                    return {"error": f"Agent '{agent_id}' already exists."}
-            except Exception:
-                # Best-effort existence check; write path will still fail if needed.
-                pass
+        # Idempotency check — return error if agent already exists.
+        try:
+            if await self._storage.exists(profile_path) or await self._storage.exists(
+                manifest_path
+            ):
+                return {"error": f"Agent '{agent_id}' already exists."}
+        except Exception:
+            pass
 
         # Create profile.md
         profile_content = (
@@ -3645,6 +3639,7 @@ class MainOrchestrator:
             "tool_hint": args.get("tool_hint") or f"{purpose}",
         }
 
+        knowledge_path = StoragePaths.agent_memory_semantic_topic(user_id, agent_id, "knowledge")
         try:
             await self._storage.write(profile_path, profile_content.encode())
             await self._storage.write(
@@ -3655,6 +3650,11 @@ class MainOrchestrator:
             await self._storage.write(config_path, json.dumps(config, indent=2).encode())
             await self._storage.write(
                 context_path, b"# Working Context\n\nAgent initialised. Awaiting first task.\n"
+            )
+            await self._storage.write(
+                knowledge_path,
+                f"# Knowledge: {name}\n\nAdd agent-specific facts and knowledge here.\n".encode(),
+                content_type="text/markdown",
             )
         except Exception as exc:
             return {"error": f"Failed to create agent files: {exc}"}

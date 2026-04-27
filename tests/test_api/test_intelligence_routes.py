@@ -187,10 +187,10 @@ def test_compact_archives_to_episodic(client: TestClient) -> None:
     )
     archived_as = r.json()["archived_as"]
 
-    # The archived entry should now appear in episodic list
+    # The archived entry should now appear in episodic list as an active entry
     r2 = client.get(f"/app/v1/intelligence/agents/{_AGENT_ID}/memory/episodic")
-    keys = [e["key"] for e in r2.json()["entries"]]
-    assert archived_as in keys
+    names = [e["name"] for e in r2.json()]
+    assert archived_as in names
 
 
 def test_compact_archives_to_working_archive_path(
@@ -224,7 +224,7 @@ def test_compact_archives_to_working_archive_path(
 def test_episodic_list_empty(client: TestClient) -> None:
     r = client.get(f"/app/v1/intelligence/agents/{_AGENT_ID}/memory/episodic")
     assert r.status_code == 200
-    assert r.json()["entries"] == []
+    assert r.json() == []
 
 
 def test_episodic_get_missing_returns_404(client: TestClient) -> None:
@@ -232,16 +232,20 @@ def test_episodic_get_missing_returns_404(client: TestClient) -> None:
     assert r.status_code == 404
 
 
-def test_episodic_delete(client: TestClient, storage: FakeStorageClient) -> None:
+def test_episodic_archive(client: TestClient, storage: FakeStorageClient) -> None:
     from graphclaw.infra.storage import StoragePaths
 
     entry = "2026-04-11-session.md"
-    path = StoragePaths.agent_memory_episodic_entry(_TEST_USER, _AGENT_ID, entry)
-    storage._data[path] = b"# Session\n\nSome content."
+    active_path = StoragePaths.agent_memory_episodic_entry(_TEST_USER, _AGENT_ID, entry)
+    archive_path = StoragePaths.agent_memory_episodic_archive_entry(_TEST_USER, _AGENT_ID, entry)
+    storage._data[active_path] = b"# Session\n\nSome content."
 
-    r = client.delete(f"/app/v1/intelligence/agents/{_AGENT_ID}/memory/episodic/{entry}")
-    assert r.status_code == 204
-    assert path not in storage._data
+    r = client.post(f"/app/v1/intelligence/agents/{_AGENT_ID}/memory/episodic/{entry}/archive")
+    assert r.status_code == 200
+    assert r.json()["archived_to"] == f"episodic/archive/{entry}"
+    # Active entry removed, archive entry created
+    assert active_path not in storage._data
+    assert archive_path in storage._data
 
 
 # ---------------------------------------------------------------------------

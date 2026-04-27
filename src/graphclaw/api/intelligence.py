@@ -197,6 +197,50 @@ class CompactResponse(BaseModel):
     agent_id: str
     archived_as: str
     working_context_replaced: bool = True
+    context_before_chars: int = 0
+    context_after_chars: int = 0
+    reduction_pct: float = 0.0
+
+
+class AgentListEntry(BaseModel):
+    """One agent in the intelligence hub agent selector."""
+
+    agent_id: str
+    name: str
+    source: str  # "user" | "system"
+    description: str = ""
+
+
+class EpisodicEntryResponse(BaseModel):
+    """One episodic memory entry with status."""
+
+    agent_id: str
+    name: str
+    content: str
+    status: str  # "active" | "archived"
+
+
+class EpisodicEntryListItem(BaseModel):
+    """Metadata for one episodic entry in a list."""
+
+    name: str
+    content: str
+    created_at: str | None = None
+    status: str  # "active" | "archived"
+
+
+class WorkingArchiveEntry(BaseModel):
+    """One entry from the working memory archive."""
+
+    name: str
+    size_chars: int
+    created_at: str | None = None
+
+
+class ArchiveEpisodicResponse(BaseModel):
+    """Response after archiving an episodic entry."""
+
+    archived_to: str
 
 
 class AuthoredSkillEntry(BaseModel):
@@ -275,6 +319,80 @@ class AuthoredSkillForkRequest(BaseModel):
     """Optional request body for forking a skill."""
 
     name: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Agent list endpoint (Intelligence Hub agent selector)
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/agents",
+    response_model=list[AgentListEntry],
+    status_code=status.HTTP_200_OK,
+    summary="List intelligence hub agents",
+    description=(
+        "Scan MinIO for all user-created agents plus accessible system agents.  "
+        "Returns the agent_id, name, source (user/system), and description.  "
+        "Used by the Intelligence Hub agent selector — NOT the canvas API."
+    ),
+)
+async def list_intelligence_agents(
+    user_id: CurrentUserDep,
+    storage_client: StorageClientDep,
+) -> list[AgentListEntry]:
+    """Scan {user_id}/agents/ and system/agents/ to build agent list."""
+    import json as _json
+
+    results: list[AgentListEntry] = []
+
+    # User agents: scan {user_id}/agents/
+    user_agents_prefix = f"{user_id}/agents/"
+    try:
+        all_keys = await storage_client.list_objects(user_agents_prefix)
+        manifest_keys = [k for k in all_keys if k.endswith("/manifest.json")]
+        for key in manifest_keys:
+            try:
+                raw = await storage_client.read(key)
+                manifest = _json.loads(raw.decode())
+                agent_id = manifest.get("agent_id") or key.split("/")[-2]
+                results.append(
+                    AgentListEntry(
+                        agent_id=agent_id,
+                        name=manifest.get("name") or agent_id,
+                        source="user",
+                        description=manifest.get("description") or "",
+                    )
+                )
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    # System agents: scan system/agents/
+    try:
+        sys_keys = await storage_client.list_objects("system/agents/")
+        sys_manifest_keys = [k for k in sys_keys if k.endswith("/manifest.json")]
+        for key in sys_manifest_keys:
+            try:
+                raw = await storage_client.read(key)
+                manifest = _json.loads(raw.decode())
+                agent_id = manifest.get("agent_id") or key.split("/")[-2]
+                results.append(
+                    AgentListEntry(
+                        agent_id=agent_id,
+                        name=manifest.get("name") or agent_id,
+                        source="system",
+                        description=manifest.get("description") or "",
+                    )
+                )
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    results.sort(key=lambda a: (a.source, a.agent_id))
+    return results
 
 
 # ---------------------------------------------------------------------------
@@ -413,7 +531,6 @@ async def compact_working_context(
     """Archive working context and replace with compact summary."""
     working_path = StoragePaths.agent_memory_working(user_id, agent_id)
 
-    # Archive current working context to episodic memory
     today = _today_str()
     session_label = body.session_label or uuid.uuid4().hex[:8]
     entry_name = f"{today}-compact-{session_label}.md"
@@ -422,12 +539,15 @@ async def compact_working_context(
         user_id, agent_id, entry_name
     )
 
+    context_before_chars = 0
     try:
         original = await storage_client.read(working_path)
+        original_text = original.decode()
+        context_before_chars = len(original_text)
         archive_content = (
             f"# Compacted Context — {today}\n\n"
             f"*Session: {session_label}*\n\n"
-            f"## Original Working Context\n\n" + original.decode()
+            f"## Original Working Context\n\n" + original_text
         )
         await storage_client.write(
             episodic_path, archive_content.encode(), content_type="text/markdown"
@@ -438,21 +558,69 @@ async def compact_working_context(
             content_type="text/markdown",
         )
     except FileNotFoundError:
-        pass  # Nothing to archive — working context was empty
+        pass
 
-    # Replace working context with the supplied summary
     await storage_client.write(working_path, body.summary.encode(), content_type="text/markdown")
+    context_after_chars = len(body.summary)
+    reduction_pct = (
+        round((1 - context_after_chars / context_before_chars) * 100, 1)
+        if context_before_chars > 0
+        else 0.0
+    )
     logger.info(
-        "intelligence: compact done agent_id=%s archived_as=%s user_id=%s",
+        "intelligence: compact done agent_id=%s archived_as=%s before=%d after=%d user_id=%s",
         agent_id,
         entry_name,
+        context_before_chars,
+        context_after_chars,
         user_id,
     )
     return CompactResponse(
         agent_id=agent_id,
         archived_as=entry_name,
         working_context_replaced=True,
+        context_before_chars=context_before_chars,
+        context_after_chars=context_after_chars,
+        reduction_pct=reduction_pct,
     )
+
+
+# ---------------------------------------------------------------------------
+# Agent memory — working archive list
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/agents/{agent_id}/memory/working/archive",
+    response_model=list[WorkingArchiveEntry],
+    status_code=status.HTTP_200_OK,
+    summary="List working memory archive entries",
+    description=(
+        "Return metadata for all compacted working-context snapshots.  "
+        "These are read-only — they are never loaded into the agent's live context."
+    ),
+)
+async def list_working_archive(
+    agent_id: str,
+    user_id: CurrentUserDep,
+    storage_client: StorageClientDep,
+) -> list[WorkingArchiveEntry]:
+    """List archived working-context snapshots from object storage."""
+    prefix = StoragePaths.agent_memory_working_archive_prefix(user_id, agent_id)
+    all_keys = await storage_client.list_objects(prefix)
+    entries: list[WorkingArchiveEntry] = []
+    for key in all_keys:
+        if not key.endswith(".md"):
+            continue
+        name = key.split("/")[-1]
+        try:
+            raw = await storage_client.read(key)
+            size_chars = len(raw.decode(errors="replace"))
+        except FileNotFoundError:
+            continue
+        entries.append(WorkingArchiveEntry(name=name, size_chars=size_chars))
+    entries.sort(key=lambda e: e.name, reverse=True)
+    return entries
 
 
 # ---------------------------------------------------------------------------
@@ -462,71 +630,137 @@ async def compact_working_context(
 
 @router.get(
     "/agents/{agent_id}/memory/episodic",
-    response_model=MemoryListResponse,
+    response_model=list[EpisodicEntryListItem],
     status_code=status.HTTP_200_OK,
     summary="List episodic memory entries",
-    description="Return all episodic memory entries (session summaries) for the agent.",
+    description=(
+        "Return all episodic memory entries (active and archived) for the agent.  "
+        "Active entries are loaded into the agent's context; archived entries are excluded."
+    ),
 )
 async def list_episodic_memory(
     agent_id: str,
     user_id: CurrentUserDep,
     storage_client: StorageClientDep,
-) -> MemoryListResponse:
-    """List episodic memory entries from object storage."""
-    prefix = StoragePaths.agent_memory_episodic_prefix(user_id, agent_id)
-    all_keys = await storage_client.list_objects(prefix)
-    entries = [MemoryListEntry(key=k.split("/")[-1], path=k) for k in all_keys if k.endswith(".md")]
-    return MemoryListResponse(agent_id=agent_id, memory_type="episodic", entries=entries)
+) -> list[EpisodicEntryListItem]:
+    """List episodic memory entries (active + archived) from object storage."""
+    results: list[EpisodicEntryListItem] = []
+
+    # Active entries
+    active_prefix = StoragePaths.agent_memory_episodic_prefix(user_id, agent_id)
+    try:
+        active_keys = await storage_client.list_objects(active_prefix)
+        for key in active_keys:
+            if not key.endswith(".md"):
+                continue
+            name = key.split("/")[-1]
+            # Skip archive subfolder entries (they appear under episodic/archive/)
+            if "archive/" in key:
+                continue
+            try:
+                raw = await storage_client.read(key)
+                content = raw.decode(errors="replace")
+            except FileNotFoundError:
+                content = ""
+            results.append(EpisodicEntryListItem(name=name, content=content, status="active"))
+    except Exception:
+        pass
+
+    # Archived entries
+    archive_prefix = StoragePaths.agent_memory_episodic_archive_prefix(user_id, agent_id)
+    try:
+        archive_keys = await storage_client.list_objects(archive_prefix)
+        for key in archive_keys:
+            if not key.endswith(".md"):
+                continue
+            name = key.split("/")[-1]
+            try:
+                raw = await storage_client.read(key)
+                content = raw.decode(errors="replace")
+            except FileNotFoundError:
+                content = ""
+            results.append(EpisodicEntryListItem(name=name, content=content, status="archived"))
+    except Exception:
+        pass
+
+    results.sort(key=lambda e: e.name, reverse=True)
+    return results
 
 
 @router.get(
     "/agents/{agent_id}/memory/episodic/{entry_name}",
-    response_model=MemoryContentResponse,
+    response_model=EpisodicEntryResponse,
     status_code=status.HTTP_200_OK,
     summary="Get episodic memory entry",
-    description="Return the content of one episodic memory entry.",
+    description="Return the content of one episodic memory entry (active or archived).",
 )
 async def get_episodic_entry(
     agent_id: str,
     entry_name: str,
     user_id: CurrentUserDep,
     storage_client: StorageClientDep,
-) -> MemoryContentResponse:
-    """Read one episodic memory entry."""
-    path = StoragePaths.agent_memory_episodic_entry(user_id, agent_id, entry_name)
+) -> EpisodicEntryResponse:
+    """Read one episodic memory entry — checks active first, then archive."""
+    active_path = StoragePaths.agent_memory_episodic_entry(user_id, agent_id, entry_name)
     try:
-        raw = await storage_client.read(path)
+        raw = await storage_client.read(active_path)
+        return EpisodicEntryResponse(
+            agent_id=agent_id, name=entry_name, content=raw.decode(), status="active"
+        )
+    except FileNotFoundError:
+        pass
+
+    archive_path = StoragePaths.agent_memory_episodic_archive_entry(user_id, agent_id, entry_name)
+    try:
+        raw = await storage_client.read(archive_path)
+        return EpisodicEntryResponse(
+            agent_id=agent_id, name=entry_name, content=raw.decode(), status="archived"
+        )
     except FileNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Episodic entry '{entry_name}' not found",
         )
-    return MemoryContentResponse(
-        agent_id=agent_id, memory_type="episodic", key=entry_name, content=raw.decode()
-    )
 
 
-@router.delete(
-    "/agents/{agent_id}/memory/episodic/{entry_name}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    summary="Delete episodic memory entry",
-    description="Permanently delete one episodic memory entry.",
+@router.post(
+    "/agents/{agent_id}/memory/episodic/{entry_name}/archive",
+    response_model=ArchiveEpisodicResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Archive episodic memory entry",
+    description=(
+        "Move an active episodic entry to the archive.  "
+        "Archived entries are excluded from the agent's context permanently.  "
+        "This operation is irreversible."
+    ),
 )
-async def delete_episodic_entry(
+async def archive_episodic_entry(
     agent_id: str,
     entry_name: str,
     user_id: CurrentUserDep,
     storage_client: StorageClientDep,
-) -> None:
-    """Delete one episodic memory entry from object storage."""
-    path = StoragePaths.agent_memory_episodic_entry(user_id, agent_id, entry_name)
-    await storage_client.delete(path)
+) -> ArchiveEpisodicResponse:
+    """Move episodic entry from active to archive folder."""
+    active_path = StoragePaths.agent_memory_episodic_entry(user_id, agent_id, entry_name)
+    archive_path = StoragePaths.agent_memory_episodic_archive_entry(user_id, agent_id, entry_name)
+
+    try:
+        raw = await storage_client.read(active_path)
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Episodic entry '{entry_name}' not found or already archived",
+        )
+
+    await storage_client.write(archive_path, raw, content_type="text/markdown")
+    await storage_client.delete(active_path)
     logger.info(
-        "intelligence: episodic entry deleted agent_id=%s entry=%s user_id=%s",
+        "intelligence: episodic entry archived agent_id=%s entry=%s user_id=%s",
         agent_id,
         entry_name,
         user_id,
     )
+    return ArchiveEpisodicResponse(archived_to=f"episodic/archive/{entry_name}")
 
 
 # ---------------------------------------------------------------------------

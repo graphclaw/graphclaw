@@ -460,6 +460,73 @@ class SubAgentRunner:
                             base += f"\n## Working Context\n{ctx_bytes.decode(errors='replace')}\n"
                     except FileNotFoundError:
                         pass
+
+                # Load episodic memory (active entries only, newest first)
+                if job.agent_source != "system" and user_id:
+                    token_budget = 80_000
+                    used_chars = len(base)
+                    chars_per_token = 4  # conservative estimate
+
+                    episodic_prefix = StoragePaths.agent_memory_episodic_prefix(
+                        user_id, job.agent_id
+                    )
+                    archive_prefix = StoragePaths.agent_memory_episodic_archive_prefix(
+                        user_id, job.agent_id
+                    )
+                    try:
+                        episodic_keys = await self._storage.list_objects(episodic_prefix)
+                        # Only active entries — skip anything under episodic/archive/
+                        active_keys = sorted(
+                            [
+                                k
+                                for k in episodic_keys
+                                if k.endswith(".md") and archive_prefix not in k
+                            ],
+                            reverse=True,
+                        )
+                        episodic_sections: list[str] = []
+                        for key in active_keys:
+                            try:
+                                ep_bytes = await self._storage.read(key)
+                                ep_text = ep_bytes.decode(errors="replace")
+                                section = f"\n### {key.split('/')[-1]}\n{ep_text}\n"
+                                if (used_chars + len(section)) / chars_per_token > token_budget:
+                                    break
+                                episodic_sections.append(section)
+                                used_chars += len(section)
+                            except FileNotFoundError:
+                                continue
+                        if episodic_sections:
+                            base += "\n## Episodic Memory\n" + "".join(episodic_sections)
+                    except Exception as exc:
+                        logger.debug("SubAgentRunner: could not load episodic memory: %s", exc)
+
+                    # Load semantic memory (knowledge.md first, then alphabetical)
+                    semantic_prefix = StoragePaths.agent_memory_semantic_prefix(
+                        user_id, job.agent_id
+                    )
+                    try:
+                        semantic_keys = await self._storage.list_objects(semantic_prefix)
+                        md_keys = [k for k in semantic_keys if k.endswith(".md")]
+                        md_keys.sort(key=lambda k: (0 if k.endswith("/knowledge.md") else 1, k))
+                        semantic_sections: list[str] = []
+                        for key in md_keys:
+                            try:
+                                sem_bytes = await self._storage.read(key)
+                                sem_text = sem_bytes.decode(errors="replace")
+                                topic = key.split("/")[-1].removesuffix(".md")
+                                section = f"\n### {topic}\n{sem_text}\n"
+                                if (used_chars + len(section)) / chars_per_token > token_budget:
+                                    break
+                                semantic_sections.append(section)
+                                used_chars += len(section)
+                            except FileNotFoundError:
+                                continue
+                        if semantic_sections:
+                            base += "\n## Semantic Knowledge\n" + "".join(semantic_sections)
+                    except Exception as exc:
+                        logger.debug("SubAgentRunner: could not load semantic memory: %s", exc)
+
             except Exception as exc:
                 logger.debug("SubAgentRunner: could not load profile/context: %s", exc)
         return base

@@ -291,6 +291,27 @@ class StoragePaths:
         return f"{user}/agents/{agent}/memory/episodic/{entry}"
 
     @staticmethod
+    def agent_memory_episodic_archive_prefix(user_id: str, agent_id: str) -> str:
+        """Prefix for archived episodic entries (never loaded into agent context).
+
+        Example: ``usr-abc123/agents/main/memory/episodic/archive/``
+        """
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        agent = StoragePaths._validate_segment(agent_id, "agent_id")
+        return f"{user}/agents/{agent}/memory/episodic/archive/"
+
+    @staticmethod
+    def agent_memory_episodic_archive_entry(user_id: str, agent_id: str, entry_name: str) -> str:
+        """One archived episodic entry (permanently excluded from agent context).
+
+        Example: ``usr-abc123/agents/main/memory/episodic/archive/2026-04-20-compact-sprint12.md``
+        """
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        agent = StoragePaths._validate_segment(agent_id, "agent_id")
+        entry = StoragePaths._validate_segment(entry_name, "entry_name")
+        return f"{user}/agents/{agent}/memory/episodic/archive/{entry}"
+
+    @staticmethod
     def agent_memory_semantic_prefix(user_id: str, agent_id: str) -> str:
         """Prefix to list all semantic memory topics for an agent."""
         user = StoragePaths._validate_segment(user_id, "user_id")
