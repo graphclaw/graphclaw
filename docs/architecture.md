@@ -126,6 +126,57 @@ All five channels are fully implemented. WhatsApp and Telegram are webhook-based
 
 ---
 
+## MCP Server Architecture (Design + Implementation)
+
+GraphClaw's MCP subsystem is implemented across API routes and the `mcp/` package, with strict trust-tier enforcement and per-user registry isolation.
+
+### Core Components
+
+| Component | File | Responsibility |
+|----------|------|----------------|
+| `MCPRegistry` | `src/graphclaw/mcp/registry.py` | Persist/list/update server registrations per user |
+| `MCPClient` | `src/graphclaw/mcp/client.py` | Connect/list/call MCP tools across http/sse/stdio |
+| `GatedApprovalService` | `src/graphclaw/mcp/approval.py` | Human approval workflow for GATED calls |
+| `OfficialMCPRegistry` | `src/graphclaw/mcp/official_registry.py` | Search official registry index |
+| MCP API routes | `src/graphclaw/api/mcp_registry.py` | `/app/v1/mcp-servers*` and `/app/v1/mcp-approvals` |
+
+### Persistence Model
+
+Registered servers are represented by `MCPServerNode` schema but persisted as object-storage JSON docs (not graph vertices in current runtime path):
+
+- Object key: `{user_id}/mcp/servers/{server_id}.json`
+- Fields include transport config (`endpoint_url` or `command`), `trust_tier`, `scope`, and `enabled`
+- Optional `secret_ref` allows credentials lifecycle cleanup during deregistration
+
+### Trust-Tier Execution Policy
+
+`MCPClient.call_tool()` applies runtime policy before any tool executes:
+
+- `AUTO` - execute immediately
+- `GATED` - create APPROVAL task via `GatedApprovalService`, wait for decision
+- `BLOCKED` - reject with `MCPToolBlockedError`
+
+This keeps policy enforcement centralized in one code path instead of duplicating checks per route or per caller.
+
+### API Surface
+
+`/app/v1/mcp-servers` provides CRUD + discovery + tool introspection:
+
+- `GET /mcp-servers`
+- `POST /mcp-servers`
+- `GET /mcp-servers/search`
+- `GET/PATCH/DELETE /mcp-servers/{server_id}`
+- `GET /mcp-servers/{server_id}/tools`
+- `GET /mcp-approvals`
+
+### Failure and Degradation Strategy
+
+- Official registry search failures return empty lists, not API crashes
+- Tool discovery failures return empty lists with warnings
+- MCP SDK import is lazy and produces explicit install guidance when missing
+
+---
+
 ## How to Add a New Backend
 
 ### New LLM Provider

@@ -80,6 +80,7 @@ class MCPServerEntry(BaseModel):
     name: str
     transport: str = "http"
     endpoint_url: str | None = None
+    command: str | None = None
     trust_tier: str = "GATED"
     scope: list[str] = []
     enabled: bool = True
@@ -91,6 +92,7 @@ class MCPServerRegisterRequest(BaseModel):
     name: str
     transport: str = "http"
     endpoint_url: str | None = None
+    command: str | None = None
     trust_tier: str = "GATED"
     scope: list[str] = []
 
@@ -165,6 +167,18 @@ async def register_mcp_server(
             detail=f"Invalid trust_tier '{body.trust_tier}'. Valid values: {valid_tiers}",
         )
 
+    if transport in {MCPTransport.HTTP, MCPTransport.SSE} and not body.endpoint_url:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"transport '{transport.value}' requires endpoint_url",
+        )
+
+    if transport == MCPTransport.STDIO and not body.command:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="transport 'stdio' requires command",
+        )
+
     now = utcnow()
     server_id = f"MCP-{uuid4().hex[:12]}"
     node = MCPServerNode(
@@ -172,6 +186,7 @@ async def register_mcp_server(
         name=body.name,
         transport=transport,
         endpoint_url=body.endpoint_url,
+        command=body.command,
         trust_tier=trust_tier,
         scope=list(body.scope),
         enabled=True,
@@ -335,6 +350,7 @@ def _node_to_entry(node: MCPServerNode) -> MCPServerEntry:
         name=node.name,
         transport=node.transport.value if hasattr(node.transport, "value") else str(node.transport),
         endpoint_url=node.endpoint_url,
+        command=node.command,
         trust_tier=node.trust_tier.value
         if hasattr(node.trust_tier, "value")
         else str(node.trust_tier),

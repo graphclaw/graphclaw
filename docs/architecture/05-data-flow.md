@@ -164,32 +164,53 @@ sequenceDiagram
 
 ---
 
-## 6. MCP Tool Call — Connector Sync Flow
+## 6. MCP Tool Call Flow (Registry + Trust Tier + Approval)
 
 ```mermaid
 sequenceDiagram
-    participant SCHED as Trigger Scheduler
-    participant CONN as ConnectorRegistry
-    participant JIRA as JiraConnector
-    participant JIRA_API as Jira REST API
+    participant AGENT as AgentLoop / SkillWorker
+    participant API as /app/v1/mcp-servers
+    participant REG as MCPRegistry
+    participant MCP as MCPClient
+    participant SRV as External MCP Server
+    participant GATE as GatedApprovalService
     participant DB as AgeGraphStore
-    participant SCORE as ScoringEngine
-    participant SSE as SSE Event Stream
 
-    SCHED->>CONN: run_sync(connector_id="jira-prod")
-    CONN->>JIRA: sync(workspace_id)
-    JIRA->>JIRA_API: GET /rest/api/3/issue?jql=updated>last_sync
-    JIRA_API-->>JIRA: list of updated issues
-    loop For each issue
-        JIRA->>JIRA: map issue → TaskNode properties
-        JIRA->>DB: get_node(task_id) or create_node(TaskNode)
-        JIRA->>DB: append UpdateLogEntry
-        JIRA->>SCORE: score_task(task_id)
-        SCORE-->>JIRA: ScoringBlock
-        JIRA->>DB: update_node(task_id, {scoring})
+    AGENT->>API: GET /mcp-servers (current user)
+    API->>REG: list_for_user(user_id, enabled_only=true)
+    REG-->>API: registered servers
+    API-->>AGENT: filtered server list
+
+    AGENT->>MCP: connect(server_id)
+    MCP->>SRV: transport connect (http/sse/stdio)
+    MCP->>SRV: tools/list
+    SRV-->>MCP: tool manifest
+
+    AGENT->>MCP: call_tool(tool_name, args, trust_tier)
+    alt trust_tier == AUTO
+        MCP->>SRV: tools/call
+        SRV-->>MCP: tool result
+        MCP-->>AGENT: success result
+    else trust_tier == GATED
+        MCP->>GATE: request_approval(user_id, tool_name, args)
+        GATE->>DB: create APPROVAL TaskNode
+        GATE-->>MCP: approval_task_id
+        loop wait_for_approval
+            GATE->>DB: get_node(approval_task_id)
+            DB-->>GATE: state PENDING / COMPLETE / CANCELLED
+        end
+        alt approved
+            MCP->>SRV: tools/call
+            SRV-->>MCP: tool result
+            MCP-->>AGENT: success result
+        else denied
+            MCP-->>AGENT: approval denied error
+        end
+    else trust_tier == BLOCKED
+        MCP-->>AGENT: blocked error (no tool execution)
     end
-    JIRA->>SSE: emit ConnectorSyncCompleteEvent
-    JIRA-->>CONN: SyncResult{updated, created, errors}
+
+    MCP->>MCP: structured audit log (server_id, tool_name, trust_tier, latency_ms)
 ```
 
 ---

@@ -126,6 +126,26 @@ flowchart TB
 
 ---
 
+## MCP Sub-Architecture (Implemented)
+
+GraphClaw's MCP integration is a concrete subsystem, not only a conceptual extension point:
+
+- Registry management: `/app/v1/mcp-servers*` routes in `api/mcp_registry.py`
+- Runtime storage: per-user server documents at `{user_id}/mcp/servers/{server_id}.json`
+- Execution client: `mcp/client.py` with transport selection (`http`, `sse`, `stdio`)
+- Approval path: `mcp/approval.py` creates and tracks APPROVAL `TaskNode`s for GATED calls
+- Discovery path: `mcp/official_registry.py` searches `registry.modelcontextprotocol.io`
+
+Trust enforcement occurs at the MCP client boundary:
+
+- `AUTO` executes directly
+- `GATED` requires human approval before execution
+- `BLOCKED` rejects tool calls
+
+This keeps policy and safety logic centralized while allowing new MCP servers to be onboarded via registry records instead of backend rebuilds.
+
+---
+
 ## Request Lifecycle (Happy Path)
 
 ```mermaid

@@ -92,7 +92,7 @@ class MCPRegistry:
         )
         logger.info(
             "mcp.registry.register",
-            extra={"user_id": user_id, "server_id": node.id, "name": node.name},
+            extra={"user_id": user_id, "server_id": node.id, "server_name": node.name},
         )
         return node
 

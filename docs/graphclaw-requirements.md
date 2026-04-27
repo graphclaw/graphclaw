@@ -9113,127 +9113,156 @@ Row 5: User Activity
 
 > **Note:** The Web UI components for MCP server management (search, install, trust tier configuration) are documented in `docs/ui-requirements.md` as part of the separate UI project.
 
-The orchestrating agent gains the ability to interact with external services — calendars, code repositories, project management tools, communication platforms — through the **Model Context Protocol (MCP)**. MCP is an open standard that defines how AI models discover and call tools exposed by external servers. GraphClaw acts as an MCP client; external services act as MCP servers.
+The orchestrating agent can interact with external services through the **Model Context Protocol (MCP)**. GraphClaw operates as an MCP client; external service runtimes operate as MCP servers. MCP support is implemented as a first-class subsystem in `src/graphclaw/mcp/` and exposed to the cockpit via `/app/v1/mcp-*` routes.
 
-This is additive, not architectural: MCP tool calls are a new action type available to the orchestrating agent alongside existing actions (publish to broker, write MD files, send outbound messages, invoke skill agents). The file-based brain, stateless invocation, and progressive loading model are unchanged.
-
----
-
-### 34.1 Why MCP over Direct API Integration
-
-Each new service integration previously required custom code in the agent-runtime: authentication logic, API client, error handling, pagination, and rate-limit handling — all baked into the container image. With MCP:
-
-- **Services are decoupled from the agent container.** A new integration is a new MCP server registration, not a container rebuild.
-- **Tool discovery is dynamic.** The agent queries registered servers for their tool manifests at runtime — no hardcoded tool lists in the agent prompt.
-- **The protocol is LLM-agnostic.** Claude, GPT-4, Gemini, and local models all consume MCP tool schemas identically.
-- **Permissions are explicit.** Each MCP server declares exactly what tools it exposes and what data it reads or writes. Users approve at registration time.
+This extends agent capabilities without changing GraphClaw's core model (task graph + state machine + scoring + trigger loops): MCP calls are another execution primitive alongside skill invocation, graph mutations, and channel output.
 
 ---
 
-### 34.2 MCP Registry
+### 34.1 Design Goals
 
-Each user maintains a personal **MCP Registry** — a list of registered MCP servers stored in the settings panel and persisted to the graph DB as `MCPServerNode` nodes.
+The MCP architecture is designed around five constraints:
+
+1. **Per-user isolation** - each user has an independent MCP registry and approval queue.
+2. **Transport neutrality** - server registration supports `http`, `sse`, and `stdio`.
+3. **Trust-tier enforcement at runtime** - execution policy is checked before any tool call.
+4. **Graceful degradation** - discovery/listing failures should not crash agent flow.
+5. **Operational simplicity** - new servers can be added via registry records, not image rebuilds.
+
+---
+
+### 34.2 MCP Registry (Current Implementation)
+
+Each user has a personal MCP server registry represented by `MCPServerNode` schema and persisted as JSON objects in object storage:
+
+- Path pattern: `{user_id}/mcp/servers/{server_id}.json`
+- Service: `MCPRegistry` in `src/graphclaw/mcp/registry.py`
+- API surface: `/app/v1/mcp-servers` in `src/graphclaw/api/mcp_registry.py`
+
+Canonical fields:
 
 ```
 MCPServerNode
-  id:             MCP-{uuid}
-  name:           "Google Calendar"
-  transport:      "stdio" | "sse" | "http"
-  endpoint_url:   string | null          # for sse/http transports
-  command:        string | null          # for stdio transport
+  id:             MCP-{identifier}
+  name:           string
+  transport:      "http" | "sse" | "stdio"
+  endpoint_url:   string | null   # required for http/sse
+  command:        string | null   # required for stdio
   trust_tier:     "AUTO" | "GATED" | "BLOCKED"
-  scope:          ["read_events", "create_event", ...]   # declared by server
-  secret_ref:     string | null          # Secrets Manager key ID for auth token
+  scope:          [string]
+  secret_ref:     string | null
   enabled:        bool
   registered_at:  datetime
   last_used_at:   datetime | null
 ```
 
-**Trust tiers:**
-- `AUTO` — tools from this server are called without user confirmation. Suitable for read-only tools the user has explicitly trusted (e.g. calendar read, GitHub issue read).
-- `GATED` — the orchestrating agent proposes the tool call and waits for user approval before executing. Suitable for write operations (e.g. create calendar event, open GitHub issue).
-- `BLOCKED` — server is registered but all tool calls are rejected. Used to temporarily suspend a server without removing its configuration.
+Trust tier semantics:
+
+- `AUTO` - execute directly.
+- `GATED` - require human approval before execution.
+- `BLOCKED` - reject execution.
+
+Guardrail: direct `BLOCKED -> AUTO` promotion is rejected; transition must pass through `GATED`.
 
 ---
 
-### 34.3 Orchestrating Agent as MCP Client
+### 34.3 API Contract and Lifecycle
 
-At reasoning time, when the orchestrating agent identifies a task or trigger that could benefit from an external tool, it:
+`/app/v1/mcp-servers` implements registration and runtime management:
 
-1. Queries the MCP Registry for enabled servers whose declared scope matches the need (e.g. `read_events` for a deadline awareness check).
-2. Issues an MCP `tools/list` request to the server to get the current tool manifest.
-3. Includes relevant tools in the LLM tool-use payload (Claude tool_use format).
-4. Executes approved tool calls and incorporates the results into the reasoning step.
-5. Logs each tool call as a structured event: `server_id`, `tool_name`, `input_hash`, `result_size_bytes`, `latency_ms`, `trust_tier`.
+- `GET /mcp-servers` - list registered servers.
+- `POST /mcp-servers` - register server.
+- `GET /mcp-servers/search` - search official MCP registry.
+- `GET /mcp-servers/{server_id}` - retrieve server details.
+- `PATCH /mcp-servers/{server_id}` - update `trust_tier` / `enabled`.
+- `DELETE /mcp-servers/{server_id}` - deregister server.
+- `GET /mcp-servers/{server_id}/tools` - live tools listing (best-effort).
 
-**Progressive loading applies to MCP tools.** Tool manifests are not loaded on every invocation — only when the trigger type and current reasoning step indicate an external tool is likely needed. Time-based triggers load calendar tools; inbound updates about code tasks load GitHub tools.
+Approval queue API:
 
-```
-Orchestrating agent reasoning step (MCP-aware):
+- `GET /mcp-approvals` - list pending MCP approval tasks for current user.
 
-  Trigger: time-based → daily briefing
-  Load: top-N scored tasks (existing)
-  Load: MCPRegistry.get_enabled(scope="read_events")  ← NEW
-  If calendar server available:
-    tools/list → get available tools
-    call: get_events(date_range=today+7days)
-    Incorporate: deadline proximity for tasks with calendar links
-  Proceed: score, rank, generate briefing
-```
+Validation rules enforced on register:
+
+- `transport=http|sse` requires `endpoint_url`.
+- `transport=stdio` requires `command`.
 
 ---
 
-### 34.4 Pre-Built MCP Server Adapters
+### 34.4 Tool Execution Flow
 
-The platform ships pre-built configuration templates for common MCP servers. Users activate them from the settings panel — no command-line setup required.
+`MCPClient` (`src/graphclaw/mcp/client.py`) drives runtime interaction:
 
-| Service | Transport | Trust default | Key capabilities |
-|---------|-----------|---------------|-----------------|
-| Google Calendar | SSE | AUTO (read) / GATED (write) | Read events, create events, check free/busy |
-| GitHub | HTTP | AUTO (read) / GATED (write) | List issues/PRs, read file, create issue, add comment |
-| Slack | HTTP | AUTO (read) / GATED (write) | Read channel messages, post message, list channels |
-| Jira | HTTP | AUTO (read) / GATED (write) | List issues, update status, add comment |
-| Notion | HTTP | AUTO (read) / GATED (write) | Read pages/databases, create page |
-| Linear | HTTP | AUTO (read) / GATED (write) | List issues, update status |
-| Google Drive | HTTP | AUTO (read) / GATED (write) | List files, read file content, create doc |
+1. `connect(server)` chooses transport client (`HTTPClientTransport`, `SSEClientTransport`, `StdioClientTransport`).
+2. `list_tools()` retrieves live tool manifests from server.
+3. `call_tool()` enforces trust tier before execution.
+4. `_execute_tool()` issues MCP `tools/call` and normalizes result.
+5. `_log_tool_call()` emits structured audit fields (`server_id`, `tool_name`, `trust_tier`, `latency_ms`, `success`).
 
-Custom MCP servers (user-built or third-party) can be registered via the settings panel by providing a transport type, endpoint URL or command, and OAuth/API-key credentials.
+Trust-tier behavior in `call_tool()`:
 
----
-
-### 34.5 Skill Agents and MCP
-
-Skill agents (defined in SKILL.md) can both **consume** and **expose** MCP tools.
-
-**Consuming:** A SKILL.md file can declare MCP server dependencies in its frontmatter. The skill worker runtime resolves these against the user's MCP Registry before invoking the skill agent:
-
-```yaml
----
-name: calendar-aware-briefing
-version: 1.0.0
-mcp_servers:
-  - name: Google Calendar
-    scope: [read_events, get_free_busy]
-    trust_tier: AUTO
----
-```
-
-**Exposing:** A skill agent can expose its outputs as MCP tools for other agents to consume. For example, a Pipeline Report skill agent can expose a `get_pipeline_summary` tool that the orchestrating agent calls during briefing generation — no file handoff required.
+- `AUTO` -> execute immediately.
+- `GATED` -> create approval task, wait for decision, then execute or deny.
+- `BLOCKED` -> raise `MCPToolBlockedError` and do not execute.
 
 ---
 
-### 34.6 Security Model
+### 34.5 Human-in-the-Loop Gating
 
-**Authentication:** MCP server credentials (OAuth tokens, API keys) are stored in AWS Secrets Manager under the user's `/workgraph/USER-{id}/mcp/` namespace. The agent-runtime retrieves them at tool-call time, never at container startup. Credentials are never written to MD files or logs.
+`GatedApprovalService` (`src/graphclaw/mcp/approval.py`) maps GATED tool calls to standard graph tasks:
 
-**Sandboxing:** All MCP tool calls are routed through the agent-runtime's MCP client, which enforces:
-- Trust tier check before execution (AUTO / GATED / BLOCKED).
-- Tool scope validation: the agent may only call tools in the declared scope the user approved at registration.
-- Read-only default: any tool with side effects (creates, updates, deletes) is classified as `GATED` unless the user explicitly upgrades it to `AUTO`.
-- Request/response size limits: 512 KB request, 2 MB response — same as A2A limits.
-- Timeout: 30-second hard timeout per tool call; the agent continues reasoning without the result if exceeded.
+- Creates `TaskNode` with `task_type=APPROVAL` and user-readable criteria.
+- Polls task state until approved (`COMPLETE`) or denied (`CANCELLED`/`BLOCKED`).
+- Exposes pending approvals back to cockpit via `/app/v1/mcp-approvals`.
 
-**Audit trail:** Every MCP tool call is logged with `session_id`, `user_id`, `server_id`, `tool_name`, `trust_tier`, `approved_by` (`auto` or `USER-{id}`), input parameter hash, and response size. This provides a full audit trail for any tool-assisted agent action.
+This reuses existing GraphClaw state/task primitives instead of a separate approvals subsystem.
+
+---
+
+### 34.6 Official Registry and Adapter Strategy
+
+GraphClaw supports two MCP server onboarding paths:
+
+1. **Official registry discovery** via `OfficialMCPRegistry` (`src/graphclaw/mcp/official_registry.py`) against `https://registry.modelcontextprotocol.io/v0.1`.
+2. **Direct registration** via transport + endpoint/command fields in `/mcp-servers`.
+
+Built-in adapter package structure currently includes:
+
+- `src/graphclaw/mcp/adapters/github/`
+- `src/graphclaw/mcp/adapters/google_calendar/`
+- `src/graphclaw/mcp/adapters/slack/`
+
+Additional providers (for example Google Drive via stdio Docker command) are supported through direct registration without code changes to the core MCP subsystem.
+
+---
+
+### 34.7 Security and Operations
+
+Security controls:
+
+- Per-user registry isolation by storage prefix.
+- Trust-tier enforcement at execution boundary.
+- Optional secret reference lifecycle cleanup on deregister.
+- Structured logs for MCP call auditability.
+
+Operational behavior:
+
+- Registry search/tools listing degrades to empty results on upstream/transport failure.
+- MCP SDK dependency is lazy-loaded; explicit error is returned when SDK is unavailable.
+- Server configuration toggling (`enabled`) allows temporary suspension without deletion.
+
+---
+
+### 34.8 Implementation Mapping (Code-Level)
+
+| Concern | Primary module | Notes |
+|---------|----------------|-------|
+| Registry persistence | `src/graphclaw/mcp/registry.py` | JSON documents in object storage per user |
+| MCP transport/session | `src/graphclaw/mcp/client.py` | HTTP/SSE/STDIO support with trust checks |
+| Approval workflow | `src/graphclaw/mcp/approval.py` | APPROVAL TaskNode creation + polling |
+| Official discovery | `src/graphclaw/mcp/official_registry.py` | Cursor-based search over official registry API |
+| REST API | `src/graphclaw/api/mcp_registry.py` | CRUD, search, tools list, approvals list |
+| Data model | `src/graphclaw/models/nodes.py` | `MCPServerNode` schema and validators |
 
 
 ---

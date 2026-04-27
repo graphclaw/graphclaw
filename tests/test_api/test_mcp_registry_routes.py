@@ -49,6 +49,14 @@ _REGISTER_PAYLOAD = {
     "scope": ["read_issues", "create_issue"],
 }
 
+_REGISTER_STDIO_PAYLOAD = {
+    "name": "Google Drive",
+    "transport": "stdio",
+    "command": "docker run -i --rm mcp/gdrive",
+    "trust_tier": "AUTO",
+    "scope": ["gdrive.readonly"],
+}
+
 # Module-level fake store reset by fixture
 _fake_store = FakeGraphStore()
 _fake_storage = FakeStorageClient()
@@ -153,6 +161,16 @@ def test_register_mcp_server_stores_scope(client: TestClient) -> None:
     assert response.status_code == 201
     data = response.json()
     assert "read_issues" in data["scope"]
+
+
+def test_register_mcp_server_stdio_stores_command(client: TestClient) -> None:
+    """POST /app/v1/mcp-servers supports stdio registration via command."""
+    response = client.post("/app/v1/mcp-servers", json=_REGISTER_STDIO_PAYLOAD)
+    assert response.status_code == 201
+    data = response.json()
+    assert data["transport"] == "stdio"
+    assert data["command"] == "docker run -i --rm mcp/gdrive"
+    assert data["endpoint_url"] is None
 
 
 # ---------------------------------------------------------------------------
