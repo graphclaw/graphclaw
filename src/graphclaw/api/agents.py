@@ -15,12 +15,17 @@ GET    /app/v1/agents/{id}             — retrieve a specific definition
 PATCH  /app/v1/agents/{id}             — update a definition (auto-versions)
 DELETE /app/v1/agents/{id}             — delete a definition
 GET    /app/v1/agents/{id}/versions    — list version history
+GET    /app/v1/agents/{id}/config      — read runtime config.json
+PUT    /app/v1/agents/{id}/config      — update runtime config.json
 POST   /app/v1/agents/{id}/test        — run a quick test of the agent
 
 Storage layout
 --------------
 - ``agents/{user_id}/definitions/{agent_id}.json``
 - ``agents/{user_id}/definitions/{agent_id}/versions/{version}.json``
+- ``{user_id}/agents/{agent_id}/config.json``     (runtime config)
+- ``{user_id}/agents/{agent_id}/profile.md``      (runtime profile)
+- ``{user_id}/agents/{agent_id}/manifest.json``   (runtime manifest)
 
 Design Patterns
 ---------------
@@ -28,6 +33,10 @@ Design Patterns
   is created — the canvas is a UI artefact, not a first-class graph entity.
 - Version snapshots: Every PATCH creates a versioned copy before writing the
   update.  Versions are read-only (no delete/restore endpoint in this wave).
+- Runtime bridge: POST /agents also provisions the runtime agent files so the
+  orchestrator can immediately discover and invoke the new agent.
+- Slugified IDs: Agent IDs are derived from the human-readable name for
+  idempotency and readability (e.g. "research-agent").
 - AgentLoop test: POST /{id}/test tries ``app.state.agent_loop.run_cycle()``
   and returns a lightweight summary; falls back gracefully when absent.
 
@@ -38,7 +47,8 @@ Public API
 Dependencies
 ------------
 - graphclaw.api.deps: CurrentUserDep, StorageClientDep.
-- fastapi: APIRouter, HTTPException, Request, status (third-party).
+- graphclaw.infra.storage: StoragePaths.
+- fastapi: APIRouter, HTTPException, Query, Request, status (third-party).
 - pydantic: BaseModel (third-party).
 """
 
@@ -46,14 +56,16 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import uuid
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request, status
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException, Query, Request, status
+from pydantic import BaseModel, Field
 
 from graphclaw.api.deps import CurrentUserDep, StorageClientDep
+from graphclaw.infra.storage import StoragePaths
 from graphclaw.models.base import utcnow
 
 logger = logging.getLogger(__name__)
@@ -67,6 +79,7 @@ router = APIRouter(prefix="/agents", tags=["app-api"])
 _DEF_PATH_TEMPLATE = "agents/{user_id}/definitions/{agent_id}.json"
 _VER_PATH_TEMPLATE = "agents/{user_id}/definitions/{agent_id}/versions/{version}.json"
 _DEF_PREFIX_TEMPLATE = "agents/{user_id}/definitions/"
+_CANVAS_LAYOUT_TEMPLATE = "agents/{user_id}/definitions/canvas-layout.json"
 
 
 def _def_path(user_id: str, agent_id: str) -> str:
@@ -77,13 +90,52 @@ def _ver_path(user_id: str, agent_id: str, version: str) -> str:
     return _VER_PATH_TEMPLATE.format(user_id=user_id, agent_id=agent_id, version=version)
 
 
+def _ver_prefix(user_id: str, agent_id: str) -> str:
+    return f"agents/{user_id}/definitions/{agent_id}/versions/"
+
+
 def _def_prefix(user_id: str) -> str:
     return _DEF_PREFIX_TEMPLATE.format(user_id=user_id)
+
+
+def _canvas_layout_path(user_id: str) -> str:
+    return _CANVAS_LAYOUT_TEMPLATE.format(user_id=user_id)
+
+
+def _slugify(name: str) -> str:
+    """Convert a human-readable name to a URL-safe, lowercase slug."""
+    slug = name.lower().strip()
+    slug = re.sub(r"[^\w\s-]", "", slug)
+    slug = re.sub(r"[\s_]+", "-", slug)
+    slug = re.sub(r"-+", "-", slug).strip("-")
+    return slug[:40] or "agent"
 
 
 # ---------------------------------------------------------------------------
 # Request / Response models
 # ---------------------------------------------------------------------------
+
+
+class AgentConfigSchema(BaseModel):
+    """Typed runtime config for an agent (stored at {user_id}/agents/{agent_id}/config.json).
+
+    Fields introduced for canvas wiring:
+    - skills: IDs of installed skills this agent may invoke.
+    - mcp_servers: IDs of registered MCP servers this agent may call.
+    - tool_sets: Named tool-set IDs this agent can load_tool_set().
+    - sub_agents: Agent IDs this orchestrator may delegate to.
+
+    Secure-by-default: explicit empty list [] = no access.
+    Missing key (None) = all available (backward compatible).
+    """
+
+    llm_model: str = "claude-sonnet-4-20250514"
+    heartbeat_interval_seconds: int = 60
+    execution_timeout_seconds: int = 600
+    skills: list[str] | None = Field(default=None)
+    mcp_servers: list[str] | None = Field(default=None)
+    tool_sets: list[str] | None = Field(default=None)
+    sub_agents: list[str] | None = Field(default=None)
 
 
 class AgentDefinition(BaseModel):
@@ -106,6 +158,7 @@ class AgentCreateRequest(BaseModel):
     description: str = ""
     config: dict[str, Any] = {}
     tags: list[str] = []
+    agent_id: str | None = None  # If provided, use as-is; otherwise slugify from name.
 
 
 class AgentPatchRequest(BaseModel):
@@ -237,9 +290,16 @@ async def create_agent(
     user_id: CurrentUserDep,
     storage_client: StorageClientDep,
 ) -> AgentDefinition:
-    """Create and persist a new agent definition."""
+    """Create and persist a new agent definition, then provision runtime files."""
     now = utcnow()
-    agent_id = f"AGT-{uuid.uuid4().hex[:12]}"
+
+    # Use provided agent_id or slugify from name; append short suffix on collision.
+    base_id = body.agent_id or _slugify(body.name)
+    agent_id = base_id
+    # Deduplicate: if a definition already exists, append a short random suffix.
+    if await storage_client.exists(_def_path(user_id, agent_id)):
+        agent_id = f"{base_id}-{uuid.uuid4().hex[:6]}"
+
     data: dict[str, Any] = {
         "agent_id": agent_id,
         "name": body.name,
@@ -251,6 +311,10 @@ async def create_agent(
         "tags": body.tags,
     }
     await _save_definition(user_id, agent_id, storage_client, data)
+
+    # Provision runtime agent files so the orchestrator can discover this agent.
+    await _provision_runtime_agent(user_id, agent_id, body.name, body.description, storage_client)
+
     logger.debug("agents: created agent_id=%s for user_id=%s", agent_id, user_id)
     return _dict_to_definition(data)
 
@@ -332,21 +396,47 @@ async def patch_agent(
     "/{agent_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Delete agent definition",
-    description="Permanently delete an agent canvas definition.",
+    description=(
+        "Permanently delete an agent canvas definition and its version history. "
+        "Pass ``?cleanup_runtime=true`` to also delete the runtime agent files "
+        "(profile, config, manifest, memory)."
+    ),
 )
 async def delete_agent(
     agent_id: str,
     user_id: CurrentUserDep,
     storage_client: StorageClientDep,
+    cleanup_runtime: bool = Query(default=False, alias="cleanup_runtime"),
 ) -> None:
-    """Delete an agent definition from storage."""
+    """Delete an agent definition, version history, and optionally runtime files."""
     exists = await storage_client.exists(_def_path(user_id, agent_id))
     if not exists:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Agent '{agent_id}' not found",
         )
+    # Delete definition
     await storage_client.delete(_def_path(user_id, agent_id))
+
+    # Clean up version history (previously orphaned)
+    try:
+        ver_paths = await storage_client.list_objects(_ver_prefix(user_id, agent_id))
+        for path in ver_paths:
+            await storage_client.delete(path)
+    except Exception as exc:
+        logger.warning("agents: version cleanup failed for %s: %s", agent_id, exc)
+
+    # Optionally delete runtime agent files
+    if cleanup_runtime:
+        try:
+            runtime_prefix = StoragePaths.agent_root(user_id, agent_id)
+            runtime_paths = await storage_client.list_objects(runtime_prefix)
+            for path in runtime_paths:
+                await storage_client.delete(path)
+            logger.debug("agents: deleted runtime files for agent_id=%s", agent_id)
+        except Exception as exc:
+            logger.warning("agents: runtime cleanup failed for %s: %s", agent_id, exc)
+
     logger.debug("agents: deleted agent_id=%s for user_id=%s", agent_id, user_id)
 
 
@@ -398,7 +488,69 @@ async def list_agent_versions(
         except Exception as exc:
             logger.warning("agents: version read failed %s: %s", path, exc)
 
-    return sorted(versions, key=lambda v: v.version)
+    def _version_key(v: AgentVersionOut) -> int:
+        try:
+            return int(v.version)
+        except ValueError:
+            return 0
+
+    return sorted(versions, key=_version_key)
+
+
+@router.get(
+    "/{agent_id}/config",
+    response_model=AgentConfigSchema,
+    status_code=status.HTTP_200_OK,
+    summary="Get agent runtime config",
+    description="Return the runtime config.json for an agent (LLM model, tool wiring).",
+)
+async def get_agent_config(
+    agent_id: str,
+    user_id: CurrentUserDep,
+    storage_client: StorageClientDep,
+) -> AgentConfigSchema:
+    """Read the runtime config.json for an agent."""
+    config_path = StoragePaths.agent_config(user_id, agent_id)
+    try:
+        raw = await storage_client.read(config_path)
+        data = json.loads(raw.decode())
+        return AgentConfigSchema(
+            **{k: v for k, v in data.items() if k in AgentConfigSchema.model_fields}
+        )
+    except FileNotFoundError:
+        # Return sensible defaults if config not yet provisioned
+        return AgentConfigSchema()
+    except Exception as exc:
+        logger.warning("agents: config read failed for %s: %s", agent_id, exc)
+        return AgentConfigSchema()
+
+
+@router.put(
+    "/{agent_id}/config",
+    response_model=AgentConfigSchema,
+    status_code=status.HTTP_200_OK,
+    summary="Update agent runtime config",
+    description="Write the runtime config.json for an agent (LLM model, tool wiring).",
+)
+async def put_agent_config(
+    agent_id: str,
+    body: AgentConfigSchema,
+    user_id: CurrentUserDep,
+    storage_client: StorageClientDep,
+) -> AgentConfigSchema:
+    """Write the runtime config.json for an agent."""
+    # Verify the canvas definition exists (guards against orphan config writes)
+    exists = await storage_client.exists(_def_path(user_id, agent_id))
+    if not exists:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Agent '{agent_id}' not found",
+        )
+    config_path = StoragePaths.agent_config(user_id, agent_id)
+    raw = json.dumps(body.model_dump(exclude_none=False), default=str).encode()
+    await storage_client.write(config_path, raw, content_type="application/json")
+    logger.debug("agents: config updated for agent_id=%s", agent_id)
+    return body
 
 
 @router.post(
@@ -445,4 +597,76 @@ async def test_agent(
         status="ok",
         queue_depth=queue_depth,
         message=message,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Runtime agent provisioning helper
+# ---------------------------------------------------------------------------
+
+
+async def _provision_runtime_agent(
+    user_id: str,
+    agent_id: str,
+    name: str,
+    description: str,
+    storage_client: Any,
+) -> None:
+    """Provision the runtime files for a newly created agent.
+
+    Creates four files under ``{user_id}/agents/{agent_id}/``:
+    - profile.md      — default persona document
+    - manifest.json   — capability manifest
+    - config.json     — default operational config
+    - memory/semantic/knowledge.md — empty semantic memory stub
+    """
+    now = utcnow().isoformat()
+
+    # profile.md
+    profile_content = (
+        f"# {name}\n\n"
+        f"{description}\n\n"
+        f"## Role\n\nSub-agent provisioned via canvas.\n\n"
+        f"## Capabilities\n\n- (configure via canvas wiring)\n"
+    )
+    await storage_client.write(
+        StoragePaths.agent_profile(user_id, agent_id),
+        profile_content.encode(),
+        content_type="text/markdown",
+    )
+
+    # manifest.json
+    manifest = {
+        "agent_id": agent_id,
+        "name": name,
+        "description": description,
+        "source": "user",
+        "created_at": now,
+    }
+    await storage_client.write(
+        StoragePaths.agent_manifest(user_id, agent_id),
+        json.dumps(manifest, default=str).encode(),
+        content_type="application/json",
+    )
+
+    # config.json — minimal defaults; caller can PUT to override
+    config = AgentConfigSchema()
+    await storage_client.write(
+        StoragePaths.agent_config(user_id, agent_id),
+        json.dumps(config.model_dump(exclude_none=False), default=str).encode(),
+        content_type="application/json",
+    )
+
+    # memory/semantic/knowledge.md stub
+    semantic_path = f"{user_id}/agents/{agent_id}/memory/semantic/knowledge.md"
+    await storage_client.write(
+        semantic_path,
+        b"# Knowledge\n\n(no entries yet)\n",
+        content_type="text/markdown",
+    )
+
+    logger.debug(
+        "agents: provisioned runtime files for agent_id=%s user_id=%s",
+        agent_id,
+        user_id,
     )

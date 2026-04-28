@@ -15,6 +15,7 @@ Wave 4 (complete)    — settings ext (+11 routes), agent (+6 routes)
 Wave 5 (complete)    — skill_registry ext (+4), mcp_registry ext (+2), agents (+7)
 Wave 6 (complete)    — admin/* (9 files)
 Wave 7 (complete)    — intelligence hub (agent profile, memory, skill authoring)
+Wave 8 (active)      — canvas agent config hub (layout, per-agent config, runtime bridge)
 
 Design Patterns
 ---------------
@@ -47,6 +48,9 @@ from graphclaw.api.agent import router as agent_router
 # ── Wave 5: Agents canvas, MCP approvals ─────────────────────────────────────
 from graphclaw.api.agents import router as agents_router
 from graphclaw.api.approvals import router as approvals_router
+
+# ── Wave 8: Agent Canvas Hub ──────────────────────────────────────────────────
+from graphclaw.api.canvas import router as canvas_router
 
 # ── Wave 3: Chat, config, secrets ─────────────────────────────────────────────
 from graphclaw.api.chat import router as chat_router
@@ -100,3 +104,6 @@ app_router.include_router(admin_router)
 
 # Wave 7
 app_router.include_router(intelligence_router)
+
+# Wave 8
+app_router.include_router(canvas_router)
