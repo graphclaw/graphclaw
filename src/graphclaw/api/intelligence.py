@@ -243,6 +243,18 @@ class ArchiveEpisodicResponse(BaseModel):
     archived_to: str
 
 
+class ContextUsageResponse(BaseModel):
+    """Result of GET .../memory/estimate — context size breakdown."""
+
+    agent_id: str
+    working_chars: int = 0
+    episodic_chars: int = 0
+    semantic_chars: int = 0
+    total_chars: int = 0
+    budget_chars: int = 80000
+    utilization_pct: float = 0.0
+
+
 class AuthoredSkillEntry(BaseModel):
     """Metadata for a user-authored skill."""
 
@@ -621,6 +633,85 @@ async def list_working_archive(
         entries.append(WorkingArchiveEntry(name=name, size_chars=size_chars))
     entries.sort(key=lambda e: e.name, reverse=True)
     return entries
+
+
+# ---------------------------------------------------------------------------
+# Agent memory — context usage estimate
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/agents/{agent_id}/memory/estimate",
+    response_model=ContextUsageResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Estimate agent context usage",
+    description=(
+        "Return the combined character count of all memory that would be loaded into "
+        "the agent's context: working context + active episodic entries + all semantic files.  "
+        "Useful for the orchestrator's compact-at-60% rule."
+    ),
+)
+async def estimate_context_usage(
+    agent_id: str,
+    user_id: CurrentUserDep,
+    storage_client: StorageClientDep,
+) -> ContextUsageResponse:
+    """Sum active memory sizes across all three memory tiers."""
+    budget_chars = 80_000
+
+    # Working context
+    working_chars = 0
+    try:
+        raw = await storage_client.read(StoragePaths.agent_memory_working(user_id, agent_id))
+        working_chars = len(raw.decode(errors="replace"))
+    except FileNotFoundError:
+        pass
+
+    # Active episodic (skip archive/ subfolder)
+    episodic_chars = 0
+    active_prefix = StoragePaths.agent_memory_episodic_prefix(user_id, agent_id)
+    archive_prefix = StoragePaths.agent_memory_episodic_archive_prefix(user_id, agent_id)
+    try:
+        episodic_keys = await storage_client.list_objects(active_prefix)
+        for key in episodic_keys:
+            if not key.endswith(".md") or key.startswith(archive_prefix):
+                continue
+            try:
+                raw = await storage_client.read(key)
+                episodic_chars += len(raw.decode(errors="replace"))
+            except FileNotFoundError:
+                pass
+    except Exception:
+        pass
+
+    # All semantic files
+    semantic_chars = 0
+    semantic_prefix = StoragePaths.agent_memory_semantic_prefix(user_id, agent_id)
+    try:
+        semantic_keys = await storage_client.list_objects(semantic_prefix)
+        for key in semantic_keys:
+            if not key.endswith(".md"):
+                continue
+            try:
+                raw = await storage_client.read(key)
+                semantic_chars += len(raw.decode(errors="replace"))
+            except FileNotFoundError:
+                pass
+    except Exception:
+        pass
+
+    total_chars = working_chars + episodic_chars + semantic_chars
+    utilization_pct = round(total_chars / budget_chars * 100, 1) if budget_chars > 0 else 0.0
+
+    return ContextUsageResponse(
+        agent_id=agent_id,
+        working_chars=working_chars,
+        episodic_chars=episodic_chars,
+        semantic_chars=semantic_chars,
+        total_chars=total_chars,
+        budget_chars=budget_chars,
+        utilization_pct=utilization_pct,
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -516,3 +516,43 @@ def test_intelligence_paths_are_scoped_to_user(storage: FakeStorageClient) -> No
 
     for path in storage._data:
         assert path.startswith(_TEST_USER + "/"), f"Found a path not under user prefix: {path!r}"
+
+
+# ---------------------------------------------------------------------------
+# Context usage estimate
+# ---------------------------------------------------------------------------
+
+
+def test_estimate_context_usage_empty(client: TestClient) -> None:
+    """Estimate returns zeroes for a fresh agent with no memory."""
+    r = client.get(f"/app/v1/intelligence/agents/{_AGENT_ID}/memory/estimate")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["agent_id"] == _AGENT_ID
+    assert body["total_chars"] == 0
+    assert body["utilization_pct"] == 0.0
+    assert body["budget_chars"] == 80000
+
+
+def test_estimate_context_usage_counts_all_tiers(client: TestClient) -> None:
+    """Estimate sums working + episodic + semantic chars."""
+    agent_id = _AGENT_ID
+
+    # Write working context (10 chars)
+    client.put(
+        f"/app/v1/intelligence/agents/{agent_id}/memory/working", json={"content": "1234567890"}
+    )
+
+    # Write a semantic topic (5 chars)
+    client.put(
+        f"/app/v1/intelligence/agents/{agent_id}/memory/semantic/knowledge",
+        json={"content": "abcde"},
+    )
+
+    r = client.get(f"/app/v1/intelligence/agents/{agent_id}/memory/estimate")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["working_chars"] == 10
+    assert body["semantic_chars"] == 5
+    assert body["total_chars"] == 15
+    assert body["utilization_pct"] == round(15 / 80000 * 100, 1)

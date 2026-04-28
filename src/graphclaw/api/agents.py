@@ -388,6 +388,16 @@ async def patch_agent(
     data["updated_at"] = now.isoformat()
 
     await _save_definition(user_id, agent_id, storage_client, data)
+
+    # Sync runtime files when name or description changes so Intelligence Hub stays consistent.
+    if body.name is not None or body.description is not None:
+        try:
+            await _provision_runtime_agent(
+                user_id, agent_id, data["name"], data.get("description", ""), storage_client
+            )
+        except Exception as exc:
+            logger.warning("agents: runtime sync failed for agent_id=%s: %s", agent_id, exc)
+
     logger.debug("agents: updated agent_id=%s version=%s", agent_id, new_version)
     return _dict_to_definition(data)
 

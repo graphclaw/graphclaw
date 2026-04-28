@@ -80,7 +80,7 @@ def test_create_agent_returns_201() -> None:
     assert response.status_code == 201
     data = response.json()
     assert data["name"] == "My Agent"
-    assert data["agent_id"].startswith("AGT-")
+    assert data["agent_id"] == "my-agent"
     assert data["version"] == "1"
 
 
@@ -250,3 +250,48 @@ def test_test_agent_not_found_returns_404() -> None:
     client = TestClient(app)
     response = client.post("/app/v1/agents/AGT-ghost/test")
     assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Canvas → Runtime Bridge
+# ---------------------------------------------------------------------------
+
+
+def test_create_agent_provisions_runtime_files() -> None:
+    """POST /agents must also write profile.md, manifest.json, config.json under {user_id}/agents/."""
+    app, storage = _make_app()
+    client = TestClient(app)
+    resp = client.post(
+        "/app/v1/agents", json={"name": "Bridge Agent", "description": "Bridge test"}
+    )
+    assert resp.status_code == 201
+    agent_id = resp.json()["agent_id"]
+
+    profile_key = f"{_TEST_USER}/agents/{agent_id}/profile.md"
+    manifest_key = f"{_TEST_USER}/agents/{agent_id}/manifest.json"
+    config_key = f"{_TEST_USER}/agents/{agent_id}/config.json"
+    knowledge_key = f"{_TEST_USER}/agents/{agent_id}/memory/semantic/knowledge.md"
+
+    assert profile_key in storage._data, "profile.md not provisioned"
+    assert manifest_key in storage._data, "manifest.json not provisioned"
+    assert config_key in storage._data, "config.json not provisioned"
+    assert knowledge_key in storage._data, "knowledge.md stub not provisioned"
+
+
+def test_patch_agent_syncs_runtime_profile() -> None:
+    """PATCH /agents/{id} with name/description must update profile.md in {user_id}/agents/."""
+    app, storage = _make_app()
+    client = TestClient(app)
+    created = client.post(
+        "/app/v1/agents", json={"name": "Sync Test", "description": "Before"}
+    ).json()
+    agent_id = created["agent_id"]
+
+    profile_key = f"{_TEST_USER}/agents/{agent_id}/profile.md"
+    original = storage._data.get(profile_key, b"").decode()
+    assert "Before" in original
+
+    client.patch(f"/app/v1/agents/{agent_id}", json={"description": "After"})
+
+    updated = storage._data.get(profile_key, b"").decode()
+    assert "After" in updated
