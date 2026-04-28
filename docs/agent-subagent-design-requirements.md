@@ -581,9 +581,9 @@ These changes are required to align the implementation with the design principle
 | **B7** | Add sub-agent creation confirmation rule to `system_header.md` | `system/prompts/system_header.md` | ✅ **DONE** (2026-04-27) |
 | **B8** | Add compact-at-60% rule to `system_header.md` | `system/prompts/system_header.md` | ✅ **DONE** (2026-04-27) |
 | **B9** | Provision `memory/semantic/knowledge.md` when `_tool_create_agent` runs | `agent/main_orchestrator.py` | ✅ **DONE** (2026-04-27) |
-| **B10** | Canvas → runtime agent bridge: create runtime files on canvas POST/PATCH | `api/agents.py` | ⬜ Pending |
-| **B11** | Add `estimate_context_usage(user_id, agent_id)` utility function | `agent/main_orchestrator.py` or new utility | ⬜ Pending |
-| **B12** | Add CLI commands: `agents list`, `agents delete`, `agents audit` | `cli/intelligence_commands.py` | ⬜ Pending |
+| **B10** | Canvas → runtime agent bridge: create runtime files on canvas POST/PATCH | `api/agents.py` | ✅ **DONE** (2026-04-28) |
+| **B11** | Add `GET .../memory/estimate` endpoint → `ContextUsageResponse` with utilization_pct | `api/intelligence.py` | ✅ **DONE** (2026-04-28) |
+| **B12** | Add CLI commands: `agents list`, `agents delete`, `agents audit` | `cli/intelligence_commands.py` | ⬜ Pending (LOW) |
 
 ### Frontend Changes (Cockpit)
 
