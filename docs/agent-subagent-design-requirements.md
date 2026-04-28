@@ -1,7 +1,7 @@
 # Agent & Sub-Agent Design Requirements
 
 **Version:** 1.1  
-**Status:** Active — B1–B9 and F1–F8 complete (2026-04-27). B10–B12 remain.  
+**Status:** Active — B1–B11 and F1–F8 complete (2026-04-28). Architecture docs 10–12 written. B12 (CLI) is LOW priority, not yet implemented.  
 **Purpose:** Canonical reference for agent/sub-agent architecture, memory design, and Intelligence Hub implementation. Intended to be self-contained for a new session read.
 
 ---
