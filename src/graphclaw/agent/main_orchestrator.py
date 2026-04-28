@@ -1479,6 +1479,8 @@ class MainOrchestrator:
     async def _tool_load_tool_set(self, args: dict[str, Any]) -> dict[str, Any]:
         """Activate a named tool set for the current session."""
         set_name = args.get("name", "")
+        # C4: this method has no user_id; scoping validation is done at call-site via agent_id.
+        # Callers that have user_id should call _tool_load_tool_set_scoped instead.
         tools = self._tool_registry.activate(set_name)
         if not tools:
             return {
@@ -1502,11 +1504,16 @@ class MainOrchestrator:
     async def _tool_list_available_agents(
         self, user_id: str, args: dict[str, Any]
     ) -> dict[str, Any]:
-        """List all agents available for delegation (system + user-created)."""
+        """List all agents available for delegation, filtered by agent config if scoped."""
         if self._agent_catalog is None:
             return {"agents": [], "note": "Agent catalog not available (storage not configured)."}
         capability_filter = args.get("capability_filter")
         agents = await self._agent_catalog.list_all(user_id, capability_filter=capability_filter)
+        # C5: filter by config.json.sub_agents[] if present
+        agent_cfg = await self._load_agent_config(user_id, self._agent_id)
+        allowed_sub = agent_cfg.get("sub_agents") if agent_cfg else None
+        if isinstance(allowed_sub, list):
+            agents = [a for a in agents if a.get("agent_id") in allowed_sub]
         return {"agents": agents, "count": len(agents)}
 
     async def _tool_list_tasks(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
@@ -3081,10 +3088,21 @@ class MainOrchestrator:
     # Skill dispatch tools
     # ------------------------------------------------------------------
 
+    async def _load_agent_config(self, user_id: str, agent_id: str) -> dict[str, Any] | None:
+        """Load runtime config.json for an agent from storage.  Returns None on miss."""
+        if self._storage is None:
+            return None
+        from graphclaw.infra.storage import StoragePaths
+        try:
+            raw = await self._storage.read(StoragePaths.agent_config(user_id, agent_id))
+            return json.loads(raw.decode())
+        except (FileNotFoundError, Exception):
+            return None
+
     async def _tool_list_available_skills(
         self, user_id: str, args: dict[str, Any]
     ) -> dict[str, Any]:
-        """List skills available to the user."""
+        """List skills available to the user, filtered by agent config if scoped."""
         if self._skill_registry is None:
             return {"skills": [], "count": 0, "note": "Skill registry not configured."}
 
@@ -3104,12 +3122,14 @@ class MainOrchestrator:
                 }
                 for s in results
             ]
+            # C2: filter by agent config.json.skills[] if present
+            agent_cfg = await self._load_agent_config(user_id, self._agent_id)
+            allowed = agent_cfg.get("skills") if agent_cfg else None
+            if isinstance(allowed, list):
+                skills = [s for s in skills if s["skill_id"] in allowed]
             return {"skills": skills, "count": len(skills)}
         except Exception as exc:
             logger.warning("AgentLoop: list_available_skills failed: %s", exc)
-            # Return an empty list rather than an error string so Betty does not
-            # surface infrastructure details (missing credentials, unreachable
-            # storage) to the user.
             return {"skills": [], "count": 0, "note": "Skill registry unavailable."}
 
     async def _tool_invoke_skill(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
@@ -3187,7 +3207,7 @@ class MainOrchestrator:
     # ------------------------------------------------------------------
 
     async def _tool_list_mcp_tools(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
-        """List MCP servers and their tools for the user."""
+        """List MCP servers and their tools for the user, filtered by agent config if scoped."""
         if self._mcp_registry is None:
             return {"servers": [], "count": 0, "note": "MCP registry not configured."}
 
@@ -3200,6 +3220,12 @@ class MainOrchestrator:
         server_filter = args.get("server_id")
         if server_filter:
             servers = [s for s in servers if s.id == server_filter]
+
+        # C3: filter by agent config.json.mcp_servers[] if present
+        agent_cfg = await self._load_agent_config(user_id, self._agent_id)
+        allowed_mcp = agent_cfg.get("mcp_servers") if agent_cfg else None
+        if isinstance(allowed_mcp, list):
+            servers = [s for s in servers if s.id in allowed_mcp]
 
         results = []
         for server in servers:
@@ -3371,6 +3397,18 @@ class MainOrchestrator:
         task_id = args["task_id"]
         agent_id = args["agent_id"]
         instructions = args.get("instructions", "")
+
+        # C5: validate delegation target is in config.json.sub_agents[] if scoped
+        agent_cfg = await self._load_agent_config(user_id, self._agent_id)
+        if agent_cfg is not None:
+            allowed_sub = agent_cfg.get("sub_agents")
+            if isinstance(allowed_sub, list) and agent_id not in allowed_sub:
+                return {
+                    "error": (
+                        f"Agent '{agent_id}' is not in the allowed sub_agents list for this "
+                        "orchestrator. Use list_available_agents to see permitted targets."
+                    )
+                }
 
         # Verify the task exists
         task_props = await self._repo.get_node(task_id)
