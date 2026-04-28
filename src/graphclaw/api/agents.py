@@ -17,6 +17,7 @@ DELETE /app/v1/agents/{id}             — delete a definition
 GET    /app/v1/agents/{id}/versions    — list version history
 GET    /app/v1/agents/{id}/config      — read runtime config.json
 PUT    /app/v1/agents/{id}/config      — update runtime config.json
+GET    /app/v1/agents/{id}/wiring      — resolved wiring summary
 POST   /app/v1/agents/{id}/test        — run a quick test of the agent
 
 Storage layout
@@ -64,7 +65,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
-from graphclaw.api.deps import CurrentUserDep, StorageClientDep
+from graphclaw.api.deps import CurrentUserDep, MCPRegistryDep, SkillRegistryDep, StorageClientDep
 from graphclaw.infra.storage import StoragePaths
 from graphclaw.models.base import utcnow
 
@@ -185,6 +186,45 @@ class AgentTestResponse(BaseModel):
     status: str = "ok"
     queue_depth: int = 0
     message: str = ""
+
+
+class WiredSkillEntry(BaseModel):
+    """A skill wired to an agent."""
+
+    skill_id: str
+    skill_name: str
+    description: str = ""
+    version: str = "0.1.0"
+    enabled: bool = True
+
+
+class WiredMCPServerEntry(BaseModel):
+    """An MCP server wired to an agent."""
+
+    server_id: str
+    name: str
+    transport: str = "http"
+    endpoint_url: str | None = None
+    trust_tier: str = "GATED"
+    enabled: bool = True
+
+
+class WiredSubAgentEntry(BaseModel):
+    """A sub-agent wired for delegation."""
+
+    agent_id: str
+    name: str
+    description: str = ""
+
+
+class WiringSummary(BaseModel):
+    """Resolved wiring summary for an agent (C10)."""
+
+    agent_id: str
+    skills: list[WiredSkillEntry] = []
+    mcp_servers: list[WiredMCPServerEntry] = []
+    tool_sets: list[str] = []
+    sub_agents: list[WiredSubAgentEntry] = []
 
 
 # ---------------------------------------------------------------------------
@@ -561,6 +601,127 @@ async def put_agent_config(
     await storage_client.write(config_path, raw, content_type="application/json")
     logger.debug("agents: config updated for agent_id=%s", agent_id)
     return body
+
+
+@router.get(
+    "/{agent_id}/wiring",
+    response_model=WiringSummary,
+    status_code=status.HTTP_200_OK,
+    summary="Get agent wiring summary",
+    description=(
+        "Return a resolved wiring summary for an agent: the skills, MCP servers, "
+        "tool sets, and sub-agents currently configured in the runtime config.json. "
+        "Skill and MCP server entries are enriched with metadata from the registries."
+    ),
+)
+async def get_agent_wiring(
+    agent_id: str,
+    user_id: CurrentUserDep,
+    storage_client: StorageClientDep,
+    skill_registry: SkillRegistryDep,
+    mcp_registry: MCPRegistryDep,
+) -> WiringSummary:
+    """Return resolved wiring metadata for an agent's config.json."""
+    # Verify the definition exists
+    exists = await storage_client.exists(_def_path(user_id, agent_id))
+    if not exists:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Agent '{agent_id}' not found",
+        )
+
+    # Load config.json to get wired IDs
+    config_path = StoragePaths.agent_config(user_id, agent_id)
+    try:
+        raw = await storage_client.read(config_path)
+        config_data = json.loads(raw.decode())
+    except FileNotFoundError:
+        config_data = {}
+    except Exception as exc:
+        logger.warning("agents: wiring config read failed for %s: %s", agent_id, exc)
+        config_data = {}
+
+    skill_ids: list[str] = config_data.get("skills") or []
+    mcp_server_ids: list[str] = config_data.get("mcp_servers") or []
+    tool_sets: list[str] = config_data.get("tool_sets") or []
+    sub_agent_ids: list[str] = config_data.get("sub_agents") or []
+
+    # Resolve skills from registry
+    wired_skills: list[WiredSkillEntry] = []
+    if skill_ids:
+        try:
+            installed = await skill_registry.list_installed(user_id)
+            installed_map = {s.skill_id: s for s in installed}
+            for sid in skill_ids:
+                if sid in installed_map:
+                    s = installed_map[sid]
+                    wired_skills.append(
+                        WiredSkillEntry(
+                            skill_id=s.skill_id,
+                            skill_name=s.skill_name,
+                            description=getattr(s, "description", ""),
+                            version=getattr(s, "version", "0.1.0"),
+                            enabled=getattr(s, "enabled", True),
+                        )
+                    )
+                else:
+                    # ID wired but skill no longer installed — include as orphan
+                    wired_skills.append(WiredSkillEntry(skill_id=sid, skill_name=sid, enabled=False))
+        except Exception as exc:
+            logger.warning("agents: skill wiring resolution failed: %s", exc)
+
+    # Resolve MCP servers from registry
+    wired_mcp: list[WiredMCPServerEntry] = []
+    if mcp_server_ids:
+        try:
+            all_servers = await mcp_registry.list_for_user(user_id, enabled_only=False)
+            server_map = {srv.server_id: srv for srv in all_servers}
+            for sid in mcp_server_ids:
+                if sid in server_map:
+                    srv = server_map[sid]
+                    wired_mcp.append(
+                        WiredMCPServerEntry(
+                            server_id=srv.server_id,
+                            name=srv.name,
+                            transport=str(srv.transport.value if hasattr(srv.transport, "value") else srv.transport),
+                            endpoint_url=getattr(srv, "endpoint_url", None),
+                            trust_tier=str(srv.trust_tier.value if hasattr(srv.trust_tier, "value") else srv.trust_tier),
+                            enabled=getattr(srv, "enabled", True),
+                        )
+                    )
+                else:
+                    wired_mcp.append(
+                        WiredMCPServerEntry(server_id=sid, name=sid, enabled=False)
+                    )
+        except Exception as exc:
+            logger.warning("agents: MCP wiring resolution failed: %s", exc)
+
+    # Resolve sub-agents from definitions
+    wired_sub_agents: list[WiredSubAgentEntry] = []
+    for sub_id in sub_agent_ids:
+        try:
+            sub_data = await _load_definition(user_id, sub_id, storage_client)
+            if sub_data:
+                wired_sub_agents.append(
+                    WiredSubAgentEntry(
+                        agent_id=sub_id,
+                        name=sub_data.get("name", sub_id),
+                        description=sub_data.get("description", ""),
+                    )
+                )
+            else:
+                wired_sub_agents.append(WiredSubAgentEntry(agent_id=sub_id, name=sub_id))
+        except Exception as exc:
+            logger.warning("agents: sub-agent wiring resolution failed for %s: %s", sub_id, exc)
+            wired_sub_agents.append(WiredSubAgentEntry(agent_id=sub_id, name=sub_id))
+
+    return WiringSummary(
+        agent_id=agent_id,
+        skills=wired_skills,
+        mcp_servers=wired_mcp,
+        tool_sets=tool_sets,
+        sub_agents=wired_sub_agents,
+    )
 
 
 @router.post(
