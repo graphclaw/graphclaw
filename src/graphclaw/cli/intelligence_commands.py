@@ -9,6 +9,10 @@ UI.
 
 Commands
 --------
+intelligence agents list              — List all user sub-agents in MinIO
+intelligence agents delete <agent_id> — Delete all files for a sub-agent
+intelligence agents audit             — Report agents in MinIO vs. canvas definitions
+
 intelligence profile show  <agent_id>        — Print agent profile.md
 intelligence profile set   <agent_id> <file> — Upload a profile.md file
 
@@ -69,6 +73,7 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 
+agents_app = typer.Typer(help="Sub-agent management commands.", no_args_is_help=True)
 profile_app = typer.Typer(help="Agent profile commands.", no_args_is_help=True)
 memory_app = typer.Typer(help="Agent memory commands.", no_args_is_help=True)
 working_app = typer.Typer(help="Working context commands.", no_args_is_help=True)
@@ -76,6 +81,7 @@ episodic_app = typer.Typer(help="Episodic memory commands.", no_args_is_help=Tru
 semantic_app = typer.Typer(help="Semantic memory commands.", no_args_is_help=True)
 skill_app = typer.Typer(help="Skill authoring commands.", no_args_is_help=True)
 
+app.add_typer(agents_app, name="agents")
 app.add_typer(profile_app, name="profile")
 app.add_typer(memory_app, name="memory")
 memory_app.add_typer(working_app, name="working")
@@ -111,6 +117,187 @@ def _require_user_id() -> str:
         )
         raise SystemExit(1)
     return user_id
+
+
+# ---------------------------------------------------------------------------
+# Agents management commands
+# ---------------------------------------------------------------------------
+
+
+@agents_app.command("list")
+def agents_list() -> None:
+    """List all user sub-agents provisioned in MinIO."""
+
+    async def _run() -> None:
+        user_id = _require_user_id()
+        client = _storage_client()
+        prefix = StoragePaths.agents_prefix(user_id)
+        keys = await client.list_objects(prefix)
+
+        # Collect agent IDs from any file under {user_id}/agents/{agent_id}/
+        agent_ids: dict[str, dict[str, str]] = {}
+        for key in keys:
+            # key format: {user_id}/agents/{agent_id}/...
+            relative = key[len(prefix) :]
+            parts = relative.split("/")
+            if not parts or not parts[0]:
+                continue
+            agent_id = parts[0]
+            if agent_id not in agent_ids:
+                agent_ids[agent_id] = {"name": "", "has_profile": "✗", "has_memory": "✗"}
+            if parts[-1] == "profile.md":
+                agent_ids[agent_id]["has_profile"] = "✓"
+            if len(parts) > 1 and parts[1] == "memory":
+                agent_ids[agent_id]["has_memory"] = "✓"
+
+        # Read name from manifest.json where available
+        for agent_id, info in agent_ids.items():
+            manifest_path = StoragePaths.agent_manifest(user_id, agent_id)
+            try:
+                import json as _json
+
+                raw = await client.read(manifest_path)
+                manifest = _json.loads(raw.decode())
+                info["name"] = manifest.get("name", "")
+            except (FileNotFoundError, Exception):
+                pass
+
+        if not agent_ids:
+            console.print("[dim]No sub-agents found.[/dim]")
+            return
+
+        table = Table(title=f"Sub-Agents — {user_id}", show_header=True)
+        table.add_column("Agent ID", style="cyan")
+        table.add_column("Name", style="bold")
+        table.add_column("Profile", justify="center")
+        table.add_column("Memory", justify="center")
+        for agent_id, info in sorted(agent_ids.items()):
+            table.add_row(
+                agent_id,
+                info["name"] or "[dim]—[/dim]",
+                f"[green]{info['has_profile']}[/green]"
+                if info["has_profile"] == "✓"
+                else f"[red]{info['has_profile']}[/red]",
+                f"[green]{info['has_memory']}[/green]"
+                if info["has_memory"] == "✓"
+                else "[dim]✗[/dim]",
+            )
+        console.print(table)
+
+    run_async(_run())
+
+
+@agents_app.command("delete")
+def agents_delete(
+    agent_id: str = typer.Argument(..., help="Agent ID to delete"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation"),
+) -> None:
+    """Delete all MinIO objects for a sub-agent (profile, config, memory)."""
+
+    async def _run() -> None:
+        user_id = _require_user_id()
+        if not yes:
+            typer.confirm(
+                f"Delete ALL files for agent '{agent_id}'? This cannot be undone.",
+                abort=True,
+            )
+        client = _storage_client()
+        prefix = StoragePaths.agent_root(user_id, agent_id)
+        keys = await client.list_objects(prefix)
+        if not keys:
+            err_console.print(f"[yellow]⚠[/yellow] No objects found under prefix: {prefix}")
+            raise SystemExit(1)
+        deleted = 0
+        for key in keys:
+            try:
+                await client.delete(key)
+                deleted += 1
+            except Exception as exc:
+                err_console.print(f"[red]Failed to delete[/red] {key}: {exc}")
+        console.print(
+            f"[green]✓[/green] Deleted [bold]{deleted}[/bold] object(s) for agent "
+            f"[bold]{agent_id}[/bold]"
+        )
+
+    run_async(_run())
+
+
+@agents_app.command("audit")
+def agents_audit() -> None:
+    """Report sub-agents in MinIO vs. canvas definitions (orphan detection).
+
+    Orphans are agents that exist in MinIO runtime storage but have no
+    corresponding canvas definition JSON under agents/{user_id}/definitions/.
+    These may be created by the orchestrator or left over from deleted canvas
+    definitions.
+    """
+
+    async def _run() -> None:
+        import json as _json
+
+        user_id = _require_user_id()
+        client = _storage_client()
+
+        # Collect runtime agents from {user_id}/agents/
+        runtime_prefix = StoragePaths.agents_prefix(user_id)
+        runtime_keys = await client.list_objects(runtime_prefix)
+        runtime_ids: set[str] = set()
+        for key in runtime_keys:
+            relative = key[len(runtime_prefix) :]
+            parts = relative.split("/")
+            if parts and parts[0]:
+                runtime_ids.add(parts[0])
+
+        # Collect canvas definitions from agents/{user_id}/definitions/
+        canvas_prefix = f"agents/{user_id}/definitions/"
+        canvas_keys = await client.list_objects(canvas_prefix)
+        canvas_ids: set[str] = set()
+        for key in canvas_keys:
+            if key.endswith(".json"):
+                name = key[len(canvas_prefix) :].removesuffix(".json")
+                if "/" not in name and name:
+                    canvas_ids.add(name)
+
+        runtime_only = sorted(runtime_ids - canvas_ids)
+        canvas_only = sorted(canvas_ids - runtime_ids)
+        both = sorted(runtime_ids & canvas_ids)
+
+        table = Table(title=f"Agent Audit — {user_id}", show_header=True)
+        table.add_column("Agent ID", style="cyan")
+        table.add_column("Runtime (MinIO)", justify="center")
+        table.add_column("Canvas Def", justify="center")
+        table.add_column("Status")
+
+        for agent_id in both:
+            table.add_row(agent_id, "[green]✓[/green]", "[green]✓[/green]", "OK")
+        for agent_id in runtime_only:
+            table.add_row(
+                agent_id,
+                "[green]✓[/green]",
+                "[red]✗[/red]",
+                "[yellow]runtime-only (orphan?)[/yellow]",
+            )
+        for agent_id in canvas_only:
+            table.add_row(
+                agent_id,
+                "[red]✗[/red]",
+                "[green]✓[/green]",
+                "[blue]canvas-only (not provisioned)[/blue]",
+            )
+
+        console.print(table)
+
+        if runtime_only:
+            console.print(
+                f"\n[yellow]⚠[/yellow]  {len(runtime_only)} runtime-only agent(s) found. "
+                "Use [bold]intelligence agents delete <id>[/bold] to remove orphans."
+            )
+        else:
+            console.print("\n[green]✓[/green]  No orphaned runtime agents found.")
+
+        _ = _json  # suppress unused import warning
+
+    run_async(_run())
 
 
 # ---------------------------------------------------------------------------
