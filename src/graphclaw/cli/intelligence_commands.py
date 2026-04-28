@@ -144,11 +144,11 @@ def agents_list() -> None:
                 continue
             agent_id = parts[0]
             if agent_id not in agent_ids:
-                agent_ids[agent_id] = {"name": "", "has_profile": "✗", "has_memory": "✗"}
+                agent_ids[agent_id] = {"name": "", "has_profile": "n", "has_memory": "n"}
             if parts[-1] == "profile.md":
-                agent_ids[agent_id]["has_profile"] = "✓"
+                agent_ids[agent_id]["has_profile"] = "Y"
             if len(parts) > 1 and parts[1] == "memory":
-                agent_ids[agent_id]["has_memory"] = "✓"
+                agent_ids[agent_id]["has_memory"] = "Y"
 
         # Read name from manifest.json where available
         for agent_id, info in agent_ids.items():
@@ -174,13 +174,9 @@ def agents_list() -> None:
         for agent_id, info in sorted(agent_ids.items()):
             table.add_row(
                 agent_id,
-                info["name"] or "[dim]—[/dim]",
-                f"[green]{info['has_profile']}[/green]"
-                if info["has_profile"] == "✓"
-                else f"[red]{info['has_profile']}[/red]",
-                f"[green]{info['has_memory']}[/green]"
-                if info["has_memory"] == "✓"
-                else "[dim]✗[/dim]",
+                info["name"] or "[dim]-[/dim]",
+                "[green]Y[/green]" if info["has_profile"] == "Y" else "[red]n[/red]",
+                "[green]Y[/green]" if info["has_memory"] == "Y" else "[dim]n[/dim]",
             )
         console.print(table)
 
@@ -205,7 +201,7 @@ def agents_delete(
         prefix = StoragePaths.agent_root(user_id, agent_id)
         keys = await client.list_objects(prefix)
         if not keys:
-            err_console.print(f"[yellow]⚠[/yellow] No objects found under prefix: {prefix}")
+            err_console.print(f"[yellow]WARN[/yellow] No objects found under prefix: {prefix}")
             raise SystemExit(1)
         deleted = 0
         for key in keys:
@@ -215,7 +211,7 @@ def agents_delete(
             except Exception as exc:
                 err_console.print(f"[red]Failed to delete[/red] {key}: {exc}")
         console.print(
-            f"[green]✓[/green] Deleted [bold]{deleted}[/bold] object(s) for agent "
+            f"[green]OK[/green] Deleted [bold]{deleted}[/bold] object(s) for agent "
             f"[bold]{agent_id}[/bold]"
         )
 
@@ -269,19 +265,19 @@ def agents_audit() -> None:
         table.add_column("Status")
 
         for agent_id in both:
-            table.add_row(agent_id, "[green]✓[/green]", "[green]✓[/green]", "OK")
+            table.add_row(agent_id, "[green]Y[/green]", "[green]Y[/green]", "OK")
         for agent_id in runtime_only:
             table.add_row(
                 agent_id,
-                "[green]✓[/green]",
-                "[red]✗[/red]",
+                "[green]Y[/green]",
+                "[red]n[/red]",
                 "[yellow]runtime-only (orphan?)[/yellow]",
             )
         for agent_id in canvas_only:
             table.add_row(
                 agent_id,
-                "[red]✗[/red]",
-                "[green]✓[/green]",
+                "[red]n[/red]",
+                "[green]Y[/green]",
                 "[blue]canvas-only (not provisioned)[/blue]",
             )
 
@@ -289,11 +285,11 @@ def agents_audit() -> None:
 
         if runtime_only:
             console.print(
-                f"\n[yellow]⚠[/yellow]  {len(runtime_only)} runtime-only agent(s) found. "
+                f"\n[yellow]![/yellow]  {len(runtime_only)} runtime-only agent(s) found. "
                 "Use [bold]intelligence agents delete <id>[/bold] to remove orphans."
             )
         else:
-            console.print("\n[green]✓[/green]  No orphaned runtime agents found.")
+            console.print("\n[green]OK[/green]  No orphaned runtime agents found.")
 
         _ = _json  # suppress unused import warning
 

@@ -83,7 +83,7 @@ def test_agents_list_shows_name_from_manifest() -> None:
 
 
 def test_agents_list_marks_profile_present() -> None:
-    """agents list marks the Profile column ✓ when profile.md exists."""
+    """agents list marks the Profile column Y when profile.md exists."""
     client = _make_client("has-profile")
     result = _run("list", client=client)
     assert result.exit_code == 0
