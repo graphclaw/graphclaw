@@ -156,7 +156,19 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         path = request.url.path
-        client_ip = request.client.host if request.client else "unknown"
+        # Prefer real client IP forwarded by a trusted reverse proxy (nginx).
+        # Falls back to direct TCP peer address when not behind a proxy.
+        client_ip = (
+            request.headers.get("X-Real-IP")
+            or (request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or None)
+            or (request.client.host if request.client else None)
+            or "unknown"
+        )
+
+        # Auth and health paths are exempt: OAuth provider rate-limits auth
+        # flows independently, and health checks must never be blocked.
+        if path.startswith("/auth/") or path == "/health":
+            return await call_next(request)
 
         # Determine key and limit
         if path.startswith("/webhooks/"):
