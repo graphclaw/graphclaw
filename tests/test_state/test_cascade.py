@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 
 from graphclaw.models.base import generate_task_id
 from graphclaw.models.enums import (
+    ChangedBy,
     ConfidenceLevel,
     GateType,
     TaskState,
@@ -232,3 +233,30 @@ class TestNonCompositeParent:
         children = [_make_task(state=TaskState.COMPLETE)]
         check_composite_completion(parent, children)
         assert parent.state == TaskState.ACTIVE  # unchanged
+
+
+class TestInjectedStateMachine:
+    def test_check_composite_completion_uses_injected_state_machine(self):
+        class _StubStateMachine:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, TaskState, ChangedBy, str]] = []
+
+            def transition(
+                self,
+                task: TaskNode,
+                new_state: TaskState,
+                changed_by: ChangedBy,
+                reason: str = "",
+            ) -> None:
+                self.calls.append((task.id, new_state, changed_by, reason))
+                task.state = new_state
+
+        parent = _make_composite(gate=GateType.AND)
+        children = [_make_task(state=TaskState.COMPLETE), _make_task(state=TaskState.COMPLETE)]
+        stub = _StubStateMachine()
+
+        check_composite_completion(parent, children, state_machine=stub)  # type: ignore[arg-type]
+
+        assert parent.state == TaskState.COMPLETE
+        assert len(stub.calls) == 1
+        assert stub.calls[0][1] == TaskState.COMPLETE

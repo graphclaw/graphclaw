@@ -53,7 +53,15 @@ def resource_risk(
     float
         Risk contribution score (0.0 – 1.0).
     """
-    return (1.0 - reliability) * 0.5 + load_factor * 0.3 + risk_signals * 0.2
+
+    def _clamp01(value: float) -> float:
+        return max(0.0, min(1.0, float(value)))
+
+    reliability_norm = _clamp01(reliability)
+    load_factor_norm = _clamp01(load_factor)
+    risk_signals_norm = _clamp01(risk_signals)
+
+    return (1.0 - reliability_norm) * 0.5 + load_factor_norm * 0.3 + risk_signals_norm * 0.2
 
 
 __all__ = ["resource_risk"]

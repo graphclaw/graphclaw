@@ -300,6 +300,7 @@ class AnthropicLLMClient(LLMTraceMixin, LLMClient):
 
         prompt_tokens = final.usage.input_tokens
         completion_tokens = final.usage.output_tokens
+        tool_calls = self._extract_tool_calls(final.content)
         self._trace_llm_call(
             provider="anthropic",
             model=target_model,
@@ -307,7 +308,7 @@ class AnthropicLLMClient(LLMTraceMixin, LLMClient):
             messages=[{"role": m.role, "content": m.content} for m in messages],
             params={"max_tokens": max_tokens, "temperature": temperature},
             response_content=accumulated_content,
-            response_tool_calls=[],
+            response_tool_calls=[{"name": tc.name, "arguments": tc.arguments} for tc in tool_calls],
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             cost_usd=0.0,
@@ -320,6 +321,7 @@ class AnthropicLLMClient(LLMTraceMixin, LLMClient):
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             cost_usd=0.0,
+            tool_calls=tool_calls,
             stop_reason=final.stop_reason,
         )
         yield LLMStreamChunk(

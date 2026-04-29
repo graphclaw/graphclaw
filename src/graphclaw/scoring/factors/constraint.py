@@ -29,8 +29,10 @@ weight keeps the contribution to the final score small.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 
-def constraint_pressure(constraints: list[dict]) -> float:
+
+def constraint_pressure(constraints: Sequence[Mapping[str, object]] | None) -> float:
     """Compute the aggregate constraint pressure for a task.
 
     Each constraint contributes a normalised pressure value:
@@ -56,14 +58,20 @@ def constraint_pressure(constraints: list[dict]) -> float:
     float
         Total constraint pressure score (>= 0.0).
     """
+    if not constraints:
+        return 0.0
+
     total = 0.0
     for c in constraints:
         threshold = c.get("threshold")
         current_value = c.get("current_value")
         if threshold is None or current_value is None:
             continue
-        threshold = float(threshold)
-        current_value = float(current_value)
+        try:
+            threshold = float(threshold)
+            current_value = float(current_value)
+        except (TypeError, ValueError):
+            continue
         if threshold == 0.0:
             continue
         pressure = min(current_value / threshold, 1.0)

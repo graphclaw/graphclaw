@@ -301,9 +301,7 @@ class TaskResolver:
 
         query_text = f"{subject} {body}".lower()
         tokens = {
-            token
-            for token in re.findall(r"[a-z0-9]{3,}", query_text)
-            if token not in _STOP_WORDS
+            token for token in re.findall(r"[a-z0-9]{3,}", query_text) if token not in _STOP_WORDS
         }
 
         scored: list[CandidateNodeMatch] = []

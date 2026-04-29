@@ -59,6 +59,22 @@ class GraphStore(ABC):
     @abstractmethod
     async def list_nodes(self, label: str, filters: dict | None = None) -> list[dict]: ...
 
+    async def list_nodes_by_user(self, label: str, user_id: str) -> list[dict]:
+        """Return all vertices with *label* owned by *user_id* (filters on ``owned_by`` property).
+
+        Default implementation delegates to ``list_nodes`` with an ``owned_by`` filter.
+        Concrete backends may override for a more efficient query.
+        """
+        return await self.list_nodes(label, filters={"owned_by": user_id})
+
+    async def list_nodes_for_goal(self, goal_id: str) -> list[dict]:
+        """Return TaskNode vertices linked to *goal_id* via PART_OF edge.
+
+        Default implementation returns an empty list.
+        Concrete backends (AgeGraphStore) override with a graph traversal.
+        """
+        return []
+
     @abstractmethod
     async def create_edge(
         self,
@@ -106,3 +122,6 @@ class GraphQueryEngine(ABC):
 
     @abstractmethod
     async def get_assigned_resource(self, task_id: str) -> dict | None: ...
+
+    @abstractmethod
+    async def get_nodes_bulk(self, node_ids: list[str]) -> dict[str, dict]: ...

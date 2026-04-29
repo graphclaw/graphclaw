@@ -87,6 +87,7 @@ class EdgeType(str, Enum):
     INFORMS = "INFORMS"
     BRANCHED_FROM = "BRANCHED_FROM"
     BATCHED_IN = "BATCHED_IN"
+    REFERRED_BY = "REFERRED_BY"
     MEMBER_OF = "MEMBER_OF"  # UserNode → OrganizationNode / WorkspaceNode
     ADMIN_OF = "ADMIN_OF"  # UserNode → OrganizationNode / WorkspaceNode
     BELONGS_TO_ORG = "BELONGS_TO_ORG"  # WorkspaceNode → OrganizationNode

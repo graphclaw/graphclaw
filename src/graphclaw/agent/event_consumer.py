@@ -678,9 +678,7 @@ class AgentEventConsumer:
         if resolution and hasattr(resolution, "candidate_nodes"):
             for candidate in (resolution.candidate_nodes or [])[:5]:
                 state_part = f" [{candidate.state}]" if candidate.state else ""
-                candidate_lines.append(
-                    f"- {candidate.node_id}: {candidate.title}{state_part}"
-                )
+                candidate_lines.append(f"- {candidate.node_id}: {candidate.title}{state_part}")
 
         unavailable_text = (
             "Automatic task matching is temporarily unavailable because the embedding "
@@ -693,9 +691,7 @@ class AgentEventConsumer:
             )
         )
         candidates_text = (
-            "\n\nClosest candidate tasks:\n" + "\n".join(candidate_lines)
-            if candidate_lines
-            else ""
+            "\n\nClosest candidate tasks:\n" + "\n".join(candidate_lines) if candidate_lines else ""
         )
 
         message = (

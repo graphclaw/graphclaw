@@ -12,6 +12,7 @@ from graphclaw.models.base import (
     EDGE_ID_PATTERN,
     GOAL_ID_PATTERN,
     GRANT_ID_PATTERN,
+    HANDOFF_NODE_ID_PATTERN,
     MCP_SERVER_ID_PATTERN,
     RESOURCE_ID_PATTERN,
     TASK_ID_PATTERN,
@@ -22,6 +23,7 @@ from graphclaw.models.base import (
     generate_edge_id,
     generate_goal_id,
     generate_grant_id,
+    generate_handoff_node_id,
     generate_mcp_server_id,
     generate_resource_id,
     generate_task_id,
@@ -31,6 +33,7 @@ from graphclaw.models.base import (
     validate_edge_id,
     validate_goal_id,
     validate_grant_id,
+    validate_handoff_id,
     validate_mcp_server_id,
     validate_resource_id,
     validate_task_id,
@@ -51,6 +54,7 @@ from graphclaw.models.edges import (
     InformsProps,
     OwnedByProps,
     PartOfProps,
+    ReferredByProps,
     SpawnedFromProps,
 )
 from graphclaw.models.enums import (
@@ -97,6 +101,7 @@ from graphclaw.models.nodes import (
     GoalNode,
     GoalProgress,
     GoalTimeline,
+    HandoffNode,
     MCPServerNode,
     OrganizationNode,
     OverrideBlock,
@@ -183,6 +188,7 @@ __all__ = [
     "RESOURCE_ID_PATTERN",
     "EDGE_ID_PATTERN",
     "CHECKIN_NODE_ID_PATTERN",
+    "HANDOFF_NODE_ID_PATTERN",
     "GRANT_ID_PATTERN",
     "MCP_SERVER_ID_PATTERN",
     # ID generators
@@ -193,6 +199,7 @@ __all__ = [
     "generate_resource_id",
     "generate_edge_id",
     "generate_checkin_node_id",
+    "generate_handoff_node_id",
     "generate_grant_id",
     "generate_mcp_server_id",
     "utcnow",
@@ -203,6 +210,7 @@ __all__ = [
     "validate_constraint_id",
     "validate_resource_id",
     "validate_edge_id",
+    "validate_handoff_id",
     "validate_grant_id",
     "validate_mcp_server_id",
     # Base
@@ -250,6 +258,7 @@ __all__ = [
     "ConstraintNode",
     "ResourceNode",
     "CheckinNode",
+    "HandoffNode",
     # Phase 2
     "OrganizationNode",
     "WorkspaceNode",
@@ -269,6 +278,7 @@ __all__ = [
     "InformsProps",
     "BranchedFromProps",
     "BatchedInProps",
+    "ReferredByProps",
     "EdgeProperties",
     # Edge
     "GraphEdge",

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 
 import pytest
 
@@ -28,6 +29,9 @@ pytestmark = pytest.mark.integration
 BUCKET = os.getenv("STORAGE_BUCKET", "graphclaw")
 ENDPOINT = os.getenv("STORAGE_ENDPOINT_URL", "http://localhost:9000")
 REGION = os.getenv("STORAGE_REGION", "us-east-1")
+SKILLS_DEFINITIONS_DIR = (
+    Path(__file__).resolve().parents[2] / "src" / "graphclaw" / "skills" / "definitions"
+)
 
 os.environ.setdefault("AWS_ACCESS_KEY_ID", "minioadmin")
 os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "minioadmin")
@@ -104,6 +108,29 @@ class TestSeedSystemContent:
         await seed_system_content(storage)
         exists = await storage.exists(StoragePaths.system_agent_config("comms"))
         assert exists
+
+    @pytest.mark.asyncio
+    async def test_system_skill_definitions_seeded(self, storage):
+        await seed_system_content(storage)
+
+        skill_dirs = sorted(p for p in SKILLS_DEFINITIONS_DIR.iterdir() if p.is_dir())
+        assert skill_dirs, "No local system skill definitions found to validate seeding"
+
+        for skill_dir in skill_dirs:
+            path = StoragePaths.system_skill_definition(skill_dir.name)
+            exists = await storage.exists(path)
+            assert exists, f"Expected system skill definition at {path}"
+
+    @pytest.mark.asyncio
+    async def test_system_skill_definition_has_content(self, storage):
+        await seed_system_content(storage)
+
+        skill_dirs = sorted(p for p in SKILLS_DEFINITIONS_DIR.iterdir() if p.is_dir())
+        assert skill_dirs, "No local system skill definitions found to validate content"
+
+        sample_skill_name = skill_dirs[0].name
+        raw = await storage.read(StoragePaths.system_skill_definition(sample_skill_name))
+        assert len(raw) > 50
 
 
 # ---------------------------------------------------------------------------

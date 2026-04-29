@@ -56,7 +56,8 @@ def blocker_score(blocker_type: EdgeStrength | str) -> float:
     float
         Blocker contribution score (0.0, 0.6, or 1.0).
     """
-    key = blocker_type.value if hasattr(blocker_type, "value") else str(blocker_type)
+    key = blocker_type.value if hasattr(blocker_type, "value") else str(blocker_type or "NONE")
+    key = key.strip().upper()
     return _BLOCKER_SCORES.get(key, 0.0)
 
 

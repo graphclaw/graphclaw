@@ -5,8 +5,6 @@ from __future__ import annotations
 import json
 import logging
 
-import pytest
-
 from graphclaw.infra.logging.formatter import JsonFormatter
 
 

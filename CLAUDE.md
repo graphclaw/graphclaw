@@ -2,8 +2,8 @@
 
 ## Project Context
 Graph-based task orchestration system where an AI agent manages tasks for humans and other agents via a property graph.
-- PRD: `docs/task-graph-requirements.md` (v1.1, 8500+ lines)
-- Review notes: `docs/task-graph-review-notes.md` (28 issues across 6 categories)
+- PRD: `docs/graphclaw-requirements.md` (v1.1, 8500+ lines)
+- Review notes: `docs/graphclaw-review-notes.md` (28 issues across 6 categories)
 - Build plan: `build-plan.md` (6 phases, 48 weeks)
 - Domain: graphclaw.ai
 - GitHub: https://github.com/abhishekgupta-myrepo/graphclaw

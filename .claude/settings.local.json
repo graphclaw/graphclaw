@@ -155,7 +155,14 @@
       "Bash(ruff format:*)",
       "Bash(python -c \"import json,sys; jobs=json.load\\(sys.stdin\\)[''''jobs'''']; [print\\(f''''{j[\"\"name\"\"]}: {j[\"\"conclusion\"\"]}''''\\) for j in jobs]\")",
       "Bash(python -c \"import json,sys; runs=json.load\\(sys.stdin\\); [print\\(r[''''databaseId''''], r[''''name''''], r[''''status'''']\\) for r in runs]\")",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(.venv/Scripts/graphclaw.exe agent:*)",
+      "Bash(.venv/Scripts/ruff.exe check:*)",
+      "Bash(.venv/Scripts/ruff.exe format:*)",
+      "Bash(python -m pytest tests/test_api/test_mcp_registry_extended_routes.py -v --tb=long)",
+      "Bash(grep -n \"mcp-servers.*tools\\\\|list_tools\\\\|get_tools\" src/graphclaw/api/*.py -r)",
+      "Bash(python -m pytest tests/test_api/test_mcp_registry_routes.py::test_get_mcp_server_by_id -v --tb=long)",
+      "Bash(python -m pytest tests/test_cli/test_commands.py::TestTaskList::test_task_list_asyncio_run_called -v --tb=long)"
     ]
   }
 }

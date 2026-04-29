@@ -26,7 +26,8 @@ Public API
 - BlocksProps: Properties for BLOCKS edges (strength).
 - FollowUpForProps: Properties for FOLLOW_UP_FOR edges (scheduled_fire_at).
 - SpawnedFromProps, AssignedToProps, OwnedByProps, AppliesToProps,
-  InformsProps, BranchedFromProps, BatchedInProps: Empty property models.
+    InformsProps, BranchedFromProps, BatchedInProps, ReferredByProps:
+    Empty property models.
 
 Dependencies
 ------------
@@ -117,6 +118,12 @@ class BatchedInProps(BaseModel):
     pass
 
 
+class ReferredByProps(BaseModel):
+    """Properties for a REFERRED_BY edge (coordination/context linkage)."""
+
+    pass
+
+
 # ---------------------------------------------------------------------------
 # Generic edge properties block (used when specific props not required)
 # ---------------------------------------------------------------------------
@@ -177,6 +184,7 @@ __all__ = [
     "InformsProps",
     "BranchedFromProps",
     "BatchedInProps",
+    "ReferredByProps",
     "EdgeProperties",
     # Main edge model
     "GraphEdge",

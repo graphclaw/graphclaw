@@ -4,7 +4,7 @@ Description
 -----------
 Defines the graph node types that form the GraphClaw property graph: TaskNode,
 UserNode, GoalNode, ConstraintNode, ResourceNode, CheckinNode, OrganizationNode,
-WorkspaceNode, and VisibilityGrantNode.  Every type inherits from ``BaseNode``
+HandoffNode, WorkspaceNode, and VisibilityGrantNode.  Every type inherits from ``BaseNode``
 (id, created_at, updated_at, version) and uses field validators to enforce the
 naming conventions defined in ``graphclaw.models.base``.  ``TaskNode`` is the
 richest model, embedding sub-models for timeline, scoring, state history,
@@ -28,6 +28,7 @@ Public API
 - ConstraintNode: Business constraint governing tasks, milestones, or goals.
 - ResourceNode: Any entity (human or AI agent) that can be assigned tasks.
 - CheckinNode: Batched communication artifact sent to a resource.
+- HandoffNode: Ownership transition record carrying handoff context.
 - OrganizationNode: Multi-user organization workspace boundary.
 - WorkspaceNode: Scoped collection of tasks and goals within an org.
 - VisibilityGrantNode: Fine-grained access grant for a specific node and user.
@@ -54,6 +55,7 @@ from pydantic import BaseModel, Field, field_validator
 from graphclaw.models.base import (
     CONSTRAINT_ID_PATTERN,
     GOAL_ID_PATTERN,
+    HANDOFF_NODE_ID_PATTERN,
     MCP_SERVER_ID_PATTERN,
     ORG_ID_PATTERN,
     RESOURCE_ID_PATTERN,
@@ -530,6 +532,33 @@ class CheckinNode(BaseNode):
 
 
 # ---------------------------------------------------------------------------
+# HandoffNode
+# ---------------------------------------------------------------------------
+
+
+class HandoffNode(BaseNode):
+    """Ownership transition record for delegated work handoffs.
+
+    Captures the context that should travel with the work when responsibility
+    moves from one owner/agent to another.
+    """
+
+    task_id: str
+    from_owner: str | None = None
+    to_owner: str
+    context_summary: str = ""
+    context_refs: list[str] = []
+    transitioned_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    @field_validator("id")
+    @classmethod
+    def validate_id(cls, v: str) -> str:
+        if not HANDOFF_NODE_ID_PATTERN.match(v):
+            raise ValueError(f"Invalid handoff ID '{v}'. Expected HND-<identifier>")
+        return v
+
+
+# ---------------------------------------------------------------------------
 # OrganizationNode  (Phase 2)
 # ---------------------------------------------------------------------------
 
@@ -698,6 +727,7 @@ __all__ = [
     "ConstraintNode",
     "ResourceNode",
     "CheckinNode",
+    "HandoffNode",
     # Phase 2
     "OrgSettings",
     "OrgMember",

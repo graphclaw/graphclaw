@@ -224,6 +224,13 @@ This project is built using the **Claude Code multi-agent system**:
 
 See `.claude/` for agent definitions and custom skills used during the build.
 
+## Local Build Deployment and Testing
+
+### Running the pgadmin client for accessing the postgress age running in local container.
+docker run -d --name pgadmin --network graphclaw-cockpit_default -e PGADMIN_DEFAULT_EMAIL=**********gmail.com -e PGADMIN_DEFAULT_PASSWORD=admin -p 5050:80 dpage/pgadmin4
+
+
+
 ## License
 
 [Apache License 2.0](LICENSE) — See [LICENSE](LICENSE) file for details.

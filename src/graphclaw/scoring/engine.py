@@ -158,7 +158,7 @@ class ScoringEngine:
         self.cache = cache or ScoreCache()
 
     @classmethod
-    def from_user(cls, user: TaskNode, cache: ScoreCache | None = None) -> "ScoringEngine":
+    def from_user(cls, user: TaskNode, cache: ScoreCache | None = None) -> ScoringEngine:
         """Construct a ``ScoringEngine`` using a ``UserNode``'s learned weights.
 
         Reads ``user.scoring_weights`` (a ``ScoringWeights`` model on
@@ -254,7 +254,17 @@ class ScoringEngine:
         f2_weighted = f2_raw * self.w2
 
         # --- Factor 3: Critical Path ---
-        goal_priority = context.task_goal_priority.get(tid, GoalPriority.P3)
+        goal_priority_raw = context.task_goal_priority.get(tid, GoalPriority.P3)
+        if isinstance(goal_priority_raw, GoalPriority):
+            goal_priority = goal_priority_raw
+        elif isinstance(goal_priority_raw, str):
+            goal_priority = (
+                GoalPriority(goal_priority_raw)
+                if goal_priority_raw in GoalPriority._value2member_map_
+                else GoalPriority.P3
+            )
+        else:
+            goal_priority = GoalPriority.P3
         f3_raw = critical_path_score(task.on_critical_path, goal_priority)
         f3_weighted = f3_raw * self.w3
 
@@ -283,7 +293,8 @@ class ScoringEngine:
         f6_weighted = f6_raw * self.w6
 
         # --- Factor 7: Constraint Pressure ---
-        constraints = context.task_constraints.get(tid, [])
+        constraints_raw = context.task_constraints.get(tid, [])
+        constraints = constraints_raw if isinstance(constraints_raw, list) else []
         f7_raw = constraint_pressure(constraints)
         f7_weighted = f7_raw * self.w7
 
@@ -301,6 +312,8 @@ class ScoringEngine:
             + f6_weighted
             + f7_weighted
         )
+        if final_score < 0.0:
+            final_score = 0.0
 
         # Chain urgency rollup applied later by score_all; stored here from
         # task.scoring if it was pre-set.
@@ -502,9 +515,7 @@ class ScoringEngine:
                         },
                     )
                 except Exception as exc:
-                    logger.warning(
-                        "score_all: could not persist score for %s: %s", task.id, exc
-                    )
+                    logger.warning("score_all: could not persist score for %s: %s", task.id, exc)
 
         tasks_by_id = {t.id: t for t in scoreable}
         queue = build_action_queue([(tasks_by_id[e.node_id], e) for e in ranked_explanations])

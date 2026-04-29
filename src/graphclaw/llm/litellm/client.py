@@ -152,23 +152,70 @@ class LiteLLMLLMClient(LLMClient):
         target_model = model or self._default_model
         provider_messages = [{"role": m.role, "content": m.content} for m in messages]
 
+        import json as _json  # noqa: PLC0415
+
+        litellm_tools = None
+        if tools:
+            litellm_tools = [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": t.name,
+                        "description": t.description,
+                        "parameters": t.parameters,
+                    },
+                }
+                for t in tools
+            ]
+
         try:
-            response = await litellm.acompletion(
-                model=target_model,
-                messages=provider_messages,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                stream=True,
-            )
+            stream_kwargs: dict[str, Any] = {
+                "model": target_model,
+                "messages": provider_messages,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "stream": True,
+            }
+            if litellm_tools:
+                stream_kwargs["tools"] = litellm_tools
+            response = await litellm.acompletion(**stream_kwargs)
         except Exception as exc:
             raise RuntimeError(f"LiteLLM stream call failed: {exc}") from exc
 
         accumulated_content = ""
+        # index → {"id": str, "name": str, "arguments": str}
+        tc_chunks: dict[int, dict[str, str]] = {}
         async for chunk in response:
-            delta = chunk.choices[0].delta.content or ""
-            accumulated_content += delta
-            is_final = chunk.choices[0].finish_reason is not None
+            choice = chunk.choices[0]
+            delta = choice.delta
+            text_delta = delta.content or ""
+            accumulated_content += text_delta
+            is_final = choice.finish_reason is not None
+
+            # Accumulate tool call deltas
+            if hasattr(delta, "tool_calls") and delta.tool_calls:
+                for tc_delta in delta.tool_calls:
+                    idx = getattr(tc_delta, "index", 0)
+                    if idx not in tc_chunks:
+                        tc_chunks[idx] = {"id": "", "name": "", "arguments": ""}
+                    if getattr(tc_delta, "id", None):
+                        tc_chunks[idx]["id"] += tc_delta.id
+                    fn = getattr(tc_delta, "function", None)
+                    if fn:
+                        if getattr(fn, "name", None):
+                            tc_chunks[idx]["name"] += fn.name
+                        if getattr(fn, "arguments", None):
+                            tc_chunks[idx]["arguments"] += fn.arguments
+
             if is_final:
+                tool_calls: list[ToolCall] = []
+                for idx in sorted(tc_chunks):
+                    tc = tc_chunks[idx]
+                    try:
+                        args = _json.loads(tc["arguments"]) if tc["arguments"] else {}
+                    except (_json.JSONDecodeError, ValueError):
+                        args = {}
+                    tool_calls.append(ToolCall(id=tc["id"], name=tc["name"], arguments=args))
                 final_response = LLMResponse(
                     content=accumulated_content,
                     model=target_model,
@@ -176,14 +223,15 @@ class LiteLLMLLMClient(LLMClient):
                     prompt_tokens=0,
                     completion_tokens=0,
                     cost_usd=0.0,
+                    tool_calls=tool_calls,
                 )
                 yield LLMStreamChunk(
-                    content_delta=delta,
+                    content_delta=text_delta,
                     is_final=True,
                     accumulated=final_response,
                 )
             else:
-                yield LLMStreamChunk(content_delta=delta)
+                yield LLMStreamChunk(content_delta=text_delta)
 
     async def count_tokens(
         self,

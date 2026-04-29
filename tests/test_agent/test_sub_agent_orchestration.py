@@ -490,6 +490,25 @@ class TestAgentLoopDelegation:
         assert result["batch_id"].startswith("batch-")
 
     @pytest.mark.asyncio
+    async def test_delegate_persists_handoff_node_and_edge(self, _loop_with_broker):
+        loop, _, repo = _loop_with_broker
+        await loop._tool_delegate_to_agent(
+            user_id="user-1",
+            args={"task_id": "TSK-001", "agent_id": "agent-x", "instructions": "handoff ctx"},
+        )
+
+        repo.create_node.assert_called()
+        handoff_node = repo.create_node.call_args.args[0]
+        assert handoff_node.id.startswith("HND-")
+        assert handoff_node.task_id == "TSK-001"
+        assert handoff_node.to_owner == "agent-x"
+
+        repo.create_edge.assert_called()
+        edge_call = repo.create_edge.call_args
+        assert edge_call.args[1] == "TSK-001"
+        assert edge_call.args[2] == "REFERRED_BY"
+
+    @pytest.mark.asyncio
     async def test_no_broker_does_not_raise(self, _loop_with_broker):
         loop, _, _ = _loop_with_broker
         loop._broker = None  # Remove broker
@@ -733,3 +752,90 @@ class TestSubAgentRunnerTimeouts:
         result = await runner._dispatch_tool("invoke_skill", {}, job)
         assert "error" in result
         assert "timeout" in str(result["error"]).lower()
+
+    @pytest.mark.asyncio
+    async def test_execute_emits_cancelled_status_when_task_is_cancelled(self):
+        from graphclaw.agent.sub_agent_runner import AgentJobEvent, RunnerState, SubAgentRunner
+
+        broker = FakeBroker()
+        llm = MagicMock()
+        runner = SubAgentRunner(
+            runner_id="runner-cancel",
+            broker=broker,
+            llm_client=llm,
+            execution_timeout_seconds=10,
+            tool_timeout_seconds=1,
+        )
+
+        async def _very_slow_loop(_job: AgentJobEvent) -> None:
+            await asyncio.sleep(10)
+
+        runner._run_llm_loop = _very_slow_loop  # type: ignore[method-assign]
+
+        job = AgentJobEvent(
+            agent_id="agent-cancel",
+            task_id="TSK-cancel",
+            session_id="SES-cancel",
+            instructions="cancel test",
+        )
+
+        run_task = asyncio.create_task(runner.execute(job))
+        await asyncio.sleep(0)
+        run_task.cancel()
+
+        with pytest.raises(asyncio.CancelledError):
+            await run_task
+
+        assert runner.state == RunnerState.CANCELLED
+        events = [
+            json.loads(payload) for queue, payload in broker.published if queue == "agent_updates"
+        ]
+        assert any(event.get("event_type") == "blocked" for event in events)
+        assert any(
+            event.get("event_type") == "completed" and event.get("status") == "CANCELLED"
+            for event in events
+        )
+
+    @pytest.mark.asyncio
+    async def test_dispatch_tool_retries_retryable_skill(self):
+        from graphclaw.agent.sub_agent_runner import AgentJobEvent, SubAgentRunner
+
+        broker = FakeBroker()
+        llm = MagicMock()
+        runner = SubAgentRunner(
+            runner_id="runner-retry",
+            broker=broker,
+            llm_client=llm,
+            execution_timeout_seconds=5,
+            tool_timeout_seconds=1,
+            tool_max_retries=2,
+            retry_backoff_base_ms=0,
+            retry_backoff_max_ms=0,
+            retryable_skills={"retryable-skill"},
+        )
+
+        attempts = 0
+
+        async def _flaky_skill(_args: dict, _job: AgentJobEvent) -> dict[str, str]:
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                return {"error": "No idle skill workers available. Try again shortly."}
+            return {"status": "COMPLETED", "output": "ok", "error": ""}
+
+        runner._tool_invoke_skill = _flaky_skill  # type: ignore[method-assign]
+
+        job = AgentJobEvent(
+            agent_id="agent-retry",
+            task_id="TSK-retry",
+            session_id="SES-retry",
+            instructions="retry test",
+        )
+
+        result = await runner._dispatch_tool(
+            "invoke_skill",
+            {"skill_name": "retryable-skill", "task_id": "TSK-retry"},
+            job,
+        )
+        assert attempts == 2
+        assert result.get("status") == "COMPLETED"

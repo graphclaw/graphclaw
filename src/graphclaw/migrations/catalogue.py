@@ -77,6 +77,8 @@ MIGRATIONS: list[Migration] = [
             SELECT create_vlabel('graphclaw', 'ConstraintNode');
             SELECT create_vlabel('graphclaw', 'UserNode');
             SELECT create_vlabel('graphclaw', 'ResourceNode');
+            SELECT create_vlabel('graphclaw', 'CheckinNode');
+            SELECT create_vlabel('graphclaw', 'HandoffNode');
 
             -- Phase 2 node labels
             SELECT create_vlabel('graphclaw', 'OrganizationNode');
@@ -91,6 +93,7 @@ MIGRATIONS: list[Migration] = [
             SELECT create_elabel('graphclaw', 'OWNED_BY');
             SELECT create_elabel('graphclaw', 'APPLIES_TO');
             SELECT create_elabel('graphclaw', 'PART_OF');
+            SELECT create_elabel('graphclaw', 'REFERRED_BY');
 
             -- Phase 2 edge labels
             SELECT create_elabel('graphclaw', 'MEMBER_OF');
@@ -182,6 +185,27 @@ MIGRATIONS: list[Migration] = [
             END $$;
             DO $$ BEGIN
               PERFORM ag_catalog.drop_label('graphclaw', 'MCPServerNode', false);
+            EXCEPTION WHEN others THEN NULL;
+            END $$;
+        """,
+    ),
+    Migration(
+        version="0007",
+        name="add_coordination_handoff_labels",
+        description="Add CheckinNode/HandoffNode labels and REFERRED_BY edge label",
+        sql_up="""
+            DO $$ BEGIN
+              PERFORM ag_catalog.create_vlabel('graphclaw', 'CheckinNode');
+            EXCEPTION WHEN others THEN NULL;
+            END $$;
+
+            DO $$ BEGIN
+              PERFORM ag_catalog.create_vlabel('graphclaw', 'HandoffNode');
+            EXCEPTION WHEN others THEN NULL;
+            END $$;
+
+            DO $$ BEGIN
+              PERFORM ag_catalog.create_elabel('graphclaw', 'REFERRED_BY');
             EXCEPTION WHEN others THEN NULL;
             END $$;
         """,

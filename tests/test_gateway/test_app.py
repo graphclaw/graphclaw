@@ -155,6 +155,8 @@ class TestReadinessEndpoint:
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "ready"
+        assert "dependencies" in data
+        assert data["dependencies"]["broker"]["ok"] is True
 
     async def test_readiness_endpoint_no_broker_returns_503(self, app_no_broker):
         async with AsyncClient(
@@ -164,6 +166,8 @@ class TestReadinessEndpoint:
         assert response.status_code == 503
         data = response.json()
         assert data["status"] == "degraded"
+        assert "dependencies" in data
+        assert data["dependencies"]["broker"]["ok"] is False
 
 
 # ---------------------------------------------------------------------------

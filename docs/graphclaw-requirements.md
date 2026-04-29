@@ -54,6 +54,9 @@
 36. [Architecture: Node Intelligence Layer](#36-architecture-node-intelligence-layer)
 37. [Architecture: Embedding Pipeline](#37-architecture-embedding-pipeline)
 38. [Architecture: Sub-Agent Parallel Orchestration](#38-architecture-sub-agent-parallel-orchestration)
+39. [Architecture: Unified Logging System](#39-architecture-unified-logging-system)
+56. [Architecture: Intelligence Hub Memory Architecture](#56-architecture-intelligence-hub-memory-architecture)
+57. [Architecture: Canvas-to-Runtime Agent Bridge](#57-architecture-canvas-to-runtime-agent-bridge)
 
 ---
 
@@ -5044,6 +5047,53 @@ MIGRATION (platform version upgrade):
 
 ---
 
+### 26.N Sub-Agent Creation Design Principles
+
+**Status:** Updated — 2026-04-27 (Intelligence Hub Wave G redesign)
+
+#### 26.N.1 Two Creation Paths
+
+Sub-agents are created via one of two paths:
+
+**Path A — Orchestrator-Proposed (user confirmation required):**
+The main orchestrator identifies a need for a new sub-agent, presents a proposal to the user, and only creates the agent after explicit user approval. See `system_header.md` for the rule encoding.
+
+**Path B — Canvas-Created:**
+The user adds a (+) agent node in the Canvas Editor. On save, the backend provisions runtime agent files alongside the canvas definition JSON.
+
+#### 26.N.2 Agent ID Rule
+
+`agent_id` must always be a **deterministic slug** derived from the agent's name (e.g., `research-agent`, `email-processor`). Auto-generated UUID suffixes are prohibited — they cause duplicate agent creation when the same agent is proposed multiple times. The idempotency check in `_tool_create_agent` (via `storage.exists()`) handles the "already exists" case.
+
+#### 26.N.3 Sub-Agent Confirmation Rule (system_header.md)
+
+The main orchestrator must present the following proposal before calling `create_agent`:
+- **agent_id**: meaningful lowercase-hyphenated slug
+- **Name**: human-readable display name
+- **Purpose**: one paragraph describing role and rationale
+- **Profile**: draft persona text
+- **Skills**: specific skill IDs to assign
+- **MCP Servers**: specific MCP server IDs to connect
+- **Tool hint**: when the main agent should delegate to this sub-agent
+
+Only after explicit user confirmation should `create_agent` be invoked.
+
+#### 26.N.4 Storage on Creation
+
+Every agent (system-seeded or user-created) follows the same structure:
+
+```
+{user_id}/agents/{agent_id}/
+├── profile.md                              ← persona and assigned capabilities
+├── manifest.json                           ← { agent_id, name, type, capabilities, tool_hint }
+├── config.json                             ← { llm_model, skills, mcp_servers }
+└── memory/semantic/knowledge.md            ← default empty knowledge file (always provisioned)
+```
+
+System agents (`system/agents/{agent_id}/`) are stateless — no `memory/` subfolder.
+
+---
+
 ## 27. Architecture: Graph Database
 
 ### 27.1 The Storage Challenge
@@ -9715,6 +9765,35 @@ BatchCoordinator.record_completion(batch_id)
 | `src/graphclaw/gateway/app.py` | Modified | Wired SubAgentPool + AgentHealthMonitor + AgentDispatchPlanner into lifespan |
 | `tests/test_agent/test_sub_agent_orchestration.py` | New | 27 unit tests covering all Phase 5 components |
 
+### 38.9 Context Loading in SubAgentRunner (Updated — 2026-04-27)
+
+`SubAgentRunner._build_system_prompt()` assembles the sub-agent's system prompt in the following order. Sections [3] and [4] are **required additions** not yet implemented as of Phase 5.
+
+```
+[1] Agent Profile (profile.md)
+    — persona, role, assigned skills and MCP servers
+
+[2] ## Working Context
+    — full content of memory/working/context.md
+    — includes delegation context written by orchestrator before job dispatch
+
+[3] ## Episodic Memory                     ← REQUIRED ADDITION
+    — all ACTIVE files from memory/episodic/ prefix (newest first)
+    — does NOT include memory/episodic/archive/ entries
+    — truncate oldest entries first if combined size approaches token budget
+
+[4] ## Semantic Knowledge                  ← REQUIRED ADDITION
+    — ALL files from memory/semantic/ prefix
+    — knowledge.md loaded first; remaining files in any order
+    — truncate only if combined semantic + episodic would exceed budget
+```
+
+**Active vs. Archived Episodic Distinction:**
+- `memory/episodic/*.md` — **active**: loaded into sub-agent context on every invocation
+- `memory/episodic/archive/*.md` — **archived**: permanently excluded from context (user-triggered, irreversible)
+
+**Token budget guard:** Default 80,000 tokens. Truncation priority (removed first): oldest episodic → semantic (alphabetical, last first) → working context never truncated.
+
 ---
 
 ## 39. Architecture: Unified Logging System
@@ -9863,3 +9942,136 @@ Instrumented subsystems:
 | `llm/anthropic/client.py` | Add `LLMTraceMixin`; wrap `complete()` + `stream()` |
 | `llm/openai/client.py` | Add `LLMTraceMixin`; wrap `complete()` + `stream()` |
 | `infra/__init__.py` | Re-export `generate_session_id`, `set_session_id`, `get_session_id` from new path |
+
+---
+
+## 56. Architecture: Intelligence Hub Memory Architecture
+
+**Status:** Design complete — 2026-04-27  
+**Reference:** `docs/agent-subagent-design-requirements.md` (full specification)  
+**Cockpit feature:** Intelligence Hub (Wave G)
+
+### 56.1 Three-Tier Memory Model
+
+Every user agent has three memory tiers under `{user_id}/agents/{agent_id}/memory/`:
+
+| Tier | Path | Writers | Loaded into Context | Editable by User |
+|---|---|---|---|---|
+| **Working** | `working/context.md` | InboundIntelligenceAgent, ResultCollector, MainOrchestrator | ✅ Always | ✅ Yes |
+| **Episodic (active)** | `episodic/*.md` | `/compact` operation only | ✅ Yes — all active entries | ❌ Read-only |
+| **Episodic (archived)** | `episodic/archive/*.md` | Archive action (irreversible) | ❌ Never | ❌ Read-only |
+| **Semantic** | `semantic/{topic}.md` | User via Intelligence Hub | ✅ Yes — all files | ✅ Yes |
+
+### 56.2 Working Memory
+
+Single file `context.md` — the agent's active scratchpad. Accumulates observations and results across the session. SubAgentRunner reads it before execution. Compact operation archives it and replaces with a summary.
+
+**Archive path:** `working/archive/{date}-compact-{label}.md` — read-only snapshots, not loaded into context.
+
+### 56.3 Episodic Memory
+
+Append-only archive of past sessions, created by the `/compact` endpoint. Users browse and optionally archive (deactivate) entries.
+
+**Active/Archive distinction:**
+- `episodic/*.md` → loaded into SubAgentRunner context on every invocation
+- `episodic/archive/*.md` → permanently excluded; read-only audit trail
+
+**Archive action** is irreversible. Moves file from `episodic/` to `episodic/archive/`. Removes the entry from future agent context. Used to clean up stale or irrelevant session archives.
+
+**New StoragePaths methods required:**
+- `agent_memory_episodic_archive_prefix(user_id, agent_id)` → `{user_id}/agents/{agent_id}/memory/episodic/archive/`
+- `agent_memory_episodic_archive_entry(user_id, agent_id, name)` → `…/archive/{name}`
+
+### 56.4 Semantic Memory
+
+User-authored knowledge topics. Any number of `.md` files per agent. Default `knowledge.md` provisioned empty on agent creation.
+
+All active semantic files are loaded into SubAgentRunner context under `## Semantic Knowledge`. There is no per-file activation toggle — all files in `semantic/` are active by definition.
+
+### 56.5 Compact Operation
+
+`POST /app/v1/intelligence/agents/{id}/memory/compact`  
+Body: `{ summary: string, session_label?: string }`
+
+Steps:
+1. Read current `working/context.md` → record `context_before_chars`
+2. Archive to `episodic/{date}-compact-{label}.md` (new active episodic entry)
+3. Archive to `working/archive/{date}-compact-{label}.md` (working snapshot)
+4. Replace `context.md` with caller-supplied summary
+5. Return `{ archived_as, context_before_chars, context_after_chars, reduction_pct }`
+
+**Agent-triggered compact rule:** Main orchestrator SHOULD call compact when any agent's combined context (working + active episodic + semantic) exceeds 60% of the token budget (default: 80,000 tokens). Rule encoded in `system_header.md`.
+
+### 56.6 Default knowledge.md
+
+When `_tool_create_agent` creates any new user agent, it must write an empty `memory/semantic/knowledge.md` alongside the profile/manifest/config files. This ensures users always have a semantic memory file to populate.
+
+### 56.7 Intelligence Hub UI (Cockpit)
+
+The Cockpit Intelligence Hub exposes all memory tiers per-agent via the agent selector. See `docs/cockpit-backend-api-prd.md` §15 for full UI specification.
+
+**Agent selector:** Uses `GET /app/v1/intelligence/agents` (scans MinIO) — NOT the canvas API. Lists all user agents + accessible system agents.
+
+---
+
+## 57. Architecture: Canvas-to-Runtime Agent Bridge
+
+**Status:** Design complete — 2026-04-27; **Implementation required**
+
+### 57.1 Problem
+
+Two storage systems exist for agents:
+
+| System | Path | Purpose | Created by |
+|---|---|---|---|
+| Canvas definitions | `agents/{user_id}/definitions/{id}.json` | React Flow visual layout | Canvas Editor save |
+| Runtime agents | `{user_id}/agents/{agent_id}/` | Executable agent with memory | `_tool_create_agent` or admin seeding |
+
+Currently there is **no bridge** between these systems. A user can design an agent workflow in the Canvas Editor, but the resulting definition is a UI artefact with no executable counterpart. The main orchestrator cannot delegate to it via `AgentCatalog` because `AgentCatalog` scans `{user_id}/agents/`, not `agents/{user_id}/definitions/`.
+
+### 57.2 Required Bridge
+
+When `POST /app/v1/agents` creates a new canvas definition, the handler must also provision runtime agent files:
+
+```python
+# In api/agents.py — POST handler
+async def create_agent_definition(body: AgentDefinitionCreate, ...) -> AgentDefinition:
+    # 1. Save canvas definition JSON as before
+    await storage.write(canvas_definition_path, definition_json)
+
+    # 2. Provision runtime agent files  ← NEW BRIDGE
+    await _provision_runtime_agent(
+        user_id=user_id,
+        agent_id=body.agent_id,
+        name=body.name,
+        description=body.description,
+        config=body.config,  # may include skills, mcp_servers
+        storage=storage,
+    )
+```
+
+`_provision_runtime_agent` writes:
+- `{user_id}/agents/{agent_id}/profile.md` — derived from `description`
+- `{user_id}/agents/{agent_id}/manifest.json` — capabilities from canvas `config.tags`
+- `{user_id}/agents/{agent_id}/config.json` — skills/MCP from canvas `config`
+- `{user_id}/agents/{agent_id}/memory/semantic/knowledge.md` — empty default
+
+**On PATCH (canvas update):** Update `profile.md` and `config.json` to reflect description/config changes. Do not modify memory files.
+
+**On DELETE (canvas delete):** Optionally prompt user whether to also delete runtime agent files (memory is precious — never delete silently).
+
+### 57.3 Idempotency
+
+The provision step uses the same `storage.exists()` check as `_tool_create_agent`. If runtime files already exist (agent was created by the orchestrator before a canvas definition was added), skip provisioning — do not overwrite.
+
+### 57.4 Linkage Convention
+
+Canvas definition and runtime agent are linked by `agent_id`. No explicit foreign key or pointer file. The IntelligenceHub agent selector queries MinIO for runtime agents; the Canvas Editor queries the canvas definitions API. Same `agent_id` value bridges the two views.
+
+### 57.5 Migration for Existing Canvas Definitions
+
+Existing canvas definitions in `agents/{user_id}/definitions/` that have no corresponding runtime agent should be migrated on first canvas load. A background migration endpoint or CLI command can provision missing runtime files:
+
+```bash
+graphclaw intelligence agents provision-from-canvas [--dry-run]
+```

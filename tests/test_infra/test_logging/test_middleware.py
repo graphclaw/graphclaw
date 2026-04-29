@@ -2,17 +2,12 @@
 
 from __future__ import annotations
 
-import json
 import logging
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from starlette.requests import Request
-from starlette.responses import Response
-from starlette.testclient import TestClient
 from fastapi import FastAPI
+from starlette.testclient import TestClient
 
-from graphclaw.infra.logging.context import get_session_id, set_session_id
 from graphclaw.infra.logging.middleware import LoggingMiddleware
 
 

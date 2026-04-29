@@ -32,6 +32,22 @@ The system maintains two distinct tiers of context, each serving a different pur
 
 Agent memory (working/context.md) carries general intelligence: user communication style, behavioral patterns, cross-task observations, preferences. This never lives on a node because it applies globally.
 
+### 2.1 Agent Memory — Three Sub-Tiers
+
+Within `{user_id}/agents/{agent_id}/memory/`, there are three sub-tiers with distinct read/write behaviour:
+
+| Sub-tier | Path | Loaded by SubAgentRunner | Writable by |
+|---|---|---|---|
+| **Working** | `working/context.md` | ✅ Always loaded | Agent loop, InboundIntelligenceAgent, cockpit UI |
+| **Working archive** | `working/archive/{date}-compact-{label}.md` | ❌ Never loaded | `/compact` endpoint (read-only after creation) |
+| **Episodic — active** | `episodic/{date}-compact-{label}.md` | ✅ All active entries, newest first | `/compact` endpoint (read-only after creation) |
+| **Episodic — archived** | `episodic/archive/{date}-compact-{label}.md` | ❌ Never loaded | Archive action via cockpit (irreversible) |
+| **Semantic** | `semantic/{topic}.md` | ✅ All files loaded | User via cockpit UI |
+
+**Episodic active vs. archived:** Active episodic entries represent recent session summaries that inform the agent's reasoning. When a user archives an entry, it moves to `episodic/archive/` and is permanently excluded from context — the agent will never see it again. Archive is irreversible. This allows users to prune low-value or sensitive history without deleting it entirely.
+
+**Semantic multi-file:** `knowledge.md` is provisioned as the default file when an agent is created. Users can add additional topic files (e.g. `users.md`, `patterns.md`). All files are loaded on every SubAgentRunner invocation.
+
 ---
 
 ## 3. Node Intelligence Field
@@ -478,7 +494,65 @@ ToolDefinition(
 
 ---
 
-## 10. Phase Plan
+## 10. SubAgentRunner Context Loading
+
+`SubAgentRunner._build_system_prompt()` assembles the sub-agent's execution context in this order:
+
+```
+1. profile.md                    ← agent persona and working style
+2. ## Working Context            ← memory/working/context.md
+3. ## Episodic Memory            ← ALL files in memory/episodic/ (active only — NOT episodic/archive/)
+                                    newest first; truncate oldest if over budget
+4. ## Semantic Knowledge         ← ALL files in memory/semantic/
+                                    knowledge.md first; rest alphabetical
+```
+
+**Token budget guard:** 80,000 tokens default. Truncation order when over budget:
+1. Oldest episodic entries removed first
+2. Alphabetically-last semantic files removed next
+3. Working context is never truncated
+
+**Current implementation state:**
+- Steps 1–2 are implemented in SubAgentRunner.
+- Steps 3–4 (episodic + semantic loading) are **not yet implemented** — required as backend change B5.
+
+**Why this order:** Profile establishes the agent's identity and constraints. Working context is the most recent live scratchpad — highest priority after profile. Episodic entries are time-ordered session history; older ones are lower value and dropped first under pressure. Semantic knowledge is durable reference material; loss of any single file is more impactful than losing an old episodic entry, so it is dropped second.
+
+### 10.1 Episodic Memory Loading Detail
+
+```python
+# Pseudocode for _build_system_prompt() episodic loading
+active_entries = storage.list(StoragePaths.agent_memory_episodic_prefix(user_id, agent_id))
+# NOTE: episodic/archive/ prefix is excluded — list only the direct episodic/ prefix
+sorted_entries = sorted(active_entries, key=lambda e: e.created_at, reverse=True)  # newest first
+for entry in sorted_entries:
+    content = storage.get(StoragePaths.agent_memory_episodic_entry(user_id, agent_id, entry.name))
+    if budget_remaining > len(content):
+        prompt += f"\n\n### {entry.name}\n{content}"
+        budget_remaining -= len(content)
+    else:
+        break  # oldest entries dropped silently
+```
+
+### 10.2 Semantic Memory Loading Detail
+
+```python
+# Pseudocode for _build_system_prompt() semantic loading
+all_topics = storage.list(StoragePaths.agent_memory_semantic_prefix(user_id, agent_id))
+# knowledge.md first; then alphabetical
+ordered = sorted(all_topics, key=lambda t: (t.name != "knowledge.md", t.name))
+for topic in ordered:
+    content = storage.get(StoragePaths.agent_memory_semantic_topic(user_id, agent_id, topic.stem))
+    if budget_remaining > len(content):
+        prompt += f"\n\n### {topic.stem}\n{content}"
+        budget_remaining -= len(content)
+    else:
+        break
+```
+
+---
+
+## 11. Phase Plan
 
 ### Phase 0.5 — Embedding Pipeline (prerequisite, ~4 days)
 
@@ -534,11 +608,19 @@ ToolDefinition(
 | 6.1 | `src/graphclaw/agent/event_consumer.py` | Add second asyncio.Task consuming `INBOUND_MESSAGES` directly (bypasses missing TriggerEngine service in local dev); `stop()` cancels both tasks |
 | 6.2 | `src/graphclaw/gateway/app.py` | Pass `default_user_id` from `GRAPHCLAW_USER_ID` env to `AgentEventConsumer` |
 
-**Total estimated effort:** ~16 days
+### Phase 7 — Intelligence Hub: Episodic + Semantic Context Loading (~1 day)
+
+| Step | File | Change |
+|---|---|---|
+| 7.1 | `src/graphclaw/agent/sub_agent_runner.py` | `_build_system_prompt()`: load active episodic entries (from `episodic/` prefix, NOT `archive/`) + all semantic files; apply 80k token budget guard |
+| 7.2 | `src/graphclaw/infra/storage.py` | Add `agent_memory_episodic_archive_prefix()`, `agent_memory_episodic_archive_entry()`, `agent_memory_working_archive_prefix()`, `agent_memory_working_archive_entry()` to `StoragePaths` |
+| 7.3 | `src/graphclaw/api/intelligence.py` | Episodic archive endpoint; working/archive list endpoint; updated compact response with context metrics |
+
+**Total estimated effort:** ~17 days
 
 ---
 
-## 11. Open Questions / Future Enhancements
+## 12. Open Questions / Future Enhancements
 
 | Item | Decision | Notes |
 |---|---|---|

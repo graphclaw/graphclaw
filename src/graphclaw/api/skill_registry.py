@@ -78,6 +78,7 @@ async def _save_overrides(user_id: str, storage_client: any, overrides: dict) ->
     path = _overrides_path(user_id)
     await storage_client.write(path, json.dumps(overrides).encode(), "application/json")
 
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/skills", tags=["app-api"])
@@ -301,6 +302,7 @@ async def install_skill(
 # NOTE: /sources and /workers routes must be declared before /{skill_id} so that
 # FastAPI's ordered matching does not swallow them as skill_id path parameters.
 
+
 @router.get(
     "/sources",
     response_model=list[SkillSourceResponse],
@@ -432,7 +434,9 @@ async def get_skill(
     installed = await skill_registry.list_installed(user_id)
     sk = next((s for s in installed if s.skill_id == skill_id), None)
     if sk is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Skill '{skill_id}' not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Skill '{skill_id}' not found"
+        )
     overrides = await _load_overrides(user_id, storage_client)
     entry = _installed_to_entry(sk, overrides.get(skill_id, {}))
     cfg_data = overrides.get(skill_id, {}).get("config", {})
@@ -458,7 +462,9 @@ async def toggle_skill(
     installed = await skill_registry.list_installed(user_id)
     sk = next((s for s in installed if s.skill_id == skill_id), None)
     if sk is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Skill '{skill_id}' not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Skill '{skill_id}' not found"
+        )
     overrides = await _load_overrides(user_id, storage_client)
     skill_override = overrides.setdefault(skill_id, {})
     skill_override["enabled"] = body.enabled
@@ -484,7 +490,9 @@ async def update_skill_config(
     """Persist per-skill configuration overrides."""
     installed = await skill_registry.list_installed(user_id)
     if not any(s.skill_id == skill_id for s in installed):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Skill '{skill_id}' not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Skill '{skill_id}' not found"
+        )
     overrides = await _load_overrides(user_id, storage_client)
     skill_override = overrides.setdefault(skill_id, {})
     skill_override["config"] = body.model_dump()

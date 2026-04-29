@@ -249,16 +249,12 @@ def test_session_root() -> None:
 
 
 def test_session_context() -> None:
-    assert (
-        StoragePaths.session_context(_USER, "SES-001")
-        == f"{_USER}/sessions/SES-001/context.md"
-    )
+    assert StoragePaths.session_context(_USER, "SES-001") == f"{_USER}/sessions/SES-001/context.md"
 
 
 def test_session_events_prefix() -> None:
     assert (
-        StoragePaths.session_events_prefix(_USER, "SES-001")
-        == f"{_USER}/sessions/SES-001/events/"
+        StoragePaths.session_events_prefix(_USER, "SES-001") == f"{_USER}/sessions/SES-001/events/"
     )
 
 

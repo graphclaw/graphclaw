@@ -120,12 +120,9 @@ async def init_services(
         storage_endpoint_url=os.environ.get("STORAGE_ENDPOINT_URL") or None,
         storage_region=os.environ.get("STORAGE_REGION", "us-east-1"),
         cloudwatch_region=os.environ.get("CLOUDWATCH_REGION", "us-east-1"),
-        cloudwatch_log_group_prefix=os.environ.get(
-            "CLOUDWATCH_LOG_GROUP_PREFIX", "/graphclaw"
-        ),
+        cloudwatch_log_group_prefix=os.environ.get("CLOUDWATCH_LOG_GROUP_PREFIX", "/graphclaw"),
         llm_trace_enabled=(
-            os.environ.get("LLM_TRACE", "").lower() == "true"
-            or log_level == "DEBUG"
+            os.environ.get("LLM_TRACE", "").lower() == "true" or log_level == "DEBUG"
         ),
         llm_trace_path=os.environ.get("LLM_TRACE_PATH") or None,
     )

@@ -11,14 +11,13 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from graphclaw.agent.briefing import (
-    BriefingContext,
     MAX_CRITICAL_ITEMS,
+    BriefingContext,
     format_briefing,
     has_interrupt_items,
 )
 from graphclaw.models.enums import AutonomyLevel
 from graphclaw.models.scoring import ActionQueueEntry, ScoreExplanation, ScoreFactor
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -68,7 +67,9 @@ async def test_empty_queue_no_context_returns_fallback():
 
 async def test_empty_queue_with_context_still_generates_sections():
     ctx = BriefingContext(
-        inferences_to_confirm=[{"id": "T1", "title": "Check this", "state": "NEEDS_REVIEW", "reason": "uncertain"}]
+        inferences_to_confirm=[
+            {"id": "T1", "title": "Check this", "state": "NEEDS_REVIEW", "reason": "uncertain"}
+        ]
     )
     output = format_briefing([], context=ctx)
     assert "## 2. Inferences to Confirm" in output
@@ -126,7 +127,12 @@ async def test_section1_default_top_n_is_three():
 async def test_section2_inferences_appears():
     ctx = BriefingContext(
         inferences_to_confirm=[
-            {"id": "T-INF-001", "title": "Deploy pipeline inference", "state": "NEEDS_REVIEW", "reason": "3 tasks blocked"},
+            {
+                "id": "T-INF-001",
+                "title": "Deploy pipeline inference",
+                "state": "NEEDS_REVIEW",
+                "reason": "3 tasks blocked",
+            },
         ]
     )
     output = format_briefing([], context=ctx)
@@ -148,7 +154,11 @@ async def test_section2_empty_shows_none_pending():
 async def test_section3_completed_appears():
     ctx = BriefingContext(
         completed_since_last=[
-            {"id": "T-DONE-001", "title": "Finish auth service", "completed_at": "2025-01-10T08:00:00Z"},
+            {
+                "id": "T-DONE-001",
+                "title": "Finish auth service",
+                "completed_at": "2025-01-10T08:00:00Z",
+            },
         ]
     )
     output = format_briefing([], context=ctx)
@@ -170,7 +180,12 @@ async def test_section3_empty_shows_none():
 async def test_section4_ahead_of_curve_appears():
     ctx = BriefingContext(
         ahead_of_curve=[
-            {"id": "T-AHEAD-001", "title": "Prepare Q3 report", "deadline": "2025-03-15", "score": 0.45},
+            {
+                "id": "T-AHEAD-001",
+                "title": "Prepare Q3 report",
+                "deadline": "2025-03-15",
+                "score": 0.45,
+            },
         ]
     )
     output = format_briefing([], context=ctx)
@@ -215,9 +230,13 @@ async def test_full_briefing_all_five_sections_present():
     """All 5 section headers appear when data is provided for each."""
     entries = [_entry(1)]
     ctx = BriefingContext(
-        inferences_to_confirm=[{"id": "I1", "title": "Inference 1", "state": "NEEDS_REVIEW", "reason": ""}],
+        inferences_to_confirm=[
+            {"id": "I1", "title": "Inference 1", "state": "NEEDS_REVIEW", "reason": ""}
+        ],
         completed_since_last=[{"id": "C1", "title": "Completed task", "completed_at": "now"}],
-        ahead_of_curve=[{"id": "A1", "title": "Proactive task", "deadline": "2025-06-01", "score": 0.3}],
+        ahead_of_curve=[
+            {"id": "A1", "title": "Proactive task", "deadline": "2025-06-01", "score": 0.3}
+        ],
         deferred_items=[{"id": "D1", "title": "Snoozed task", "snooze_until": "2025-03-01"}],
     )
     output = format_briefing(entries, context=ctx)

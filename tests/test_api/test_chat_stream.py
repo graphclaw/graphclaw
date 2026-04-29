@@ -327,4 +327,3 @@ class TestChatStreamRoute:
         assert "text/event-stream" in res.headers.get("content-type", "")
         events = parse_sse_body(res.content)
         assert any(e.get("_sse_event") == "run.failed" for e in events)
-

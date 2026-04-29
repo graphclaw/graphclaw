@@ -183,8 +183,16 @@ def _normalize_edge(e: dict) -> dict:
     result.setdefault("source_id", e.get("_start_id", ""))
     result.setdefault("target_id", e.get("_end_id", ""))
     result.setdefault("edge_type", e.get("_label", e.get("type", "")))
-    result.setdefault("id", e.get("edge_id", ""))
-    result.setdefault("edge_id", result["id"])
+    # Prefer an explicit stored edge_id; fall back to a composite key so the
+    # cockpit never receives an empty string ID (which Cytoscape rejects).
+    eid = e.get("edge_id") or e.get("id") or ""
+    if not eid:
+        src = result.get("source_id", "")
+        tgt = result.get("target_id", "")
+        etype = result.get("edge_type", "edge")
+        eid = f"{etype}-{src}-{tgt}"
+    result["id"] = eid
+    result["edge_id"] = eid
     return result
 
 
@@ -284,15 +292,14 @@ async def list_goals(
     limit: int = Query(default=50, ge=1, le=200),
 ) -> NodeListResponse:
     """List GoalNodes for the authenticated user."""
-    filters: dict[str, Any] = {"owned_by": user_id}
+    # GoalNode vertices use ``owner`` (not ``owned_by``) for user ownership.
+    filters: dict[str, Any] = {"owner": user_id}
     if org_id:
         filters["org_id"] = org_id
     if state:
         filters["state"] = state
 
-    # Goals are COMPOSITE TaskNodes — query TaskNode label with task_type filter.
-    filters["task_type"] = "COMPOSITE"
-    nodes = await graph_store.list_nodes("TaskNode", filters)
+    nodes = await graph_store.list_nodes("GoalNode", filters)
     # Sort newest first so freshly created goals appear at the top of the list.
     nodes.sort(key=lambda n: n.get("created_at") or "", reverse=True)
     # Simple cursor: treat cursor as an offset index encoded as a string int.

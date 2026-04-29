@@ -18,12 +18,14 @@ from graphclaw.models.base import (
     CONSTRAINT_ID_PATTERN,
     EDGE_ID_PATTERN,
     GOAL_ID_PATTERN,
+    HANDOFF_NODE_ID_PATTERN,
     RESOURCE_ID_PATTERN,
     TASK_ID_PATTERN,
     USER_ID_PATTERN,
     generate_constraint_id,
     generate_edge_id,
     generate_goal_id,
+    generate_handoff_node_id,
     generate_resource_id,
     generate_task_id,
     generate_user_id,
@@ -49,6 +51,7 @@ from graphclaw.models.nodes import (
     ConstraintNode,
     ConstraintRule,
     GoalNode,
+    HandoffNode,
     ResourceNode,
     ScoringBlock,
     StateHistoryEntry,
@@ -140,6 +143,10 @@ class TestIDPatterns:
     def test_edge_id_valid(self):
         assert EDGE_ID_PATTERN.match("EDGE-abc-123")
         assert EDGE_ID_PATTERN.match(generate_edge_id())
+
+    def test_handoff_id_valid(self):
+        assert HANDOFF_NODE_ID_PATTERN.match("HND-abc-123")
+        assert HANDOFF_NODE_ID_PATTERN.match(generate_handoff_node_id())
 
     def test_generated_task_ids_match_all_types(self):
         for task_type in TaskType:
@@ -560,6 +567,35 @@ class TestCheckinNode:
         )
         assert node.created_by == "AGENT"
         assert node.outbound_message is None
+
+
+# ---------------------------------------------------------------------------
+# HandoffNode tests
+# ---------------------------------------------------------------------------
+
+
+class TestHandoffNode:
+    def test_handoff_node_defaults(self):
+        node = HandoffNode(
+            id=generate_handoff_node_id(),
+            task_id="TSK-AB-1234-DEL",
+            to_owner="agent-ops",
+            created_at=NOW,
+            updated_at=NOW,
+        )
+        assert node.task_id == "TSK-AB-1234-DEL"
+        assert node.from_owner is None
+        assert node.context_refs == []
+
+    def test_handoff_id_validator_rejects_invalid(self):
+        with pytest.raises(ValidationError):
+            HandoffNode(
+                id="BAD",
+                task_id="TSK-AB-1234-DEL",
+                to_owner="agent-ops",
+                created_at=NOW,
+                updated_at=NOW,
+            )
 
 
 # ---------------------------------------------------------------------------

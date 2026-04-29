@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import logging
 import os
+import secrets
 from typing import Any
 from urllib.parse import urlparse, urlunparse
 
@@ -130,6 +131,15 @@ class TokenResponse(BaseModel):
     expires_in: int = 900  # 15 minutes in seconds
 
 
+class ExchangeResponse(TokenResponse):
+    """Extended response for /auth/exchange — includes user profile."""
+
+    user_id: str = ""
+    role: str = "USER"
+    display_name: str = ""
+    email: str = ""
+
+
 # ── Helper: build redirect URI ─────────────────────────────────────────────────
 
 
@@ -154,9 +164,7 @@ def _build_redirect_uri(provider_name: str) -> str:
 
     allowlist = _load_redirect_allowlist()
     if base_url not in allowlist:
-        raise ValueError(
-            "OAUTH_REDIRECT_BASE_URL must appear in OAUTH_REDIRECT_ALLOWLIST"
-        )
+        raise ValueError("OAUTH_REDIRECT_BASE_URL must appear in OAUTH_REDIRECT_ALLOWLIST")
 
     return f"{base_url}/auth/callback?provider={provider_name}"
 
@@ -203,6 +211,18 @@ def _normalize_redirect_base_url(base_url: str) -> str:
 
     normalized_path = parsed.path.rstrip("/")
     return urlunparse((parsed.scheme, netloc, normalized_path, "", "", ""))
+
+
+_OTC_PREFIX = "auth:otc:"
+_OTC_TTL_SECONDS = 30
+
+
+def _build_cockpit_url() -> str:
+    """Return the cockpit base URL from COCKPIT_BASE_URL env var.
+
+    Defaults to http://localhost:3000 for local development.
+    """
+    return os.environ.get("COCKPIT_BASE_URL", "http://localhost:3000").rstrip("/")
 
 
 # ── Routes ─────────────────────────────────────────────────────────────────────
@@ -290,10 +310,11 @@ async def callback(
     provider: str,
     code: str,
     state: str,
+    request: Request,
     jwt_service: JWTService = Depends(get_jwt_service),
     oauth_service: OAuthService = Depends(get_oauth_service),
     provisioning_service: UserProvisioningService | None = Depends(get_provisioning_service),
-) -> dict[str, Any]:
+) -> RedirectResponse:
     """Exchange OAuth authorization code for GraphClaw JWT tokens.
 
     Parameters
@@ -375,15 +396,16 @@ async def callback(
                 provider_name,
                 email,
             )
-            return {
-                "access_token": result.access_token,
-                "refresh_token": result.refresh_token,
-                "token_type": "bearer",
-                "expires_in": 900,
-            }
+            return await _issue_otc_redirect(
+                request=request,
+                user_id=result.user_id,
+                access_token=result.access_token,
+                refresh_token=result.refresh_token,
+                role="USER",
+                display_name=name,
+                email=email,
+            )
         except Exception as exc:  # noqa: BLE001
-            # Log and fall through to token-only issuance so login still works
-            # even if provisioning encounters a transient error.
             logger.error(
                 "auth/callback: provisioning failed for %s — falling back to token-only: %s",
                 email,
@@ -399,12 +421,101 @@ async def callback(
     )
     access_token = jwt_service.issue_access_token(oauth_subject)
     refresh_token = jwt_service.issue_refresh_token(oauth_subject)
+    return await _issue_otc_redirect(
+        request=request,
+        user_id=oauth_subject,
+        access_token=access_token,
+        refresh_token=refresh_token,
+        role="USER",
+        display_name=name,
+        email=email,
+    )
 
+
+async def _issue_otc_redirect(
+    request: Request,
+    user_id: str,
+    access_token: str,
+    refresh_token: str,
+    role: str,
+    display_name: str = "",
+    email: str = "",
+) -> RedirectResponse:
+    """Store tokens in Redis under a one-time code and redirect browser to cockpit."""
+    from urllib.parse import quote
+
+    otc = secrets.token_urlsafe(32)
+    redis = getattr(request.app.state, "redis", None)
+    if redis is not None:
+        await redis.set(
+            f"{_OTC_PREFIX}{otc}",
+            f"{user_id}|{access_token}|{refresh_token}|{role}|{display_name}|{email}",
+            ex=_OTC_TTL_SECONDS,
+        )
+    else:
+        # Redis unavailable — fall back to query-param delivery (dev only)
+        logger.warning(
+            "auth/callback: Redis unavailable, falling back to query-param token delivery"
+        )
+        cockpit = _build_cockpit_url()
+        return RedirectResponse(
+            f"{cockpit}/auth/callback?access_token={access_token}&refresh_token={refresh_token}"
+            f"&user_id={user_id}&role={role}&display_name={quote(display_name)}&email={quote(email)}",
+            status_code=302,
+        )
+    cockpit = _build_cockpit_url()
+    return RedirectResponse(f"{cockpit}/auth/callback?code={otc}", status_code=302)
+
+
+class ExchangeRequest(BaseModel):
+    """Request body for ``POST /auth/exchange``."""
+
+    code: str
+
+
+@router.post(
+    "/exchange",
+    response_model=ExchangeResponse,
+    summary="Exchange one-time code for tokens",
+    description=(
+        "Exchanges a short-lived one-time code (issued by the OAuth callback redirect) "
+        "for a real access + refresh token pair. The code is deleted after first use "
+        "and expires in 30 seconds."
+    ),
+)
+async def exchange(
+    body: ExchangeRequest,
+    request: Request,
+) -> dict[str, Any]:
+    """Exchange a one-time code for tokens."""
+    redis = getattr(request.app.state, "redis", None)
+    if redis is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Auth exchange requires Redis",
+        )
+    key = f"{_OTC_PREFIX}{body.code}"
+    value: str | None = await redis.get(key)
+    if value is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invalid or expired exchange code",
+        )
+    await redis.delete(key)
+    parts = value.split("|", 5)
+    user_id, access_token, refresh_token, role = parts[0], parts[1], parts[2], parts[3]
+    display_name = parts[4] if len(parts) > 4 else ""
+    email = parts[5] if len(parts) > 5 else ""
+    logger.info("auth/exchange: redeemed OTC for user_id=%s", user_id)
     return {
         "access_token": access_token,
         "refresh_token": refresh_token,
         "token_type": "bearer",
         "expires_in": 900,
+        "user_id": user_id,
+        "role": role,
+        "display_name": display_name,
+        "email": email,
     }
 
 
@@ -539,7 +650,7 @@ class DevTokenRequest(BaseModel):
         "**Only available when ``ENVIRONMENT=development``.**  "
         "Returns HTTP 403 in production."
     ),
-    include_in_schema=os.environ.get("ENVIRONMENT", "development") == "development",
+    include_in_schema=os.environ.get("ENVIRONMENT", "production") == "development",
 )
 async def dev_token(
     body: DevTokenRequest,
@@ -549,7 +660,7 @@ async def dev_token(
 
     Only works when ``ENVIRONMENT=development``.
     """
-    if os.environ.get("ENVIRONMENT", "development") != "development":
+    if os.environ.get("ENVIRONMENT", "production") != "development":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Dev token endpoint is disabled in production",
@@ -571,24 +682,38 @@ async def dev_token(
     "/me",
     summary="Get current authenticated user",
     description=(
-        "Returns the user ID of the currently authenticated user. "
+        "Returns the authenticated user's platform ID and profile. "
         "Requires a valid Bearer access token in the ``Authorization`` header."
     ),
 )
 async def me(
+    request: Request,
     user_id: str = Depends(get_current_user_id),
-) -> dict[str, str]:
-    """Return the authenticated user's platform ID.
-
-    Parameters
-    ----------
-    user_id:
-        Platform user ID extracted from the Bearer access token by
-        ``get_current_user_id``.
+) -> dict[str, Any]:
+    """Return the authenticated user's platform ID and profile from the graph.
 
     Returns
     -------
     dict:
-        ``{"user_id": str, "token_type": "access"}``.
+        ``{"user_id", "token_type", "display_name", "email"}`` — name/email
+        are empty strings when the graph store is unavailable or the UserNode
+        is not yet provisioned.
     """
-    return {"user_id": user_id, "token_type": "access"}
+    graph_store = getattr(request.app.state, "graph_store", None)
+    display_name = ""
+    email = ""
+    if graph_store is not None:
+        try:
+            nodes = await graph_store.list_nodes("UserNode", {"id": user_id})
+            if nodes:
+                node = nodes[0]
+                display_name = node.get("name", "")
+                email = node.get("email", "")
+        except Exception:  # noqa: BLE001
+            logger.warning("auth/me: failed to fetch UserNode for user_id=%s", user_id)
+    return {
+        "user_id": user_id,
+        "token_type": "access",
+        "display_name": display_name,
+        "email": email,
+    }

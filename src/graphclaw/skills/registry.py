@@ -333,7 +333,9 @@ class SkillRegistryService:
             listings: list[SkillListing] = []
             for entry in payload.get("skills", []):
                 raw_skill_file = entry.get("skill_file_url", "")
-                skill_file_url = _github_skill_file_url(owner, repo, branch, subpath, raw_skill_file)
+                skill_file_url = _github_skill_file_url(
+                    owner, repo, branch, subpath, raw_skill_file
+                )
                 listing = SkillListing(
                     name=entry["name"],
                     version=entry.get("version", "1.0.0"),

@@ -32,6 +32,8 @@ SELECT create_vlabel('graphclaw', 'GoalNode');
 SELECT create_vlabel('graphclaw', 'ConstraintNode');
 SELECT create_vlabel('graphclaw', 'UserNode');
 SELECT create_vlabel('graphclaw', 'ResourceNode');
+SELECT create_vlabel('graphclaw', 'CheckinNode');
+SELECT create_vlabel('graphclaw', 'HandoffNode');
 
 -- Phase 2 node labels --
 SELECT create_vlabel('graphclaw', 'OrganizationNode');
@@ -46,6 +48,7 @@ SELECT create_elabel('graphclaw', 'ASSIGNED_TO');
 SELECT create_elabel('graphclaw', 'OWNED_BY');
 SELECT create_elabel('graphclaw', 'APPLIES_TO');
 SELECT create_elabel('graphclaw', 'PART_OF');
+SELECT create_elabel('graphclaw', 'REFERRED_BY');
 
 -- Phase 2 edge labels --
 SELECT create_elabel('graphclaw', 'MEMBER_OF');

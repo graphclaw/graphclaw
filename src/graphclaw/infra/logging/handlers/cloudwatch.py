@@ -27,8 +27,8 @@ def build_cloudwatch_handler(
         A configured CloudWatchLogHandler or NullHandler.
     """
     try:
-        import watchtower
         import boto3
+        import watchtower
 
         boto3_session = boto3.Session(region_name=region)
         handler = watchtower.CloudWatchLogHandler(

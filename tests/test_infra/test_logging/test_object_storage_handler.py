@@ -3,11 +3,7 @@
 from __future__ import annotations
 
 import logging
-import time
-from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from graphclaw.infra.logging.formatter import JsonFormatter
 from graphclaw.infra.logging.handlers.object_storage import ObjectStorageHandler

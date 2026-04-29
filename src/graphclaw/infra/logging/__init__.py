@@ -116,7 +116,7 @@ def configure_logging(
             bucket=storage_bucket,
             endpoint_url=storage_endpoint_url,
             region=storage_region,
-            min_level="INFO",
+            min_level=log_level,
         )
         h.setFormatter(formatter)
         handlers.append(h)

@@ -134,8 +134,7 @@ def format_briefing(
                 f"[autonomy: {entry.autonomy_level.value}]"
                 + (
                     "  [INTERRUPT]"
-                    if interrupt_threshold is not None
-                    and entry.final_score > interrupt_threshold
+                    if interrupt_threshold is not None and entry.final_score > interrupt_threshold
                     else ""
                 )
             )
@@ -208,7 +207,11 @@ def format_briefing(
             tid = item.get("id", "")
             title = item.get("title", "")
             deadline = item.get("deadline", "")
-            score = item.get("score", 0.0)
+            score_raw = item.get("score", 0.0)
+            try:
+                score = float(score_raw)
+            except (TypeError, ValueError):
+                score = 0.0
             lines.append(f"  - [{tid}] {title}  (deadline: {deadline}, score: {score:.3f})")
         lines.append("")
     else:
@@ -236,9 +239,7 @@ def format_briefing(
     return "\n".join(lines)
 
 
-def has_interrupt_items(
-    queue: list[ActionQueueEntry], interrupt_threshold: float
-) -> bool:
+def has_interrupt_items(queue: list[ActionQueueEntry], interrupt_threshold: float) -> bool:
     """Return True if any entry in *queue* exceeds *interrupt_threshold*.
 
     Callers (e.g. ``TriggerEngine``) use this to decide whether a mid-day

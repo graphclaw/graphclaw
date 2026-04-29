@@ -589,13 +589,17 @@ async def put_agent_config(
     storage_client: StorageClientDep,
 ) -> AgentConfigSchema:
     """Write the runtime config.json for an agent."""
-    # Verify the canvas definition exists (guards against orphan config writes)
-    exists = await storage_client.exists(_def_path(user_id, agent_id))
-    if not exists:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Agent '{agent_id}' not found",
-        )
+    # Accept writes if any of: canvas definition, agent manifest, or existing config file.
+    # This allows wiring the orchestrator and intelligence-hub agents that have no canvas def.
+    canvas_def_exists = await storage_client.exists(_def_path(user_id, agent_id))
+    if not canvas_def_exists:
+        manifest_exists = await storage_client.exists(StoragePaths.agent_manifest(user_id, agent_id))
+        config_exists = await storage_client.exists(StoragePaths.agent_config(user_id, agent_id))
+        if not manifest_exists and not config_exists:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Agent '{agent_id}' not found",
+            )
     config_path = StoragePaths.agent_config(user_id, agent_id)
     raw = json.dumps(body.model_dump(exclude_none=False), default=str).encode()
     await storage_client.write(config_path, raw, content_type="application/json")

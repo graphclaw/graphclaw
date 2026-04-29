@@ -50,7 +50,7 @@ _DIV = "─" * 70
 
 async def build_agent_loop(pool):
     """Construct a fully wired AgentLoop with real LLM + storage."""
-    from graphclaw.agent.loop import AgentLoop
+    from graphclaw.agent.main_orchestrator import MainOrchestrator as AgentLoop
     from graphclaw.db.factory import create_graph_store
     from graphclaw.infra.storage import S3StorageClient
     from graphclaw.llm.factory import create_llm_client
@@ -342,3 +342,4 @@ if __name__ == "__main__":
         main(scenarios_to_run),
         loop_factory=lambda: asyncio.SelectorEventLoop(selectors.SelectSelector()),
     )
+

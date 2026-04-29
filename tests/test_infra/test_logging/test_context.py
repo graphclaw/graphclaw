@@ -5,8 +5,6 @@ from __future__ import annotations
 import asyncio
 import logging
 
-import pytest
-
 from graphclaw.infra.logging.context import (
     SessionFilter,
     generate_session_id,

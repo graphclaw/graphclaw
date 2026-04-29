@@ -25,6 +25,7 @@ Public API
 - RESOURCE_ID_PATTERN: Compiled regex for resource ID validation.
 - EDGE_ID_PATTERN: Compiled regex for edge ID validation.
 - CHECKIN_NODE_ID_PATTERN: Compiled regex for check-in node ID validation.
+- HANDOFF_NODE_ID_PATTERN: Compiled regex for handoff node ID validation.
 - GRANT_ID_PATTERN: Compiled regex for visibility grant ID validation.
 - MCP_SERVER_ID_PATTERN: Compiled regex for MCP server ID validation.
 - generate_id: Generic ``{PREFIX}-{uuid}`` ID generator.
@@ -35,6 +36,7 @@ Public API
 - generate_resource_id: Generate a RES-{uuid} ID.
 - generate_edge_id: Generate an EDGE-{uuid} ID.
 - generate_checkin_node_id: Generate a CHK-{uuid} ID.
+- generate_handoff_node_id: Generate a HND-{uuid} ID.
 - generate_org_id: Generate an ORG-{uuid} ID.
 - generate_workspace_id: Generate a WS-{uuid} ID.
 - generate_grant_id: Generate a GRANT-{uuid} ID.
@@ -42,6 +44,7 @@ Public API
 - utcnow: Return the current timezone.utc datetime (timezone-aware).
 - validate_id: Generic ID validator (pattern + entity name).
 - validate_task_id / validate_*_id: Thin wrappers around validate_id for Pydantic field_validator use.
+- validate_handoff_id: Thin wrapper for handoff node ID validation.
 - validate_grant_id: Thin wrapper for visibility grant ID validation.
 - validate_mcp_server_id: Thin wrapper for MCP server ID validation.
 
@@ -74,6 +77,7 @@ CONSTRAINT_ID_PATTERN = re.compile(r"^CON-[\w-]+$")
 RESOURCE_ID_PATTERN = re.compile(r"^RES-[\w-]+$")
 EDGE_ID_PATTERN = re.compile(r"^EDGE-[\w-]+$")
 CHECKIN_NODE_ID_PATTERN = re.compile(r"^CHK-[\w-]+$")
+HANDOFF_NODE_ID_PATTERN = re.compile(r"^HND-[\w-]+$")
 ORG_ID_PATTERN = re.compile(r"^ORG-[\w-]+$")
 WORKSPACE_ID_PATTERN = re.compile(r"^WS-[\w-]+$")
 GRANT_ID_PATTERN = re.compile(r"^GRANT-[\w-]+$")
@@ -174,6 +178,11 @@ def generate_checkin_node_id() -> str:
     return generate_id("CHK")
 
 
+def generate_handoff_node_id() -> str:
+    """Generate a handoff node ID in the form HND-{uuid}."""
+    return generate_id("HND")
+
+
 def generate_org_id() -> str:
     """Generate an organization ID in the form ORG-{uuid}."""
     return generate_id("ORG")
@@ -263,6 +272,10 @@ def validate_org_id(v: str) -> str:
 
 def validate_workspace_id(v: str) -> str:
     return validate_id(v, WORKSPACE_ID_PATTERN, "workspace")
+
+
+def validate_handoff_id(v: str) -> str:
+    return validate_id(v, HANDOFF_NODE_ID_PATTERN, "handoff")
 
 
 def validate_grant_id(v: str) -> str:

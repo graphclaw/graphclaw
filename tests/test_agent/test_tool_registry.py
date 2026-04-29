@@ -112,7 +112,11 @@ class TestActivate:
         names = _tool_names(tools)
 
         assert "propose_plan" in names
+        assert "edit_plan" in names
+        assert "approve_plan" in names
         assert "execute_plan" in names
+        assert "propose_goal_inference" in names
+        assert "approve_goal_inference" in names
 
     def test_activate_delegation_returns_tools(self):
         registry = ToolSetRegistry()

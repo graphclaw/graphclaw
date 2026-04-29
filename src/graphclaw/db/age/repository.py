@@ -528,6 +528,41 @@ class AgeGraphStore(GraphStore):
             )
         logger.debug("update_node_intelligence", extra={"node_id": node_id})
 
+    async def get_nodes_bulk(self, node_ids: list[str]) -> dict[str, dict]:
+        """Retrieve multiple vertices by their ``id`` properties in one Cypher call.
+
+        Returns a mapping of ``{node_id: properties_dict}`` for every ID that
+        exists in the graph.  Missing IDs are silently omitted from the result.
+
+        Parameters
+        ----------
+        node_ids:
+            List of ``id`` property values to fetch (e.g. ``["task-001", "task-003"]``).
+        """
+        if not node_ids:
+            return {}
+
+        escaped_ids = ", ".join(f"'{_escape(nid)}'" for nid in node_ids)
+        async with get_connection(self._pool) as conn:
+            result = await conn.execute(
+                f"""
+                SELECT * FROM cypher('{self._graph}', $$
+                    MATCH (n)
+                    WHERE n.id IN [{escaped_ids}]
+                    RETURN n
+                $$) as (v agtype)
+                """
+            )
+            rows = await result.fetchall()
+
+        out: dict[str, dict] = {}
+        for row in rows:
+            props = _extract_properties(row[0])
+            nid = props.get("id")
+            if nid:
+                out[nid] = props
+        return out
+
     async def get_node_intelligence(self, node_id: str) -> str | None:
         """Read only the intelligence field from a node.
 
@@ -562,7 +597,7 @@ class AgeGraphStore(GraphStore):
         agent_id: str,
         recipient: str,
     ) -> str:
-        """Create a CheckinNode and a REFERS_TO edge to the given task.
+        """Create a CheckinNode and a REFERRED_BY edge to the given task.
 
         Returns the checkin node id.
 
@@ -610,7 +645,7 @@ class AgeGraphStore(GraphStore):
                         outbound_message: '{eid_outbound}',
                         channel: '{eid_channel}'
                     }})
-                    CREATE (c)-[:REFERS_TO]->(t)
+                    CREATE (c)-[:REFERRED_BY]->(t)
                     RETURN c
                 $$) as (v agtype)
                 """

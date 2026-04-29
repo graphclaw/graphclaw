@@ -1,0 +1,5 @@
+{
+  "max_messages_per_channel": 10,
+  "max_total_messages": 20,
+  "channels": ["email", "telegram", "whatsapp"]
+}

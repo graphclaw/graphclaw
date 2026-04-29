@@ -239,15 +239,47 @@ class OpenAILLMClient(LLMTraceMixin, LLMClient):
         if tools:
             kwargs["tools"] = self._translate_tools(tools)
 
+        import json as _json  # noqa: PLC0415
+
         accumulated_content = ""
         finish_reason = None
+        # index → {"id": str, "name": str, "arguments": str}
+        tc_chunks: dict[int, dict[str, str]] = {}
         try:
             async with await client.chat.completions.create(**kwargs) as stream:
                 async for chunk in stream:
-                    delta = chunk.choices[0].delta.content or ""
-                    accumulated_content += delta
-                    finish_reason = chunk.choices[0].finish_reason
+                    choice = chunk.choices[0]
+                    delta = choice.delta
+                    text_delta = delta.content or ""
+                    accumulated_content += text_delta
+                    finish_reason = choice.finish_reason
+
+                    # Accumulate tool call deltas
+                    if delta.tool_calls:
+                        for tc_delta in delta.tool_calls:
+                            idx = tc_delta.index
+                            if idx not in tc_chunks:
+                                tc_chunks[idx] = {"id": "", "name": "", "arguments": ""}
+                            if tc_delta.id:
+                                tc_chunks[idx]["id"] += tc_delta.id
+                            fn = tc_delta.function
+                            if fn:
+                                if fn.name:
+                                    tc_chunks[idx]["name"] += fn.name
+                                if fn.arguments:
+                                    tc_chunks[idx]["arguments"] += fn.arguments
+
                     if finish_reason:
+                        tool_calls: list[ToolCall] = []
+                        for idx in sorted(tc_chunks):
+                            tc = tc_chunks[idx]
+                            try:
+                                args = _json.loads(tc["arguments"]) if tc["arguments"] else {}
+                            except (_json.JSONDecodeError, ValueError):
+                                args = {}
+                            tool_calls.append(
+                                ToolCall(id=tc["id"], name=tc["name"], arguments=args)
+                            )
                         final_response = LLMResponse(
                             content=accumulated_content,
                             model=target_model,
@@ -255,15 +287,16 @@ class OpenAILLMClient(LLMTraceMixin, LLMClient):
                             prompt_tokens=0,
                             completion_tokens=0,
                             cost_usd=0.0,
+                            tool_calls=tool_calls,
                             stop_reason=finish_reason,
                         )
                         yield LLMStreamChunk(
-                            content_delta=delta,
+                            content_delta=text_delta,
                             is_final=True,
                             accumulated=final_response,
                         )
                     else:
-                        yield LLMStreamChunk(content_delta=delta)
+                        yield LLMStreamChunk(content_delta=text_delta)
         except Exception as exc:
             raise RuntimeError(f"OpenAI stream failed: {exc}") from exc
 

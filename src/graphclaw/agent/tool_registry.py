@@ -16,7 +16,7 @@ Tier 1 — Core (always present):
 
 Tier 2 — Named sets (activated on demand):
   task_management  →  create_task, update_task, create_goal, update_goal
-  planning         →  propose_plan, execute_plan
+    planning         →  propose_plan, edit_plan, approve_plan, execute_plan
   skills           →  list_available_skills, invoke_skill
   mcp              →  list_mcp_tools, call_mcp_tool
   delegation       →  delegate_to_agent, create_agent
@@ -107,9 +107,18 @@ def _make_core_tools() -> list[ToolDefinition]:
         _td(
             "get_task_details",
             (
-                "Retrieve full details for one task or goal including its relationships: "
-                "dependencies (DEPENDS_ON), blockers (BLOCKS), parent goal (PART_OF), "
-                "assignee (ASSIGNED_TO), and recent state history."
+                "Retrieve a layered detail view for one task or goal. "
+                "Returns: header (id, title, state, task_type, score, recommended_action), "
+                "timeline (deadline, effort, progress%), "
+                "assigned_to (name, load_factor, reliability), "
+                "goal (title, priority, state), "
+                "dependencies (waiting_on, blocking, blocked_by, actively_blocks — each with id+title+state), "
+                "edges (PART_OF, ASSIGNED_TO, DEPENDS_ON, BLOCKS, SPAWNED_FROM), "
+                "scoring (final_score, per-factor breakdown with plain-English reasons), "
+                "type_metadata (task-type-specific fields, e.g. approver_id for APPROVAL), "
+                "intelligence_log (last 5 communication entries), "
+                "state_history (last 3 transitions). "
+                "Use this when the user asks about a specific task or goal, or before any mutation that requires full context."
             ),
             {
                 "node_id": {
@@ -307,16 +316,28 @@ def _make_planning_tools() -> list[ToolDefinition]:
             "propose_plan",
             (
                 "Generate a structured decomposition plan for a goal or complex task. "
-                "Returns a plan_id that can be passed to execute_plan after user review."
+                "Persists a DRAFT plan and returns a plan_id for review/edit/approval."
             ),
             {
+                "description": {
+                    "type": "string",
+                    "description": "Free-form goal description to decompose.",
+                },
                 "goal_or_task_id": {
                     "type": "string",
-                    "description": "GOAL-* or TSK-* ID to plan against.",
+                    "description": "Optional GOAL-* or TSK-* ID to anchor planning context.",
                 },
                 "context": {
                     "type": "string",
-                    "description": "Additional context or constraints for the plan.",
+                    "description": "Additional context/constraints (used when description is not provided).",
+                },
+                "constraints": {
+                    "type": "string",
+                    "description": "Explicit constraints for the decomposition.",
+                },
+                "deadline": {
+                    "type": "string",
+                    "description": "Optional deadline to include in the draft plan.",
                 },
                 "max_tasks": {
                     "type": "integer",
@@ -324,11 +345,60 @@ def _make_planning_tools() -> list[ToolDefinition]:
                     "default": 10,
                 },
             },
-            required=["goal_or_task_id"],
+            required=[],
+        ),
+        _td(
+            "edit_plan",
+            (
+                "Edit a DRAFT (or previously approved) plan before execution. "
+                "Edits to an approved plan reset it to DRAFT and require re-approval."
+            ),
+            {
+                "plan_id": {
+                    "type": "string",
+                    "description": "Plan ID returned by propose_plan.",
+                },
+                "goal_title": {
+                    "type": "string",
+                    "description": "Optional replacement goal title.",
+                },
+                "goal_description": {
+                    "type": "string",
+                    "description": "Optional replacement goal description.",
+                },
+                "execution_summary": {
+                    "type": "string",
+                    "description": "Optional replacement execution summary.",
+                },
+                "deadline": {
+                    "type": "string",
+                    "description": "Optional replacement deadline.",
+                },
+                "tasks": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                    "description": "Optional full replacement of draft tasks.",
+                },
+            },
+            required=["plan_id"],
+        ),
+        _td(
+            "approve_plan",
+            "Approve a reviewed plan. execute_plan only accepts APPROVED plans.",
+            {
+                "plan_id": {
+                    "type": "string",
+                    "description": "Plan ID returned by propose_plan.",
+                },
+            },
+            required=["plan_id"],
         ),
         _td(
             "execute_plan",
-            "Execute a previously proposed plan, creating all tasks and edges in the graph.",
+            (
+                "Execute a previously approved plan, creating goal/tasks/edges in the graph. "
+                "Uses rollback semantics if any create step fails."
+            ),
             {
                 "plan_id": {
                     "type": "string",
@@ -337,10 +407,43 @@ def _make_planning_tools() -> list[ToolDefinition]:
                 "approved_task_ids": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Optional: subset of task IDs to create (all by default).",
+                    "description": "Optional subset of draft_task_id values to execute (all by default).",
                 },
             },
             required=["plan_id"],
+        ),
+        _td(
+            "propose_goal_inference",
+            (
+                "Analyze active ungrouped tasks and propose bottom-up inferred goals as DRAFTs. "
+                "Each proposal requires explicit human approval before graph writes."
+            ),
+            {
+                "min_cluster_size": {
+                    "type": "integer",
+                    "description": "Minimum number of related tasks required to form a proposal (default 3).",
+                    "default": 3,
+                },
+                "max_proposals": {
+                    "type": "integer",
+                    "description": "Maximum number of proposals to return (default 3).",
+                    "default": 3,
+                },
+            },
+            required=[],
+        ),
+        _td(
+            "approve_goal_inference",
+            (
+                "Approve a draft inferred-goal proposal and commit a GoalNode + PART_OF edges to the graph."
+            ),
+            {
+                "inference_id": {
+                    "type": "string",
+                    "description": "Goal inference ID returned by propose_goal_inference.",
+                }
+            },
+            required=["inference_id"],
         ),
     ]
 

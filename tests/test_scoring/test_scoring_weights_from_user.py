@@ -115,6 +115,7 @@ async def test_from_user_partial_custom_weights():
 
 async def test_from_user_without_scoring_weights_attribute():
     """If user object lacks scoring_weights, fall back to PRD defaults."""
+
     class MinimalUser:
         pass  # no scoring_weights attribute
 

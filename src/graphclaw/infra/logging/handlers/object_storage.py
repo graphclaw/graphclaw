@@ -73,9 +73,7 @@ class ObjectStorageHandler(logging.Handler):
         with self._lock:
             self._buffer.append(record)
             elapsed = time.monotonic() - self._last_flush
-            should_flush = (
-                len(self._buffer) >= self._batch_size or elapsed >= self._flush_interval
-            )
+            should_flush = len(self._buffer) >= self._batch_size or elapsed >= self._flush_interval
         if should_flush:
             self._flush()
 

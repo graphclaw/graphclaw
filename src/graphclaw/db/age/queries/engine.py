@@ -37,6 +37,7 @@ from __future__ import annotations
 
 from psycopg_pool import AsyncConnectionPool
 
+from graphclaw.db.age.connection import get_connection
 from graphclaw.db.age.queries.critical_path import find_critical_path
 from graphclaw.db.age.queries.dependencies import (
     get_blocked_root_causes,
@@ -48,7 +49,7 @@ from graphclaw.db.age.queries.scoring_queries import (
     get_assigned_resource,
     get_constraints_for_task,
 )
-from graphclaw.db.age.utils import GRAPH_NAME
+from graphclaw.db.age.utils import GRAPH_NAME, _escape, _extract_properties
 from graphclaw.db.base import GraphQueryEngine
 
 
@@ -88,3 +89,26 @@ class AgeGraphQueryEngine(GraphQueryEngine):
 
     async def get_assigned_resource(self, task_id: str) -> dict | None:
         return await get_assigned_resource(self._pool, task_id, self._graph_name)
+
+    async def get_nodes_bulk(self, node_ids: list[str]) -> dict[str, dict]:
+        if not node_ids:
+            return {}
+        escaped_ids = ", ".join(f"'{_escape(nid)}'" for nid in node_ids)
+        async with get_connection(self._pool) as conn:
+            result = await conn.execute(
+                f"""
+                SELECT * FROM cypher('{self._graph_name}', $$
+                    MATCH (n)
+                    WHERE n.id IN [{escaped_ids}]
+                    RETURN n
+                $$) as (v agtype)
+                """
+            )
+            rows = await result.fetchall()
+        out: dict[str, dict] = {}
+        for row in rows:
+            props = _extract_properties(row[0])
+            nid = props.get("id")
+            if nid:
+                out[str(nid)] = props
+        return out

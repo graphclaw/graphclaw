@@ -35,10 +35,10 @@ Dependencies
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import TYPE_CHECKING
 
+from graphclaw.models.deserialization import deserialize_task_node_props
 from graphclaw.models.enums import (
     ChangedBy,
     ConfidenceLevel,
@@ -56,20 +56,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_sm = StateMachine()
-
-# Fields that AGE stores as JSON strings inside a node property dict.
-# They must be decoded back to dicts before TaskNode.model_validate().
-_NODE_JSON_STR_FIELDS = (
-    "scoring",
-    "timeline",
-    "progress",
-    "override",
-    "autonomy",
-    "type_metadata",
-)
-_NODE_JSON_LIST_FIELDS = ("state_history", "update_log", "tags")
-
 
 def _deserialize_node_props(raw: dict) -> dict:
     """Parse JSON-string fields in a raw AGE node property dict.
@@ -78,32 +64,12 @@ def _deserialize_node_props(raw: dict) -> dict:
     This helper converts them back to Python dicts/lists so that
     ``TaskNode.model_validate`` succeeds.
     """
-    result = dict(raw)
-    for field in _NODE_JSON_STR_FIELDS:
-        if isinstance(result.get(field), str):
-            try:
-                result[field] = json.loads(result[field])
-            except (json.JSONDecodeError, ValueError):
-                result[field] = None
-    for field in _NODE_JSON_LIST_FIELDS:
-        val = result.get(field)
-        if isinstance(val, str):
-            try:
-                result[field] = json.loads(val)
-            except (json.JSONDecodeError, ValueError):
-                result[field] = []
-        elif isinstance(val, list):
-            parsed: list = []
-            for item in val:
-                if isinstance(item, str):
-                    try:
-                        parsed.append(json.loads(item))
-                    except (json.JSONDecodeError, ValueError):
-                        parsed.append(item)
-                else:
-                    parsed.append(item)
-            result[field] = parsed
-    return result
+    return deserialize_task_node_props(raw)
+
+
+def _resolve_state_machine(state_machine: StateMachine | None) -> StateMachine:
+    """Return an injected state machine or a local default instance."""
+    return state_machine or StateMachine()
 
 
 # ---------------------------------------------------------------------------
@@ -116,6 +82,7 @@ def check_composite_completion(
     children: list[TaskNode],
     grandparent: TaskNode | None = None,
     siblings: list[TaskNode] | None = None,
+    state_machine: StateMachine | None = None,
 ) -> None:
     """Evaluate whether a composite parent should auto-complete.
 
@@ -193,12 +160,14 @@ def check_composite_completion(
         if c.task_type in (TaskType.RESEARCH, TaskType.REVIEW)
         and c.progress.confidence == ConfidenceLevel.LOW
     ]
+    sm = _resolve_state_machine(state_machine)
+
     if low_confidence_children:
         logger.info(
             "cascade: low-confidence children for %s — transitioning to NEEDS_REVIEW",
             parent_task.id,
         )
-        _sm.transition(
+        sm.transition(
             parent_task,
             TaskState.NEEDS_REVIEW,
             ChangedBy.CASCADE,
@@ -208,7 +177,7 @@ def check_composite_completion(
 
     # Step 5: auto-complete the parent.
     logger.info("cascade: auto-completing %s via CASCADE", parent_task.id)
-    _sm.transition(
+    sm.transition(
         parent_task,
         TaskState.COMPLETE,
         ChangedBy.CASCADE,
@@ -217,7 +186,7 @@ def check_composite_completion(
 
     # Step 6: recurse upward.
     if grandparent is not None and siblings is not None:
-        check_composite_completion(grandparent, siblings)
+        check_composite_completion(grandparent, siblings, state_machine=sm)
 
 
 # ---------------------------------------------------------------------------
@@ -228,6 +197,7 @@ def check_composite_completion(
 async def activate_next_in_chain(
     completed_task: TaskNode,
     graph_repo: GraphStore,
+    state_machine: StateMachine | None = None,
 ) -> list[TaskNode]:
     """Activate INACTIVE_PENDING tasks that were waiting on *completed_task*.
 
@@ -256,6 +226,8 @@ async def activate_next_in_chain(
     )
 
     activated: list[TaskNode] = []
+    sm = _resolve_state_machine(state_machine)
+
     for edge in dependent_edges:
         dep_id = edge.get("_start_id")
         if not dep_id:
@@ -271,7 +243,7 @@ async def activate_next_in_chain(
 
         if dep_task.state == TaskState.INACTIVE_PENDING:
             try:
-                _sm.transition(
+                sm.transition(
                     dep_task,
                     TaskState.ACTIVE,
                     ChangedBy.CASCADE,
@@ -312,14 +284,20 @@ async def _load_children_for_parent(parent_id: str, graph_repo: GraphStore) -> l
     return children
 
 
-async def run_post_transition_cascade(task: TaskNode, graph_repo: GraphStore) -> list[TaskNode]:
+async def run_post_transition_cascade(
+    task: TaskNode,
+    graph_repo: GraphStore,
+    state_machine: StateMachine | None = None,
+) -> list[TaskNode]:
     """Run COMPLETE-triggered cascade side effects for *task* and persist them."""
     if task.state != TaskState.COMPLETE:
         return []
 
     persisted_updates: list[TaskNode] = []
 
-    activated = await activate_next_in_chain(task, graph_repo)
+    sm = _resolve_state_machine(state_machine)
+
+    activated = await activate_next_in_chain(task, graph_repo, state_machine=sm)
     for activated_task in activated:
         await graph_repo.update_node(activated_task.id, activated_task.model_dump(mode="json"))
         persisted_updates.append(activated_task)
@@ -342,7 +320,7 @@ async def run_post_transition_cascade(task: TaskNode, graph_repo: GraphStore) ->
 
         children = await _load_children_for_parent(parent_id, graph_repo)
         prior_state = parent_task.state
-        check_composite_completion(parent_task, children)
+        check_composite_completion(parent_task, children, state_machine=sm)
 
         if parent_task.state == prior_state:
             continue
@@ -351,7 +329,9 @@ async def run_post_transition_cascade(task: TaskNode, graph_repo: GraphStore) ->
         persisted_updates.append(parent_task)
 
         if parent_task.state == TaskState.COMPLETE:
-            persisted_updates.extend(await run_post_transition_cascade(parent_task, graph_repo))
+            persisted_updates.extend(
+                await run_post_transition_cascade(parent_task, graph_repo, state_machine=sm)
+            )
 
     return persisted_updates
 
@@ -380,7 +360,7 @@ async def persist_transition_and_cascade(
 ) -> TaskNode:
     """Persist a state transition and run any cascade side effects it triggers."""
     await persist_transition(task, target_state, changed_by, reason, graph_repo, state_machine)
-    await run_post_transition_cascade(task, graph_repo)
+    await run_post_transition_cascade(task, graph_repo, state_machine=state_machine)
     return task
 
 

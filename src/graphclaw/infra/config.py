@@ -43,7 +43,7 @@ from __future__ import annotations
 
 import os
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 
 
 class StorageConfig(BaseModel):
@@ -152,6 +152,17 @@ class AgentPoolConfig(BaseModel):
             sub-agent run.
         subagent_tool_timeout_seconds: Per-tool timeout for sub-agent calls
             to skills and MCP tools.
+        subagent_tool_max_retries: Maximum retry attempts for retry-eligible
+            tool calls.
+        subagent_retry_backoff_base_ms: Base backoff in milliseconds for
+            retry-eligible tool calls.
+        subagent_retry_backoff_max_ms: Maximum backoff in milliseconds for
+            retry-eligible tool calls.
+        subagent_retryable_skills: Explicit allowlist of skill names that are
+            safe to retry on transient failures.
+        subagent_retryable_mcp_tools: Explicit allowlist of MCP tools that are
+            safe to retry on transient failures. Supports either ``tool_name``
+            or ``server_id:tool_name`` entries.
     """
 
     max_concurrent_agents: int = 4
@@ -160,6 +171,41 @@ class AgentPoolConfig(BaseModel):
     heartbeat_timeout_seconds: int = 300
     subagent_execution_timeout_seconds: int = 600
     subagent_tool_timeout_seconds: int = 120
+    subagent_tool_max_retries: int = 0
+    subagent_retry_backoff_base_ms: int = 200
+    subagent_retry_backoff_max_ms: int = 1000
+    subagent_retryable_skills: list[str] = Field(default_factory=list)
+    subagent_retryable_mcp_tools: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _validate_invariants(self) -> AgentPoolConfig:
+        """Validate heartbeat/timeout coherence for stable sub-agent runtime."""
+        if self.max_concurrent_agents < 1:
+            raise ValueError("GRAPHCLAW_MAX_CONCURRENT_AGENTS must be >= 1")
+        if self.subagent_worker_pool_size < 1:
+            raise ValueError("GRAPHCLAW_SUBAGENT_WORKER_POOL_SIZE must be >= 1")
+        if self.heartbeat_interval_seconds < 10:
+            raise ValueError("GRAPHCLAW_AGENT_HEARTBEAT_INTERVAL_SECONDS must be >= 10")
+        if self.heartbeat_timeout_seconds < (self.heartbeat_interval_seconds * 2):
+            raise ValueError(
+                "GRAPHCLAW_AGENT_HEARTBEAT_TIMEOUT_SECONDS must be at least 2x "
+                "GRAPHCLAW_AGENT_HEARTBEAT_INTERVAL_SECONDS"
+            )
+        if self.subagent_tool_timeout_seconds >= self.subagent_execution_timeout_seconds:
+            raise ValueError(
+                "GRAPHCLAW_SUBAGENT_TOOL_TIMEOUT_SECONDS must be less than "
+                "GRAPHCLAW_SUBAGENT_EXECUTION_TIMEOUT_SECONDS"
+            )
+        if self.subagent_tool_max_retries < 0:
+            raise ValueError("GRAPHCLAW_SUBAGENT_TOOL_MAX_RETRIES must be >= 0")
+        if self.subagent_retry_backoff_base_ms < 0:
+            raise ValueError("GRAPHCLAW_SUBAGENT_RETRY_BACKOFF_BASE_MS must be >= 0")
+        if self.subagent_retry_backoff_max_ms < self.subagent_retry_backoff_base_ms:
+            raise ValueError(
+                "GRAPHCLAW_SUBAGENT_RETRY_BACKOFF_MAX_MS must be >= "
+                "GRAPHCLAW_SUBAGENT_RETRY_BACKOFF_BASE_MS"
+            )
+        return self
 
     @classmethod
     def from_env(cls) -> AgentPoolConfig:
@@ -173,7 +219,14 @@ class AgentPoolConfig(BaseModel):
         GRAPHCLAW_AGENT_HEARTBEAT_TIMEOUT_SECONDS  — default 300
         GRAPHCLAW_SUBAGENT_EXECUTION_TIMEOUT_SECONDS — default 600
         GRAPHCLAW_SUBAGENT_TOOL_TIMEOUT_SECONDS      — default 120
+        GRAPHCLAW_SUBAGENT_TOOL_MAX_RETRIES          — default 0
+        GRAPHCLAW_SUBAGENT_RETRY_BACKOFF_BASE_MS     — default 200
+        GRAPHCLAW_SUBAGENT_RETRY_BACKOFF_MAX_MS      — default 1000
+        GRAPHCLAW_SUBAGENT_RETRYABLE_SKILLS          — default "" (comma-separated)
+        GRAPHCLAW_SUBAGENT_RETRYABLE_MCP_TOOLS       — default "" (comma-separated)
         """
+        retryable_skills_raw = os.environ.get("GRAPHCLAW_SUBAGENT_RETRYABLE_SKILLS", "")
+        retryable_mcp_raw = os.environ.get("GRAPHCLAW_SUBAGENT_RETRYABLE_MCP_TOOLS", "")
         return cls(
             max_concurrent_agents=int(os.environ.get("GRAPHCLAW_MAX_CONCURRENT_AGENTS", "4")),
             subagent_worker_pool_size=int(
@@ -191,4 +244,19 @@ class AgentPoolConfig(BaseModel):
             subagent_tool_timeout_seconds=int(
                 os.environ.get("GRAPHCLAW_SUBAGENT_TOOL_TIMEOUT_SECONDS", "120")
             ),
+            subagent_tool_max_retries=int(
+                os.environ.get("GRAPHCLAW_SUBAGENT_TOOL_MAX_RETRIES", "0")
+            ),
+            subagent_retry_backoff_base_ms=int(
+                os.environ.get("GRAPHCLAW_SUBAGENT_RETRY_BACKOFF_BASE_MS", "200")
+            ),
+            subagent_retry_backoff_max_ms=int(
+                os.environ.get("GRAPHCLAW_SUBAGENT_RETRY_BACKOFF_MAX_MS", "1000")
+            ),
+            subagent_retryable_skills=[
+                entry.strip() for entry in retryable_skills_raw.split(",") if entry.strip()
+            ],
+            subagent_retryable_mcp_tools=[
+                entry.strip() for entry in retryable_mcp_raw.split(",") if entry.strip()
+            ],
         )

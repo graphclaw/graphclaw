@@ -71,7 +71,9 @@ def test_callback_rejects_unsupported_provider() -> None:
     app.include_router(auth_router)
 
     client = TestClient(app)
-    response = client.get("/auth/callback", params={"provider": "invalid", "code": "x", "state": "y"})
+    response = client.get(
+        "/auth/callback", params={"provider": "invalid", "code": "x", "state": "y"}
+    )
 
     assert response.status_code == 400
     assert "Unsupported provider" in response.json()["detail"]

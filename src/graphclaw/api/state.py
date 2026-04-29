@@ -37,7 +37,6 @@ Dependencies
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any
 
@@ -45,6 +44,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel
 
 from graphclaw.api.deps import CurrentUserDep, GraphStoreDep, StateMachineDep
+from graphclaw.models.deserialization import deserialize_task_node_props
 from graphclaw.models.enums import ChangedBy, TaskState
 from graphclaw.models.nodes import TaskNode
 from graphclaw.state.cascade import persist_transition_and_cascade
@@ -53,9 +53,6 @@ from graphclaw.state.transitions import VALID_TRANSITIONS, InvalidTransitionErro
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/tasks", tags=["state"])
-
-_JSON_STR_FIELDS = ("scoring", "timeline", "progress", "override", "autonomy", "type_metadata")
-_JSON_LIST_FIELDS = ("state_history", "update_log", "tags")
 
 
 def _edge_target_id(edge: dict[str, Any]) -> str:
@@ -97,32 +94,7 @@ async def _is_transition_authorized(
 
 def _deserialize_task_fields(raw: dict) -> dict:
     """Parse JSON-string fields in a task dict from AGE back to native types."""
-    result = dict(raw)
-    for field in _JSON_STR_FIELDS:
-        if isinstance(result.get(field), str):
-            try:
-                result[field] = json.loads(result[field])
-            except (json.JSONDecodeError, ValueError):
-                result[field] = None
-    for field in _JSON_LIST_FIELDS:
-        val = result.get(field)
-        if isinstance(val, str):
-            try:
-                result[field] = json.loads(val)
-            except (json.JSONDecodeError, ValueError):
-                result[field] = []
-        elif isinstance(val, list):
-            parsed_items = []
-            for item in val:
-                if isinstance(item, str):
-                    try:
-                        parsed_items.append(json.loads(item))
-                    except (json.JSONDecodeError, ValueError):
-                        parsed_items.append(item)
-                else:
-                    parsed_items.append(item)
-            result[field] = parsed_items
-    return result
+    return deserialize_task_node_props(raw)
 
 
 class StateHistoryResponse(BaseModel):
