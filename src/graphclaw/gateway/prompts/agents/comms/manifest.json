@@ -3,7 +3,7 @@
   "name": "Communications Agent",
   "type": "system",
   "description": "Reads messages from email, Telegram, and WhatsApp via MCP integrations",
-  "capabilities": ["email_read", "telegram_read", "whatsapp_read", "message_summarise"],
+  "capabilities": ["email_read", "telegram_read", "whatsapp_read", "message_summarise", "working_memory_write"],
   "invocation": "async",
   "tool_hint": "Delegate to when user asks about messages, replies, or communications from contacts"
 }

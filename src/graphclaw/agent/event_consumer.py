@@ -444,12 +444,14 @@ class AgentEventConsumer:
             result = None
 
         # 2. Run InboundIntelligenceAgent — classify, summarize, route
+        # Inbound messages are the comms agent's domain; write context to "comms"
+        # not the main orchestrator so the Intelligence Hub displays correctly.
         if self._intelligence_agent is not None and result is not None:
             try:
                 await self._intelligence_agent.process(
                     inbound=inbound,
                     resolution=result,
-                    agent_id=agent_id,
+                    agent_id="comms",
                     user_id=user_id,
                 )
             except Exception as exc:  # noqa: BLE001

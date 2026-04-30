@@ -342,6 +342,9 @@ class SubAgentRunner:
                 duration_ms=duration_ms,
             )
             self._audit_completed(job, status=final_status, duration_ms=duration_ms)
+            # Append execution summary to agent's working memory so the
+            # Intelligence Hub displays a timeline of what each agent did.
+            await self._write_context_note(job, final_status, duration_ms)
             self._current_job = None
 
         if cancellation_exc is not None:
@@ -426,19 +429,30 @@ class SubAgentRunner:
             f"Session ID: {job.session_id}\n\n"
             f"You have access to skills and MCP tools. Use them to complete your assigned task.\n"
             f"Be concise and focused. Report your actions and findings clearly.\n"
-            f"You cannot delegate further — complete the task directly using available tools.\n"
+            f"You cannot delegate further — complete the task directly using available tools.\n\n"
+            f"## Working Memory\n"
+            f"Use the `update_working_memory` tool to record noteworthy observations as you work.\n"
+            f"Call it after each significant finding, decision, or action — for example:\n"
+            f"  - After reading a batch of messages: record what you found and any patterns.\n"
+            f"  - When you match a message to a task: record the match and required action.\n"
+            f"  - When you complete an action: record what was done and the outcome.\n"
+            f"Notes must be concise (one sentence), factual, and free of PII.\n"
         )
         if self._storage:
             try:
                 from graphclaw.infra.storage import StoragePaths
 
+                # All agents have user-scoped working memory so the Intelligence
+                # Hub can display a per-user context timeline for every agent.
+                # System agents use a shared profile.md but their working memory
+                # (context.md) is always stored under {user_id}/agents/{agent_id}/.
+                user_id = job.user_id
                 if job.agent_source == "system":
-                    # System agents: load profile from system/agents/{agent_id}/profile.md
+                    # System agents: shared profile, user-scoped working memory
                     profile_path = StoragePaths.system_agent_profile(job.agent_id)
-                    context_path = None  # System agents have no per-user working memory
+                    context_path = StoragePaths.agent_memory_working(user_id, job.agent_id)
                 else:
-                    # User agents: load profile from {user_id}/agents/{agent_id}/profile.md
-                    user_id = job.user_id
+                    # User agents: profile from {user_id}/agents/{agent_id}/profile.md
                     profile_path = StoragePaths.agent_profile(user_id, job.agent_id)
                     context_path = StoragePaths.agent_memory_working(user_id, job.agent_id)
 
@@ -462,7 +476,7 @@ class SubAgentRunner:
                         pass
 
                 # Load episodic memory (active entries only, newest first)
-                if job.agent_source != "system" and user_id:
+                if user_id:
                     token_budget = 80_000
                     used_chars = len(base)
                     chars_per_token = 4  # conservative estimate
@@ -531,6 +545,46 @@ class SubAgentRunner:
                 logger.debug("SubAgentRunner: could not load profile/context: %s", exc)
         return base
 
+    async def _write_context_note(
+        self, job: AgentJobEvent, final_status: str, duration_ms: int
+    ) -> None:
+        """Append a timestamped execution summary to the agent's working context.md.
+
+        Keeps a rolling timeline in ``{user_id}/agents/{agent_id}/memory/working/context.md``
+        so the Intelligence Hub can show what each agent has done over time.
+        Uses the same JSON-line format as ``InboundIntelligenceAgent`` for consistency.
+        """
+        if self._storage is None:
+            return
+        try:
+            from graphclaw.infra.storage import StoragePaths  # noqa: PLC0415
+
+            context_path = StoragePaths.agent_memory_working(job.user_id, job.agent_id)
+            ts_iso = utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+            entry = json.dumps(
+                {
+                    "timestamp": ts_iso,
+                    "source": "sub_agent_runner",
+                    "agent_id": job.agent_id,
+                    "task_id": job.task_id,
+                    "status": final_status,
+                    "duration_ms": duration_ms,
+                    "note": (job.instructions or "")[:200],
+                },
+                ensure_ascii=True,
+            )
+            try:
+                raw = await self._storage.read(context_path)
+                ctx = raw.decode("utf-8", errors="replace")
+            except Exception:  # noqa: BLE001
+                ctx = ""
+            if ctx and not ctx.endswith("\n"):
+                ctx += "\n"
+            ctx += entry + "\n"
+            await self._storage.write(context_path, ctx.encode("utf-8"))
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("SubAgentRunner: could not write context note: %s", exc)
+
     def _build_tools(self) -> list[dict[str, Any]]:
         """Return the tool definitions available to sub-agents.
 
@@ -575,6 +629,25 @@ class SubAgentRunner:
                     "required": ["server_id", "tool_name"],
                 },
             },
+            {
+                "name": "update_working_memory",
+                "description": (
+                    "Append a concise, factual note to your working memory context.md. "
+                    "Call this after each significant finding, decision, or completed action "
+                    "so your activity is visible in the Intelligence Hub timeline. "
+                    "Notes must be one sentence, factual, and free of PII."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "note": {
+                            "type": "string",
+                            "description": "One-sentence factual observation to record.",
+                        },
+                    },
+                    "required": ["note"],
+                },
+            },
         ]
 
     async def _dispatch_tool(
@@ -604,6 +677,9 @@ class SubAgentRunner:
                 retry_allowed=retry_allowed,
                 is_retryable_result=self._is_retryable_mcp_result,
             )
+
+        if tool_name == "update_working_memory":
+            return await self._tool_update_working_memory(tool_input, job)
 
         return {"error": f"Unknown tool: {tool_name}"}
 
@@ -706,6 +782,53 @@ class SubAgentRunner:
             "tokens_used": result.tokens_used,
             "cost_usd": result.cost_usd,
         }
+
+    async def _tool_update_working_memory(
+        self, args: dict[str, Any], job: AgentJobEvent
+    ) -> dict[str, Any]:
+        """Append one agent-authored note to the agent's working context.md.
+
+        Called when the LLM invokes the ``update_working_memory`` tool mid-execution.
+        Uses the same JSON-line format as ``InboundIntelligenceAgent`` so the
+        Intelligence Hub displays all sources in a unified timeline.
+        """
+        note = str(args.get("note", "")).strip()
+        if not note:
+            return {"error": "note must be a non-empty string"}
+        # Cap length to prevent prompt-injection abuse via oversized notes.
+        note = note[:500]
+
+        if self._storage is None:
+            return {"error": "Storage not available."}
+
+        try:
+            from graphclaw.infra.storage import StoragePaths  # noqa: PLC0415
+
+            context_path = StoragePaths.agent_memory_working(job.user_id, job.agent_id)
+            ts_iso = utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+            entry = json.dumps(
+                {
+                    "timestamp": ts_iso,
+                    "source": "agent_tool",
+                    "agent_id": job.agent_id,
+                    "task_id": job.task_id,
+                    "note": note,
+                },
+                ensure_ascii=True,
+            )
+            try:
+                raw = await self._storage.read(context_path)
+                ctx = raw.decode("utf-8", errors="replace")
+            except Exception:  # noqa: BLE001
+                ctx = ""
+            if ctx and not ctx.endswith("\n"):
+                ctx += "\n"
+            ctx += entry + "\n"
+            await self._storage.write(context_path, ctx.encode("utf-8"))
+            return {"ok": True, "recorded": note}
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("SubAgentRunner: update_working_memory failed: %s", exc)
+            return {"error": str(exc)}
 
     async def _tool_call_mcp(self, args: dict[str, Any]) -> dict[str, Any]:
         """Call an MCP tool via the MCP registry."""
