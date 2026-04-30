@@ -1,0 +1,9 @@
+{
+  "agent_id": "inbound",
+  "name": "Inbound Intelligence Agent",
+  "type": "system",
+  "description": "Processes inbound messages to extract task intelligence log entries and working memory observations",
+  "capabilities": ["task_intelligence_extraction", "memory_observation_extraction", "pii_scrubbing"],
+  "invocation": "pipeline",
+  "tool_hint": "Automatically invoked in the inbound message pipeline; not available for direct delegation"
+}

@@ -43,7 +43,7 @@ _KNOWLEDGE_TOPICS = [
     "resource_rules",
 ]
 
-_SYSTEM_AGENTS = ["comms"]
+_SYSTEM_AGENTS = ["comms", "inbound"]
 
 
 def _iter_system_skill_definition_files() -> list[tuple[str, Path]]:

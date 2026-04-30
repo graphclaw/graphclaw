@@ -1,0 +1,7 @@
+{
+  "model": "claude-haiku-4-5",
+  "max_tokens": 512,
+  "temperature": 0.0,
+  "max_intelligence_words": 500,
+  "max_body_chars": 600
+}
