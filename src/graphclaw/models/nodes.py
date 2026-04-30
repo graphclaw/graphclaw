@@ -270,6 +270,10 @@ class TaskNode(BaseNode):
     # Tags
     tags: list[str] = []
 
+    # Human-specified priority label (CRITICAL / HIGH / MEDIUM / LOW).
+    # Distinct from scoring.computed_priority, which is algorithm-computed.
+    priority: str | None = None
+
     @field_validator("state", mode="before")
     @classmethod
     def _normalise_state(cls, v: object) -> object:

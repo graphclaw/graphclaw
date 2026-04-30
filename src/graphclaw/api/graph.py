@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
@@ -460,7 +461,12 @@ async def create_task(
 ) -> dict[str, Any]:
     """Create a new TaskNode."""
 
-    from graphclaw.models.nodes import TaskNode
+    from graphclaw.models.nodes import TaskNode, Timeline
+
+    logger.info(
+        "graph: create_task request type=%s title=%r deadline=%s priority=%s user_id=%s",
+        body.task_type, body.title, body.deadline, body.priority, user_id,
+    )
 
     if body.parent_goal_id:
         parent_node = await graph_store.get_node(body.parent_goal_id)
@@ -483,6 +489,16 @@ async def create_task(
     # Generate a valid task ID using the canonical generator (TSK-API-NNNN-XXX).
     task_id = generate_task_id("API", ttype)
 
+    deadline_dt: datetime | None = None
+    if body.deadline:
+        try:
+            deadline_dt = datetime.fromisoformat(body.deadline)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Invalid deadline format '{body.deadline}'. Expected ISO 8601 date.",
+            )
+
     node = TaskNode(
         id=task_id,
         created_at=utcnow(),
@@ -495,9 +511,21 @@ async def create_task(
         assigned_to=body.assignee_id,
         state=TaskState.PENDING,
         tags=body.tags,
+        priority=body.priority or None,
+        timeline=Timeline(deadline=deadline_dt),
     )
 
-    created = await graph_store.create_node(node)
+    try:
+        created = await graph_store.create_node(node)
+    except Exception as exc:
+        logger.error(
+            "graph: failed to persist task %s type=%s user_id=%s: %s",
+            task_id, body.task_type, user_id, exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to write task node to graph database.",
+        ) from exc
 
     # Wire relationship edges: task → owner, task → assignee
     try:
