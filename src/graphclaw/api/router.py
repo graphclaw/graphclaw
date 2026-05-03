@@ -117,3 +117,13 @@ app_router.include_router(identity_router)
 from graphclaw.api.policies import router as policies_router  # noqa: E402
 
 app_router.include_router(policies_router)
+
+# Wave 1 — Conversations (FR-STORE-001, FR-UI-001)
+from graphclaw.api.conversations import router as conversations_router  # noqa: E402
+
+app_router.include_router(conversations_router)
+
+# Wave 1 — User self-service (FR-UI-002)
+from graphclaw.api.user import router as user_router  # noqa: E402
+
+app_router.include_router(user_router)
