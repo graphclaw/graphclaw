@@ -47,6 +47,7 @@ the migration to ``MainOrchestrator`` naming.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -624,6 +625,8 @@ class MainOrchestrator:
         text: str,
         conversation_history: list[dict[str, Any]] | None = None,
         session_id: str | None = None,
+        channel: str = "cockpit",
+        thread_id: str | None = None,
     ) -> str:
         """Handle a conversational message from the user.
 
@@ -643,6 +646,12 @@ class MainOrchestrator:
             If ``None``, the LLM sees only the current message.
         session_id:
             Optional session ID for structured logging.
+        channel:
+            Channel the message originated from (default ``"cockpit"``).
+            Used for post-turn distillation.
+        thread_id:
+            Channel-specific thread/conversation handle.  When provided,
+            outbound replies are delivered on this thread.
 
         Returns
         -------
@@ -750,8 +759,19 @@ class MainOrchestrator:
                 # Continue loop to get final response after tool results
                 continue
 
-            # No more tool calls — return the text response
-            return response.content or "(no response)"
+            # No more tool calls — run post-turn distillation (FR-CA-002), then return
+            reply = response.content or "(no response)"
+            asyncio.ensure_future(
+                self._run_distillation(
+                    user_id=user_id,
+                    text=text,
+                    reply=reply,
+                    channel=channel,
+                    thread_id=thread_id,
+                    session_id=session_id,
+                )
+            )
+            return reply
 
         # Fallback if loop exhausted
         return "(agent tool-call loop limit reached — please try again)"
@@ -763,6 +783,8 @@ class MainOrchestrator:
         conversation_history: list[dict[str, Any]] | None = None,
         session_id: str | None = None,
         publisher: UserEventPublisher | None = None,
+        channel: str = "cockpit",
+        thread_id: str | None = None,
     ) -> AsyncIterator[AgentRunEvent]:
         """Return an async iterator that streams agent run-trace events.
 
@@ -791,6 +813,10 @@ class MainOrchestrator:
             Optional ``UserEventPublisher`` to push events to in parallel
             (e.g. for Redis-backed cockpit delivery).  If ``None``, the
             instance-level ``self._event_publisher`` is used instead.
+        channel:
+            Channel the message originated from (default ``"cockpit"``).
+        thread_id:
+            Channel-specific thread/conversation handle.
         """
         return self._process_chat_message_stream_impl(
             user_id=user_id,
@@ -798,6 +824,8 @@ class MainOrchestrator:
             conversation_history=conversation_history,
             session_id=session_id,
             publisher=publisher or self._event_publisher,
+            channel=channel,
+            thread_id=thread_id,
         )
 
     async def _process_chat_message_stream_impl(
@@ -807,6 +835,8 @@ class MainOrchestrator:
         conversation_history: list[dict[str, Any]] | None,
         session_id: str | None,
         publisher: UserEventPublisher | None,
+        channel: str = "cockpit",
+        thread_id: str | None = None,
     ) -> None:
         """Async generator implementing process_chat_message_stream — yields AgentRunEvent."""
         import time as _time
@@ -1098,6 +1128,214 @@ class MainOrchestrator:
             )
             await _emit(err_event)
             yield err_event
+
+    # ------------------------------------------------------------------
+    # Post-turn distillation (FR-CA-002)
+    # ------------------------------------------------------------------
+
+    async def _run_distillation(
+        self,
+        *,
+        user_id: str,
+        text: str,
+        reply: str,
+        channel: str,
+        thread_id: str | None,
+        session_id: str | None,
+    ) -> None:
+        """Fire-and-forget post-turn distillation.  Never raises."""
+        if self._llm is None or self._storage is None:
+            return
+        try:
+            from graphclaw.agent.distillation import (  # noqa: PLC0415
+                DistillationHelper,
+                DistillationInput,
+            )
+
+            helper = DistillationHelper(
+                llm=self._llm,
+                graph_repo=getattr(self, "_graph_repo", None),
+                storage=self._storage,
+            )
+            inp = DistillationInput(
+                user_id=user_id,
+                agent_id=self._agent_id,
+                user_text=text,
+                agent_reply=reply,
+                channel=channel,
+                session_id=session_id,
+            )
+            await helper.distill(inp)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "orchestrator.distillation_failed: %s",
+                exc,
+                extra={"user_id": user_id, "session_id": session_id or ""},
+            )
+
+    # ------------------------------------------------------------------
+    # Counterparty conversation mode (FR-CA-003)
+    # ------------------------------------------------------------------
+
+    async def process_counterparty_turn(
+        self,
+        user_id: str,
+        counterparty_id: str,
+        text: str,
+        channel: str,
+        thread_id: str,
+        session_id: str | None = None,
+        conversation_history: list[dict[str, Any]] | None = None,
+    ) -> str:
+        """Handle a turn from a counterparty (external contact) — not the owner.
+
+        Enters ``counterparty_conversation`` mode:
+        - Restricted tool set (see ``COUNTERPARTY_ALLOWED_TOOL_NAMES``).
+        - Counterparty-specific system prompt (system_header_counterparty.md).
+        - Delegation policy gating on ``update_task_state``.
+
+        Parameters
+        ----------
+        user_id:
+            Owner user ID — who the agent represents.
+        counterparty_id:
+            Graph node ID of the counterparty (``ResourceNode`` or ``UserNode``).
+        text:
+            Incoming counterparty message text.
+        channel:
+            Channel identifier (e.g. ``"telegram"``, ``"email"``).
+        thread_id:
+            Channel thread/conversation handle.
+        session_id:
+            Optional session ID for tracing.
+        conversation_history:
+            Optional prior messages as ``{"role": str, "content": str}`` dicts.
+
+        Returns
+        -------
+        str
+            The agent's reply (after tool round-trips).
+        """
+        from graphclaw.llm.base import LLMMessage  # noqa: PLC0415
+
+        if self._llm is None:
+            return "I'm not fully initialised yet — the language model is not connected."
+
+        # Store session_id for tool execution logging
+        self._current_session_id = session_id
+
+        # Reset tool registry to core (counterparty mode filters further)
+        self._tool_registry.reset_session()
+
+        # Build counterparty system prompt
+        system_prompt = await self._build_counterparty_system_prompt(user_id)
+
+        # Remap "agent" → "assistant" in history
+        current_user_msg = LLMMessage(role="user", content=text)
+        history_messages: list[LLMMessage] = []
+        for entry in conversation_history or []:
+            role = entry.get("role", "user")
+            if role == "agent":
+                role = "assistant"
+            content = entry.get("content", "")
+            if content:
+                history_messages.append(LLMMessage(role=role, content=content))
+
+        messages: list[LLMMessage] = (
+            [LLMMessage(role="system", content=system_prompt)]
+            + history_messages
+            + [current_user_msg]
+        )
+
+        for _iteration in range(10):
+            # Get tools filtered to counterparty_conversation allow-list
+            tools = self._tool_registry.get_active_tools(mode="counterparty_conversation")
+
+            response = await self._llm.complete(
+                messages,
+                model=None,
+                max_tokens=2048,
+                temperature=0.5,
+                tools=tools,
+            )
+
+            if response.tool_calls:
+                from graphclaw.agent.tool_registry import (  # noqa: PLC0415
+                    COUNTERPARTY_ALLOWED_TOOL_NAMES,
+                )
+
+                messages.append(
+                    LLMMessage(
+                        role="assistant",
+                        content=response.content or "",
+                        tool_calls=list(response.tool_calls),
+                    )
+                )
+                for tc in response.tool_calls:
+                    # Gate: reject tools not in the counterparty allow-list
+                    if tc.name not in COUNTERPARTY_ALLOWED_TOOL_NAMES:
+                        tool_result = {
+                            "error": "ToolNotAvailableInMode",
+                            "detail": (
+                                f"Tool '{tc.name}' is not available in "
+                                "counterparty_conversation mode."
+                            ),
+                        }
+                    else:
+                        tool_result = await self._execute_tool(user_id, tc.name, tc.arguments)
+                    messages.append(
+                        LLMMessage(
+                            role="tool",
+                            content=json.dumps(tool_result),
+                            tool_call_id=tc.id,
+                        )
+                    )
+                continue
+
+            reply = response.content or "(no response)"
+            # Post-turn distillation (non-blocking)
+            asyncio.ensure_future(
+                self._run_distillation(
+                    user_id=user_id,
+                    text=text,
+                    reply=reply,
+                    channel=channel,
+                    thread_id=thread_id,
+                    session_id=session_id,
+                )
+            )
+            return reply
+
+        return "(agent tool-call loop limit reached)"
+
+    async def _build_counterparty_system_prompt(self, user_id: str) -> str:
+        """Build system prompt for counterparty_conversation mode."""
+        import datetime as _dt  # noqa: PLC0415
+
+        today = _dt.date.today().isoformat()
+
+        # Load counterparty header from storage (fall back to hardcoded)
+        header = ""
+        if self._storage is not None:
+            try:
+                from graphclaw.infra.storage import StoragePaths  # noqa: PLC0415
+
+                raw = await self._storage.read(
+                    StoragePaths.system_prompt_header().replace(
+                        "system_header.md", "system_header_counterparty.md"
+                    )
+                )
+                header = raw.decode(errors="replace")
+            except Exception:  # noqa: BLE001
+                pass
+
+        if not header:
+            header = (
+                "You are a professional communication agent representing the owner. "
+                "You are in counterparty_conversation mode with restricted tools."
+            )
+
+        return f"{header}\n\nToday's date is {today}."
 
     # ------------------------------------------------------------------
     # System prompt construction

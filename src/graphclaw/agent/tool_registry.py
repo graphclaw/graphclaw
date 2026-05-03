@@ -688,11 +688,25 @@ class ToolSetRegistry:
         """Reset active sets to core only (call at the start of each message)."""
         self._active_sets = {"core"}
 
-    def get_active_tools(self) -> list[ToolDefinition]:
-        """Return the current active tool list (core + all activated sets)."""
+    def get_active_tools(self, mode: str = "default") -> list[ToolDefinition]:
+        """Return the current active tool list (core + all activated sets).
+
+        Parameters
+        ----------
+        mode:
+            ``"counterparty_conversation"`` filters to only tools in
+            ``COUNTERPARTY_ALLOWED_TOOL_NAMES``.  Any other value returns
+            all active tools unfiltered.
+        """
         tools: list[ToolDefinition] = []
         for set_name in self._active_sets:
             tools.extend(self._available.get(set_name, []))
+        if mode == "counterparty_conversation":
+            from graphclaw.agent.tool_registry import (
+                COUNTERPARTY_ALLOWED_TOOL_NAMES,  # noqa: PLC0415
+            )
+
+            tools = [t for t in tools if t.name in COUNTERPARTY_ALLOWED_TOOL_NAMES]
         return tools
 
     def get_manifest(self) -> str:
@@ -717,4 +731,23 @@ class ToolSetRegistry:
         return frozenset(self._active_sets)  # type: ignore[return-value]
 
 
-__all__ = ["ToolSetRegistry"]
+# ---------------------------------------------------------------------------
+# Tool names allowed in counterparty_conversation mode (FR-CA-003)
+# ---------------------------------------------------------------------------
+
+COUNTERPARTY_ALLOWED_TOOL_NAMES: frozenset[str] = frozenset(
+    {
+        "get_task_details",
+        "update_task_state",
+        "send_message",
+        "update_node_intelligence",
+        "escalate_to_owner",
+    }
+)
+"""Tools allowed when mode == 'counterparty_conversation'.
+
+All other tools are gated out by ``get_active_tools(mode=...)``.
+"""
+
+
+__all__ = ["ToolSetRegistry", "COUNTERPARTY_ALLOWED_TOOL_NAMES"]
