@@ -904,6 +904,64 @@ class AgeGraphStore(GraphStore):
 
         return await resolve_canonical(node_id, self, max_hops)
 
+    async def get_active_thread(
+        self,
+        recipient_id: str,
+        since_iso: str,
+    ) -> dict | None:
+        """Return the most recent active CheckinNode thread for a recipient.
+
+        Used by ``OutboundCommunicationAgent._resolve_channel`` to implement
+        channel stickiness (FR-OUT-002).
+
+        Parameters
+        ----------
+        recipient_id:
+            The ResourceNode or UserNode id of the counterparty.
+        since_iso:
+            ISO-8601 timestamp; only CheckinNodes created after this are
+            considered within the stickiness window.
+
+        Returns
+        -------
+        dict | None
+            ``{"channel": str, "thread_id": str}`` for the most recent active
+            thread, or ``None`` when no active thread exists within the window.
+        """
+        eid_recipient = _escape(recipient_id)
+        eid_since = _escape(since_iso)
+
+        async with get_connection(self._pool) as conn:
+            rows = await conn.fetch(
+                f"""
+                SELECT * FROM cypher('{self._graph}', $$
+                    MATCH (c:CheckinNode)
+                    WHERE c.target_resource = '{eid_recipient}'
+                      AND c.state <> 'DONE'
+                      AND c.created_at >= '{eid_since}'
+                      AND c.thread_id IS NOT NULL
+                    RETURN c.channel AS channel, c.thread_id AS thread_id,
+                           c.created_at AS created_at
+                    ORDER BY c.created_at DESC
+                    LIMIT 1
+                $$) as (channel agtype, thread_id agtype, created_at agtype)
+                """
+            )
+        if not rows:
+            return None
+        row = rows[0]
+        channel_val = row["channel"]
+        thread_id_val = row["thread_id"]
+        if channel_val is None or thread_id_val is None:
+            return None
+
+        def _unwrap(v: Any) -> str:
+            if isinstance(v, str):
+                v = v.strip('"')
+            return str(v)
+
+        return {"channel": _unwrap(channel_val), "thread_id": _unwrap(thread_id_val)}
+
     async def get_resource_with_linked_view(
         self,
         resource_id: str,

@@ -408,4 +408,52 @@ MIGRATIONS: list[Migration] = [
         ),
         sql_up="SELECT 1;",
     ),
+    # -----------------------------------------------------------------------
+    # Wave 2 — Outbound agent (FR-OUT-001..004)
+    # -----------------------------------------------------------------------
+    Migration(
+        version="0017",
+        name="wave2_reply_lineage",
+        description=(
+            "Wave 2 (FR-OUT-004, FR-RES-002): Create reply_lineage table for "
+            "persistent (channel, thread_id) → (task_id, counterparty_id, user_id) "
+            "mapping.  Used as a Redis-expiry fallback for reply-key resolution."
+        ),
+        sql_up="""
+            -- Persistent reply key store.  Primary lookup is Redis (7d TTL).
+            -- This table is the fallback when Redis has expired.
+            CREATE TABLE IF NOT EXISTS reply_lineage (
+                channel          TEXT        NOT NULL,
+                thread_id        TEXT        NOT NULL,
+                task_id          TEXT,
+                counterparty_id  TEXT        NOT NULL,
+                user_id          TEXT        NOT NULL,
+                checkin_id       TEXT        NOT NULL,
+                created_at       TEXT        NOT NULL,
+                PRIMARY KEY (channel, thread_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_reply_lineage_user_id
+                ON reply_lineage (user_id);
+
+            CREATE INDEX IF NOT EXISTS idx_reply_lineage_task_id
+                ON reply_lineage (task_id)
+                WHERE task_id IS NOT NULL;
+
+            -- Grant agent_principal read+write (no DELETE — no-delete principle).
+            DO $$ BEGIN
+              IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'agent_principal') THEN
+                GRANT SELECT, INSERT, UPDATE ON reply_lineage TO agent_principal;
+                REVOKE DELETE ON reply_lineage FROM agent_principal;
+              END IF;
+            END $$;
+
+            -- Grant admin_principal full access.
+            DO $$ BEGIN
+              IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'admin_principal') THEN
+                GRANT SELECT, INSERT, UPDATE, DELETE ON reply_lineage TO admin_principal;
+              END IF;
+            END $$;
+        """,
+    ),
 ]
