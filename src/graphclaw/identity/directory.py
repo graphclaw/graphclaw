@@ -119,8 +119,8 @@ class UserDirectory:
         if self._pool is None:
             return []
 
-        # Build parameterised org-list placeholder  ($2, $3, …)
-        placeholders = ", ".join(f"${i + 2}" for i in range(len(caller_org_ids)))
+        # Build parameterised org-list placeholder  (%s, %s, …)
+        placeholders = ", ".join("%s" for _ in caller_org_ids)
         sql = f"""
             SELECT
                 user_id, org_id, display_name, emails, identities,
@@ -129,17 +129,19 @@ class UserDirectory:
             WHERE org_id IN ({placeholders})
               AND visibility_policy <> 'hidden'
               AND (
-                  display_name ILIKE $1
+                  display_name ILIKE %s
                   OR EXISTS (
-                      SELECT 1 FROM unnest(discoverable_aliases) AS a WHERE a ILIKE $1
+                      SELECT 1 FROM unnest(discoverable_aliases) AS a WHERE a ILIKE %s
                   )
               )
-            ORDER BY similarity(display_name, $1) DESC
+            ORDER BY similarity(display_name, %s) DESC
             LIMIT {int(limit)}
         """
         query_pattern = f"%{query}%"
         try:
-            rows = await self._pool.fetch(sql, query_pattern, *caller_org_ids)
+            rows = await self._pool.fetch(
+                sql, *caller_org_ids, query_pattern, query_pattern, query_pattern
+            )
             return [self._row_to_entry(r) for r in rows]
         except Exception as exc:  # noqa: BLE001
             logger.warning("user_directory.search_failed: %s", exc)
@@ -157,13 +159,13 @@ class UserDirectory:
         if self._pool is None:
             return []
 
-        placeholders = ", ".join(f"${i + 2}" for i in range(len(caller_org_ids)))
+        placeholders = ", ".join("%s" for _ in caller_org_ids)
         sql = f"""
             SELECT
                 user_id, org_id, display_name, emails, identities,
                 discoverable_aliases, visibility_policy, last_updated
             FROM user_directory
-            WHERE user_id = $1
+            WHERE user_id = %s
               AND org_id IN ({placeholders})
         """
         try:
@@ -183,7 +185,7 @@ class UserDirectory:
             INSERT INTO user_directory
                 (user_id, org_id, display_name, emails, identities,
                  discoverable_aliases, visibility_policy, last_updated)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+            VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
             ON CONFLICT (user_id, org_id) DO UPDATE SET
                 display_name         = EXCLUDED.display_name,
                 emails               = EXCLUDED.emails,
@@ -210,7 +212,7 @@ class UserDirectory:
         """Remove a directory entry (called on membership removal, FR-AK-001)."""
         if self._pool is None:
             return
-        sql = "DELETE FROM user_directory WHERE user_id = $1 AND org_id = $2"
+        sql = "DELETE FROM user_directory WHERE user_id = %s AND org_id = %s"
         try:
             await self._pool.execute(sql, user_id, org_id)
         except Exception as exc:  # noqa: BLE001
