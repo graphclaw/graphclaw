@@ -105,7 +105,7 @@ class AgeGraphStore(GraphStore):
     # Node CRUD
     # ------------------------------------------------------------------
 
-    async def create_node(self, node: Any) -> dict:
+    async def create_node(self, node: Any, caller_context: Any | None = None) -> dict:
         """Insert a vertex into the graph.
 
         ``node`` must be a Pydantic model (or any object with a
@@ -116,7 +116,15 @@ class AgeGraphStore(GraphStore):
         vertex so it can be retrieved intact.
 
         Returns the created vertex properties dict.
+
+        Parameters
+        ----------
+        caller_context:
+            Optional ``CallerContext`` for ACL enforcement (FR-AL-001).
+            Required when ``GRAPHCLAW_NO_DELETE_ENFORCEMENT=true``.
         """
+        from graphclaw.cross_tenant.acl import require_caller_context  # noqa: PLC0415
+        require_caller_context(caller_context)
         props: dict = node.model_dump(mode="json")
         label: str = _resolve_label(node)
         cypher_map = _to_cypher_map(props)
@@ -140,7 +148,12 @@ class AgeGraphStore(GraphStore):
 
         return created
 
-    async def get_node(self, node_id: str, include_archived: bool = False) -> dict | None:
+    async def get_node(
+        self,
+        node_id: str,
+        include_archived: bool = False,
+        caller_context: Any | None = None,
+    ) -> dict | None:
         """Retrieve a vertex by its ``id`` property.
 
         Returns the properties dict, or ``None`` if not found.
@@ -153,7 +166,12 @@ class AgeGraphStore(GraphStore):
             When ``False`` (default), nodes with ``archived_at IS NOT NULL``
             are treated as absent (returns ``None``).  Pass ``True`` to
             include archived nodes in the result.
+        caller_context:
+            Optional ``CallerContext`` for ACL enforcement (FR-AL-001).
+            Required when ``GRAPHCLAW_NO_DELETE_ENFORCEMENT=true``.
         """
+        from graphclaw.cross_tenant.acl import require_caller_context  # noqa: PLC0415
+        require_caller_context(caller_context)
         eid = _escape(node_id)
         async with get_connection(self._pool) as conn:
             result = await conn.execute(
@@ -173,7 +191,12 @@ class AgeGraphStore(GraphStore):
             return None
         return props
 
-    async def update_node(self, node_id: str, updates: dict) -> dict | None:
+    async def update_node(
+        self,
+        node_id: str,
+        updates: dict,
+        caller_context: Any | None = None,
+    ) -> dict | None:
         """Merge ``updates`` into the properties of the node with ``node_id``.
 
         Only the keys present in ``updates`` are changed; other properties
@@ -184,7 +207,15 @@ class AgeGraphStore(GraphStore):
         Cypher SET clause is built.  The Postgres trigger provides a second line
         of defence, but stripping here ensures clean error messages rather than
         raw DB exceptions surfacing to callers.
+
+        Parameters
+        ----------
+        caller_context:
+            Optional ``CallerContext`` for ACL enforcement (FR-AL-001).
+            Required when ``GRAPHCLAW_NO_DELETE_ENFORCEMENT=true``.
         """
+        from graphclaw.cross_tenant.acl import require_caller_context  # noqa: PLC0415
+        require_caller_context(caller_context)
         # Wave 0: strip lifecycle fields for agent_principal (AC1 guard at application layer).
         _LIFECYCLE_FIELDS = frozenset({
             "archived_at", "archived_by", "archive_reason",
@@ -248,6 +279,7 @@ class AgeGraphStore(GraphStore):
         self,
         label: str,
         filters: dict | None = None,
+        caller_context: Any | None = None,
     ) -> list[dict]:
         """Return all vertices with the given label, optionally filtered.
 
@@ -255,7 +287,15 @@ class AgeGraphStore(GraphStore):
         Values are embedded directly into the Cypher query (AGE limitation).
 
         Returns a list of property dicts (may be empty).
+
+        Parameters
+        ----------
+        caller_context:
+            Optional ``CallerContext`` for ACL enforcement (FR-AL-001).
+            Required when ``GRAPHCLAW_NO_DELETE_ENFORCEMENT=true``.
         """
+        from graphclaw.cross_tenant.acl import require_caller_context  # noqa: PLC0415
+        require_caller_context(caller_context)
         filters = filters or {}
         if label != "TaskNode" and not _KEY_RE.match(label):
             raise ValueError(

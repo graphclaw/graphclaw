@@ -162,6 +162,43 @@ async def get_secrets_client(request: Request) -> SecretsClient:
     return client
 
 
+async def get_agent_graph_store(request: Request) -> GraphStore:
+    """Return the ``GraphStore`` instance bound to the **agent_principal**.
+
+    This is the least-privilege store for agent code paths — no DELETE grants.
+    Falls back to the default store when a separate agent-principal store is
+    not wired (dev environments).
+
+    Raises
+    ------
+    HTTPException(503):
+        If no graph store is available.
+    """
+    store: GraphStore | None = getattr(request.app.state, "agent_graph_store", None)
+    if store is None:
+        # Fallback: shared store (dev / single-DSN environments).
+        return await get_graph_store(request)
+    return store
+
+
+async def get_admin_graph_store(request: Request) -> GraphStore:
+    """Return the ``GraphStore`` instance bound to the **admin_principal**.
+
+    This store has full grants including DELETE.  It must only be used by
+    purge workers and admin endpoints.
+
+    Raises
+    ------
+    HTTPException(503):
+        If no admin graph store is available.
+    """
+    store: GraphStore | None = getattr(request.app.state, "admin_graph_store", None)
+    if store is None:
+        # Fallback: shared store (dev / single-DSN environments).
+        return await get_graph_store(request)
+    return store
+
+
 async def get_skill_registry_service(request: Request) -> SkillRegistryService:
     """Return a ``SkillRegistryService`` wired to the app's StorageClient.
 
@@ -269,3 +306,39 @@ SkillRegistryDep = Annotated[SkillRegistryService, Depends(get_skill_registry_se
 MCPRegistryDep = Annotated[MCPRegistry, Depends(get_mcp_registry)]
 CurrentUserDep = Annotated[str, Depends(require_auth)]
 AdminUserDep = Annotated[str, Depends(require_admin)]
+AgentGraphStoreDep = Annotated[GraphStore, Depends(get_agent_graph_store)]
+AdminGraphStoreDep = Annotated[GraphStore, Depends(get_admin_graph_store)]
+
+
+# ---------------------------------------------------------------------------
+# Wave 0 (FR-AL-001): CallerContext dependency
+# ---------------------------------------------------------------------------
+
+
+async def get_caller_context(
+    request: Request,
+    user_id: str = Depends(require_auth),
+) -> "CallerContextDep_type":
+    """Build a CallerContext from the authenticated request.
+
+    Provides user_id, org_id (from request state or header), and principal.
+    """
+    from graphclaw.cross_tenant.acl import CallerContext  # noqa: PLC0415
+
+    org_id: str = (
+        getattr(request.state, "org_id", None)
+        or request.headers.get("X-Org-Id", "default")
+    )
+    principal: str = getattr(request.state, "principal", "agent_principal")
+    session_id: str | None = getattr(request.state, "session_id", None)
+
+    return CallerContext(
+        user_id=user_id,
+        org_id=org_id,
+        principal=principal,
+        session_id=session_id,
+    )
+
+
+CallerContextDep_type = object  # forward ref placeholder (avoid circular at module load)
+CallerContextDep = Annotated[object, Depends(get_caller_context)]
