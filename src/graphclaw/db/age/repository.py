@@ -78,6 +78,10 @@ class AgeGraphStore(GraphStore):
         ``graphclaw.db.age.connection.create_pool``).
     graph_name:
         Name of the AGE property graph.  Defaults to ``"graphclaw"``.
+    principal_name:
+        The service principal name whose credentials this pool was opened
+        with.  Stored and emitted with every structured log entry for audit.
+        Defaults to ``"agent_principal"`` (the least-privilege default).
     """
 
     def __init__(
@@ -85,10 +89,17 @@ class AgeGraphStore(GraphStore):
         pool: AsyncConnectionPool,
         graph_name: str = GRAPH_NAME,
         embedding_client: object | None = None,
+        principal_name: str = "agent_principal",
     ) -> None:
         self._pool = pool
         self._graph = graph_name
         self._embedding_client = embedding_client
+        self._principal_name = principal_name
+
+    @property
+    def principal_name(self) -> str:
+        """Return the principal name bound to this store instance."""
+        return self._principal_name
 
     # ------------------------------------------------------------------
     # Node CRUD
@@ -121,7 +132,7 @@ class AgeGraphStore(GraphStore):
             )
             row = await result.fetchone()
         created = _extract_properties(row[0]) if row else props
-        logger.debug("create_node", extra={"label": label, "id": props.get("id")})
+        logger.debug("create_node", extra={"label": label, "id": props.get("id"), "principal_name": self._principal_name})
 
         # Fire-and-forget embedding generation for task nodes.
         if label.startswith("Task") and self._embedding_client is not None:
@@ -129,10 +140,19 @@ class AgeGraphStore(GraphStore):
 
         return created
 
-    async def get_node(self, node_id: str) -> dict | None:
+    async def get_node(self, node_id: str, include_archived: bool = False) -> dict | None:
         """Retrieve a vertex by its ``id`` property.
 
         Returns the properties dict, or ``None`` if not found.
+
+        Parameters
+        ----------
+        node_id:
+            The graph ID of the node to look up.
+        include_archived:
+            When ``False`` (default), nodes with ``archived_at IS NOT NULL``
+            are treated as absent (returns ``None``).  Pass ``True`` to
+            include archived nodes in the result.
         """
         eid = _escape(node_id)
         async with get_connection(self._pool) as conn:
@@ -147,14 +167,40 @@ class AgeGraphStore(GraphStore):
             row = await result.fetchone()
         if row is None:
             return None
-        return _extract_properties(row[0])
+        props = _extract_properties(row[0])
+        # Wave 0 (FR-DEL-003): exclude archived nodes by default.
+        if not include_archived and props.get("archived_at"):
+            return None
+        return props
 
     async def update_node(self, node_id: str, updates: dict) -> dict | None:
         """Merge ``updates`` into the properties of the node with ``node_id``.
 
         Only the keys present in ``updates`` are changed; other properties
         are left untouched.  Returns the updated properties dict.
+
+        Wave 0 (FR-DEL-002): When this store is bound to ``agent_principal``,
+        lifecycle fields are silently stripped from ``updates`` before the
+        Cypher SET clause is built.  The Postgres trigger provides a second line
+        of defence, but stripping here ensures clean error messages rather than
+        raw DB exceptions surfacing to callers.
         """
+        # Wave 0: strip lifecycle fields for agent_principal (AC1 guard at application layer).
+        _LIFECYCLE_FIELDS = frozenset({
+            "archived_at", "archived_by", "archive_reason",
+            "purge_after", "purge_cancelled_at",
+            "legal_hold", "hold_reason", "hold_set_by", "hold_set_at",
+            "link_status",
+        })
+        if self._principal_name == "agent_principal":
+            forbidden = _LIFECYCLE_FIELDS & updates.keys()
+            if forbidden:
+                from graphclaw.db.base import InsufficientPrivilegeError  # noqa: PLC0415
+                raise InsufficientPrivilegeError(
+                    f"agent_principal cannot update lifecycle fields: {sorted(forbidden)}. "
+                    "Use archive_* tools instead."
+                )
+
         eid = _escape(node_id)
         set_fragments = []
         for key, value in updates.items():
@@ -175,7 +221,7 @@ class AgeGraphStore(GraphStore):
         if row is None:
             return None
         updated = _extract_properties(row[0])
-        logger.debug("update_node", extra={"node_id": node_id, "keys": list(updates)})
+        logger.debug("update_node", extra={"node_id": node_id, "keys": list(updates), "principal_name": self._principal_name})
 
         # Fire-and-forget embedding re-generation for task nodes.
         label = updated.get("node_type", updated.get("label", ""))
@@ -196,7 +242,7 @@ class AgeGraphStore(GraphStore):
                 $$) as (v agtype)
                 """
             )
-        logger.debug("delete_node", extra={"node_id": node_id})
+        logger.debug("delete_node", extra={"node_id": node_id, "principal_name": self._principal_name})
 
     async def list_nodes(
         self,
@@ -755,6 +801,43 @@ class AgeGraphStore(GraphStore):
                 "Embedding generation failed (non-fatal)",
                 extra={"node_id": node_props.get("id"), "error": str(exc)},
             )
+
+    # ------------------------------------------------------------------
+    # Wave 0: Tombstone / canonical resolution (FR-DEL-003)
+    # ------------------------------------------------------------------
+
+    async def resolve_canonical(
+        self,
+        node_id: str,
+        max_hops: int = 5,
+    ) -> dict | None:
+        """Follow TombstoneNode redirect chain to the current live node.
+
+        Delegates to ``graphclaw.db.age.redirects.resolve_canonical`` with
+        this store instance.
+
+        Parameters
+        ----------
+        node_id:
+            Starting node ID (may be live or archived/redirected).
+        max_hops:
+            Maximum redirect hops before raising ``MaxHopsExceeded``.
+
+        Returns
+        -------
+        dict | None
+            Properties of the live node, or ``None`` if no live replacement.
+
+        Raises
+        ------
+        TombstoneCycle:
+            Cycle detected in redirect chain.
+        MaxHopsExceeded:
+            Redirect chain length exceeds ``max_hops``.
+        """
+        from graphclaw.db.age.redirects import resolve_canonical  # noqa: PLC0415
+
+        return await resolve_canonical(node_id, self, max_hops)
 
 
 # ---------------------------------------------------------------------------

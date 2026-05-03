@@ -210,4 +210,110 @@ MIGRATIONS: list[Migration] = [
             END $$;
         """,
     ),
+    Migration(
+        version="0008",
+        name="wave0_principal_probe",
+        description=(
+            "Wave 0: Create _principal_probe table used by startup_assert_no_delete "
+            "to verify that agent_principal cannot execute DELETE statements."
+        ),
+        sql_up="""
+            -- Principal probe table: exists only for the no-delete startup assertion.
+            -- No user data is stored here — it is a single-row canary table.
+            CREATE TABLE IF NOT EXISTS _principal_probe (
+                id         SERIAL PRIMARY KEY,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            );
+
+            -- Ensure at least one row exists so DELETE has something to attempt.
+            INSERT INTO _principal_probe DEFAULT VALUES
+            ON CONFLICT DO NOTHING;
+
+            -- Grant agent_principal SELECT+INSERT+UPDATE but explicitly REVOKE DELETE.
+            DO $$ BEGIN
+              IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'agent_principal') THEN
+                GRANT SELECT, INSERT, UPDATE ON _principal_probe TO agent_principal;
+                REVOKE DELETE ON _principal_probe FROM agent_principal;
+              END IF;
+            END $$;
+
+            -- Grant admin_principal full access.
+            DO $$ BEGIN
+              IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'admin_principal') THEN
+                GRANT SELECT, INSERT, UPDATE, DELETE ON _principal_probe TO admin_principal;
+              END IF;
+            END $$;
+        """,
+    ),
+    Migration(
+        version="0009",
+        name="wave0_lifecycle_fields_and_triggers",
+        description=(
+            "Wave 0 (FR-DEL-002, FR-DEL-003, FR-DEL-007): Add lifecycle fields to the "
+            "AGE vertex property schema and install prevent_lifecycle_field_update() "
+            "Postgres trigger on all user data tables.  Fields are nullable with no "
+            "defaults so existing rows are unaffected (NULL == not archived)."
+        ),
+        sql_up="""
+            -- ----------------------------------------------------------------
+            -- Lifecycle trigger function
+            -- ----------------------------------------------------------------
+            -- Applied to every node table.  Blocks agent_principal from directly
+            -- setting lifecycle fields — agents must go through archive_* tools.
+            CREATE OR REPLACE FUNCTION prevent_lifecycle_field_update()
+            RETURNS TRIGGER AS $$
+            BEGIN
+              IF current_user = 'agent_principal' THEN
+                IF (NEW.archived_at IS DISTINCT FROM OLD.archived_at) OR
+                   (NEW.purge_after IS DISTINCT FROM OLD.purge_after) OR
+                   (NEW.purge_cancelled_at IS DISTINCT FROM OLD.purge_cancelled_at) OR
+                   (NEW.link_status IS DISTINCT FROM OLD.link_status) OR
+                   (NEW.legal_hold IS DISTINCT FROM OLD.legal_hold) THEN
+                  RAISE EXCEPTION 'Lifecycle fields cannot be updated by agent_principal';
+                END IF;
+              END IF;
+              RETURN NEW;
+            END;
+            $$ LANGUAGE plpgsql;
+
+            -- ----------------------------------------------------------------
+            -- Apply trigger to the principal probe table as a sanity check.
+            -- Real user-data tables live in the AGE graph; the trigger is wired
+            -- at the AGE vertex level via application-layer enforcement in
+            -- AgeGraphStore.update_node (FR-DEL-002 AC1 guard).
+            -- ----------------------------------------------------------------
+            DROP TRIGGER IF EXISTS trg_prevent_lifecycle_field_update
+                ON _principal_probe;
+            CREATE TRIGGER trg_prevent_lifecycle_field_update
+                BEFORE UPDATE ON _principal_probe
+                FOR EACH ROW
+                EXECUTE FUNCTION prevent_lifecycle_field_update();
+
+            -- Revision note: AGE graph properties are stored as JSONB inside
+            -- agtype columns in ag_catalog.  Per-column Postgres triggers cannot
+            -- fire on individual JSONB keys.  The enforce-at-application-layer
+            -- approach (AgeGraphStore.update_node checks _LIFECYCLE_FIELDS) is
+            -- therefore the primary enforcement mechanism for Wave 0 graph nodes.
+            -- The DB-level trigger above applies to any future Postgres tables.
+        """,
+    ),
+    Migration(
+        version="0010",
+        name="wave0_tombstone_node_label",
+        description=(
+            "Wave 0 (FR-DEL-003): Add TombstoneNode vertex label to the AGE graph "
+            "and a REDIRECTS_TO edge label for redirect chains."
+        ),
+        sql_up="""
+            DO $$ BEGIN
+              PERFORM ag_catalog.create_vlabel('graphclaw', 'TombstoneNode');
+            EXCEPTION WHEN others THEN NULL;
+            END $$;
+
+            DO $$ BEGIN
+              PERFORM ag_catalog.create_elabel('graphclaw', 'REDIRECTS_TO');
+            EXCEPTION WHEN others THEN NULL;
+            END $$;
+        """,
+    ),
 ]

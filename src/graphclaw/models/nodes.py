@@ -700,6 +700,40 @@ class MCPServerNode(BaseNode):
         return v
 
 
+# ---------------------------------------------------------------------------
+# TombstoneNode  (Wave 0 — FR-DEL-003)
+# ---------------------------------------------------------------------------
+
+
+class TombstoneNode(BaseNode):
+    """Redirect marker left behind when a node is archived or merged.
+
+    When a node is archived:
+    - The original node's ``link_status`` is set to ``"redirected"``.
+    - A TombstoneNode is created pointing ``redirect_to`` at the canonical
+      replacement (or ``None`` if the node is simply gone).
+
+    ``resolve_canonical(node_id, max_hops=5)`` follows these redirects to
+    find the current live node.
+
+    node_type is fixed as ``"TombstoneNode"`` (frozen field).
+    """
+
+    node_type: str = Field(default="TombstoneNode", frozen=True)
+    archived_node_id: str = Field(
+        ...,
+        description="ID of the node that was archived / replaced.",
+    )
+    redirect_to: str | None = Field(
+        default=None,
+        description=(
+            "ID of the live replacement node, or None if there is no replacement "
+            "(e.g. the node was simply purged)."
+        ),
+    )
+    reason: str = Field(default="", description="Human-readable reason for this tombstone.")
+
+
 __all__ = [
     # Sub-models
     "Timeline",
@@ -742,4 +776,6 @@ __all__ = [
     "VisibilityScope",
     # Phase 4
     "MCPServerNode",
+    # Wave 0
+    "TombstoneNode",
 ]
