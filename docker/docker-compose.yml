@@ -11,6 +11,9 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql
+      # Wave 0: mount grants.sql into the Postgres initdb scripts directory.
+      # Runs automatically on first container start if the data dir is empty.
+      - ../infrastructure/postgres/init:/docker-entrypoint-initdb.d:ro
     networks:
       default:
         aliases:
@@ -65,17 +68,29 @@ services:
       timeout: 3s
       retries: 5
 
-  # One-shot service: creates the graphclaw bucket in MinIO on first run
+  # One-shot service: creates the graphclaw bucket in MinIO and applies Wave 0 policies.
   minio-init:
     image: minio/mc:latest
     depends_on:
       minio:
         condition: service_healthy
+    volumes:
+      - ../infrastructure/minio/policies:/policies:ro
     entrypoint: >
       /bin/sh -c "
         mc alias set local http://minio:9000 graphclaw ${MINIO_PASSWORD:-graphclaw_dev} &&
         mc mb --ignore-existing local/graphclaw &&
-        echo 'MinIO bucket ready'
+        mc anonymous set none local/graphclaw &&
+        mc ilm rule list local/graphclaw 2>/dev/null | grep -q 'users/' &&
+          echo 'WARNING: user-prefix lifecycle rules found — remove before enabling no-delete enforcement' ||
+          echo 'MinIO lifecycle check passed: no user-prefix expiry rules' &&
+        mc admin policy create local agent-policy /policies/agent-policy.json 2>/dev/null || true &&
+        mc admin policy create local admin-policy /policies/admin-policy.json 2>/dev/null || true &&
+        mc admin user add local agent_principal ${AGENT_PRINCIPAL_SECRET:-agent_secret_change_me} 2>/dev/null || true &&
+        mc admin policy attach local agent-policy --user agent_principal 2>/dev/null || true &&
+        mc admin user add local admin_principal ${ADMIN_PRINCIPAL_SECRET:-admin_secret_change_me} 2>/dev/null || true &&
+        mc admin policy attach local admin-policy --user admin_principal 2>/dev/null || true &&
+        echo 'MinIO bucket and Wave 0 policies ready'
       "
     restart: "no"
 
@@ -98,6 +113,11 @@ services:
       PYTHONPATH: /app
       ENVIRONMENT: development
       DATABASE_URL: postgresql://graphclaw:${DB_PASSWORD:-graphclaw_dev}@db:5432/graphclaw
+      # Wave 0: No-Delete principle — flag on after W0-PR1-PR9 all green
+      GRAPHCLAW_NO_DELETE_ENFORCEMENT: ${GRAPHCLAW_NO_DELETE_ENFORCEMENT:-true}
+      AGENT_PRINCIPAL_DSN: postgresql://agent_principal:${AGENT_PRINCIPAL_SECRET:-agent_secret_change_me}@db:5432/graphclaw
+      ADMIN_PRINCIPAL_DSN: postgresql://admin_principal:${ADMIN_PRINCIPAL_SECRET:-admin_secret_change_me}@db:5432/graphclaw
+      MIGRATION_PRINCIPAL_DSN: postgresql://migration_principal:${MIGRATION_PRINCIPAL_SECRET:-migration_secret_change_me}@db:5432/graphclaw
       SECRETS_BACKEND: env_file
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       REDIS_URL: redis://redis:6379
@@ -122,6 +142,15 @@ services:
       TELEGRAM_POLL_TIMEOUT: ${TELEGRAM_POLL_TIMEOUT:-30}
       # Intelligence pipeline
       GRAPHCLAW_USER_ID: ${GRAPHCLAW_USER_ID:-}
+      # OAuth 2.0
+      OAUTH_REDIRECT_BASE_URL: ${OAUTH_REDIRECT_BASE_URL:-http://localhost:8000}
+      COCKPIT_BASE_URL: ${COCKPIT_BASE_URL:-http://localhost:3000}
+      OAUTH_GOOGLE_CLIENT_ID: ${OAUTH_GOOGLE_CLIENT_ID:-}
+      OAUTH_GOOGLE_CLIENT_SECRET: ${OAUTH_GOOGLE_CLIENT_SECRET:-}
+      OAUTH_GITHUB_CLIENT_ID: ${OAUTH_GITHUB_CLIENT_ID:-}
+      OAUTH_GITHUB_CLIENT_SECRET: ${OAUTH_GITHUB_CLIENT_SECRET:-}
+      OAUTH_MICROSOFT_CLIENT_ID: ${OAUTH_MICROSOFT_CLIENT_ID:-}
+      OAUTH_MICROSOFT_CLIENT_SECRET: ${OAUTH_MICROSOFT_CLIENT_SECRET:-}
     volumes:
       - ../src:/app/src
       - ../tests:/app/tests
