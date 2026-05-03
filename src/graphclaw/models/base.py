@@ -296,7 +296,12 @@ def validate_mcp_server_id(v: str) -> str:
 
 
 class BaseNode(BaseModel):
-    """Common fields for every graph node in the GraphClaw property graph."""
+    """Common fields for every graph node in the GraphClaw property graph.
+
+    Wave 0 lifecycle fields (FR-DEL-002, FR-DEL-003, FR-DEL-007):
+    These fields are write-restricted to admin_principal at the DB schema level.
+    Agents MUST NOT update these directly; use the archive_* tool set instead.
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -308,5 +313,58 @@ class BaseNode(BaseModel):
         description=(
             "Optimistic locking version counter. Increment on every write; "
             "reject writes where version in DB != version in payload."
+        ),
+    )
+
+    # ------------------------------------------------------------------
+    # Wave 0: Lifecycle fields (admin_principal-only writes)
+    # ------------------------------------------------------------------
+    archived_at: datetime | None = Field(
+        default=None,
+        description=(
+            "Timestamp when this node was archived. NULL means not archived. "
+            "Write-restricted to admin_principal via Postgres trigger."
+        ),
+    )
+    archived_by: str | None = Field(
+        default=None,
+        description="User ID of the person who requested archival.",
+    )
+    archive_reason: str | None = Field(
+        default=None,
+        description="Human-readable reason for archival.",
+    )
+    purge_after: datetime | None = Field(
+        default=None,
+        description=(
+            "Timestamp after which the purge worker may hard-delete this node. "
+            "Set by the archive flow; default 24h after archived_at. "
+            "Write-restricted to admin_principal."
+        ),
+    )
+    purge_cancelled_at: datetime | None = Field(
+        default=None,
+        description=(
+            "Set when user cancels a pending purge. Purge worker skips rows "
+            "where this field is NOT NULL."
+        ),
+    )
+    # Legal hold fields — prevent purge even after purge_after elapsed.
+    legal_hold: bool = Field(
+        default=False,
+        description=(
+            "When True, the purge worker skips this node regardless of purge_after. "
+            "Set/released only by admin_principal."
+        ),
+    )
+    hold_reason: str | None = Field(default=None)
+    hold_set_by: str | None = Field(default=None)
+    hold_set_at: datetime | None = Field(default=None)
+    # link_status: for TombstoneNode tracking (set when node is redirected).
+    link_status: str | None = Field(
+        default=None,
+        description=(
+            "Set to 'redirected' when a TombstoneNode replaces this node. "
+            "Write-restricted to admin_principal."
         ),
     )

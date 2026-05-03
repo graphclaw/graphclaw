@@ -124,6 +124,7 @@ class AgeGraphStore(GraphStore):
             Required when ``GRAPHCLAW_NO_DELETE_ENFORCEMENT=true``.
         """
         from graphclaw.cross_tenant.acl import require_caller_context  # noqa: PLC0415
+
         require_caller_context(caller_context)
         props: dict = node.model_dump(mode="json")
         label: str = _resolve_label(node)
@@ -140,7 +141,10 @@ class AgeGraphStore(GraphStore):
             )
             row = await result.fetchone()
         created = _extract_properties(row[0]) if row else props
-        logger.debug("create_node", extra={"label": label, "id": props.get("id"), "principal_name": self._principal_name})
+        logger.debug(
+            "create_node",
+            extra={"label": label, "id": props.get("id"), "principal_name": self._principal_name},
+        )
 
         # Fire-and-forget embedding generation for task nodes.
         if label.startswith("Task") and self._embedding_client is not None:
@@ -171,6 +175,7 @@ class AgeGraphStore(GraphStore):
             Required when ``GRAPHCLAW_NO_DELETE_ENFORCEMENT=true``.
         """
         from graphclaw.cross_tenant.acl import require_caller_context  # noqa: PLC0415
+
         require_caller_context(caller_context)
         eid = _escape(node_id)
         async with get_connection(self._pool) as conn:
@@ -215,18 +220,28 @@ class AgeGraphStore(GraphStore):
             Required when ``GRAPHCLAW_NO_DELETE_ENFORCEMENT=true``.
         """
         from graphclaw.cross_tenant.acl import require_caller_context  # noqa: PLC0415
+
         require_caller_context(caller_context)
         # Wave 0: strip lifecycle fields for agent_principal (AC1 guard at application layer).
-        _LIFECYCLE_FIELDS = frozenset({
-            "archived_at", "archived_by", "archive_reason",
-            "purge_after", "purge_cancelled_at",
-            "legal_hold", "hold_reason", "hold_set_by", "hold_set_at",
-            "link_status",
-        })
+        _LIFECYCLE_FIELDS = frozenset(
+            {
+                "archived_at",
+                "archived_by",
+                "archive_reason",
+                "purge_after",
+                "purge_cancelled_at",
+                "legal_hold",
+                "hold_reason",
+                "hold_set_by",
+                "hold_set_at",
+                "link_status",
+            }
+        )
         if self._principal_name == "agent_principal":
             forbidden = _LIFECYCLE_FIELDS & updates.keys()
             if forbidden:
                 from graphclaw.db.base import InsufficientPrivilegeError  # noqa: PLC0415
+
                 raise InsufficientPrivilegeError(
                     f"agent_principal cannot update lifecycle fields: {sorted(forbidden)}. "
                     "Use archive_* tools instead."
@@ -252,7 +267,14 @@ class AgeGraphStore(GraphStore):
         if row is None:
             return None
         updated = _extract_properties(row[0])
-        logger.debug("update_node", extra={"node_id": node_id, "keys": list(updates), "principal_name": self._principal_name})
+        logger.debug(
+            "update_node",
+            extra={
+                "node_id": node_id,
+                "keys": list(updates),
+                "principal_name": self._principal_name,
+            },
+        )
 
         # Fire-and-forget embedding re-generation for task nodes.
         label = updated.get("node_type", updated.get("label", ""))
@@ -273,7 +295,9 @@ class AgeGraphStore(GraphStore):
                 $$) as (v agtype)
                 """
             )
-        logger.debug("delete_node", extra={"node_id": node_id, "principal_name": self._principal_name})
+        logger.debug(
+            "delete_node", extra={"node_id": node_id, "principal_name": self._principal_name}
+        )
 
     async def list_nodes(
         self,
@@ -295,6 +319,7 @@ class AgeGraphStore(GraphStore):
             Required when ``GRAPHCLAW_NO_DELETE_ENFORCEMENT=true``.
         """
         from graphclaw.cross_tenant.acl import require_caller_context  # noqa: PLC0415
+
         require_caller_context(caller_context)
         filters = filters or {}
         if label != "TaskNode" and not _KEY_RE.match(label):
@@ -878,6 +903,49 @@ class AgeGraphStore(GraphStore):
         from graphclaw.db.age.redirects import resolve_canonical  # noqa: PLC0415
 
         return await resolve_canonical(node_id, self, max_hops)
+
+    async def get_resource_with_linked_view(
+        self,
+        resource_id: str,
+        caller_context: Any | None = None,
+    ) -> dict | None:
+        """Return a merged view of a ResourceNode, reading through linked_user_id.
+
+        When ``linked_user_id`` is set on the resource (FR-GRAPH-003), this
+        method reads the linked UserNode and overlays its ``preferences`` and
+        ``identities`` onto the result.  Owner-specific fields (everything else
+        on the resource) are preserved from the shadow ResourceNode.
+
+        Parameters
+        ----------
+        resource_id:
+            The RES-{id} of the ResourceNode to fetch.
+        caller_context:
+            Required for ACL enforcement.
+
+        Returns
+        -------
+        dict | None
+            Merged view dict, or ``None`` if not found.
+        """
+        resource = await self.get_node(resource_id, caller_context=caller_context)
+        if resource is None:
+            return None
+        linked_user_id = resource.get("linked_user_id")
+        if not linked_user_id:
+            return resource
+        linked_user = await self.get_node(
+            linked_user_id, include_archived=False, caller_context=caller_context
+        )
+        if linked_user is None:
+            return resource
+        # Read-through: overlay preferences and identities from the linked user.
+        merged = dict(resource)
+        if "preferences" in linked_user:
+            merged["preferences"] = linked_user["preferences"]
+        if "identities" in linked_user:
+            merged["identities"] = linked_user["identities"]
+        return merged
 
 
 # ---------------------------------------------------------------------------

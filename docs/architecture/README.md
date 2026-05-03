@@ -18,6 +18,21 @@
 | [07 — AWS Deployment](07-deployment-aws.md) | ECS Fargate topology, managed services, IAM, ALB routing |
 | [08 — Object Storage Model](08-object-storage-model.md) | Bucket layout, multi-tenant isolation, StoragePaths API, object lifecycle |
 | [09 — Infrastructure Abstractions](09-infrastructure-abstractions.md) | ABC pattern, backend swapping (MinIO→S3, Redis→SQS, env→Vault), **two-tier caching design** (in-process TTL + Redis), full env var reference, cockpit full-stack compose |
+| [10 — Agent Loop Orchestration](10-agent-loop-orchestration.md) | Main orchestrator turn loop, system-prompt assembly, tool execution |
+| [11 — Sub-Agent Orchestration](11-sub-agent-orchestration.md) | Delegation, dispatch planning, sub-agent lifecycle |
+| [12 — Intelligence Hub Architecture](12-intelligence-hub-architecture.md) | Profile, memory tiers (working/episodic/semantic), compact, skills authoring |
+| [13 — Tenancy Model](13-tenancy-model.md) | OrganizationNode + WorkspaceNode roles, on-prem vs SaaS multi-org |
+| [14 — Agent Triad (Comms / Inbound / Outbound)](14-agent-triad.md) | Three-agent peer architecture, distillation contract, routing matrix |
+| [15 — User Identity, Onboarding, Resolution](15-user-identity-and-onboarding.md) | Identities, aliases, linked_user_id, onboarding FSM, name resolution + merge |
+| [16 — Cross-User (Counterparty) Conversations](16-cross-user-conversations.md) | Counterparty-scoped storage, reply-key linking, multi-channel chat |
+| [17 — Cross-Tenant Task Projection (A.1)](17-cross-tenant-task-projection.md) | Org task index, list_external_assignments_for_me, ACL |
+| [18 — Follow-Up Cadence](18-follow-up-cadence.md) | Scheduler-driven follow-ups, escalation queue |
+| [19 — Data Lifecycle & Deletion Policy (No-Delete)](19-data-lifecycle-and-deletion-policy.md) | **Foundational:** service-principal split, archive+tombstone, GDPR flows |
+
+> **Requirements bundle** (in `docs/requirements/`):
+> - [agent-triad-and-comms-substrate.md](../requirements/agent-triad-and-comms-substrate.md) — actionable spec (FR-IDs, files, acceptance, wave plan)
+> - [build-readiness.md](../requirements/build-readiness.md) — **read first before Wave 0**: kickoff PR sequence, rollout/migration ordering, verification matrix, API shapes, risk register, open-questions log
+> - [review-the-design-plans-squishy-eagle.md](../requirements/review-the-design-plans-squishy-eagle.md) — design-conversation trail (gaps A–AX, validation walkthroughs, stress tests, decision rationale)
 
 ---
 

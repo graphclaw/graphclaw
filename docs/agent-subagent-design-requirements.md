@@ -4,6 +4,24 @@
 **Status:** COMPLETE — B1–B12 and F1–F8 all done (2026-04-28). Architecture docs 10–12 written.  
 **Purpose:** Canonical reference for agent/sub-agent architecture, memory design, and Intelligence Hub implementation. Intended to be self-contained for a new session read.
 
+> **⚠️ Foundational principle (added 2026-05-02):** **No agent ever performs a hard delete.** All agent DB/storage connections use a `agent_principal` with no DELETE grants at the database level. All "removal" is archive + tombstone; user-initiated full purge is a 24h-delayed admin operation. See [arch/19-data-lifecycle-and-deletion-policy.md](architecture/19-data-lifecycle-and-deletion-policy.md). This principle propagates through every Gap and PR — see [requirements/agent-triad-and-comms-substrate.md](requirements/agent-triad-and-comms-substrate.md) Wave 0.
+
+> **Extended scope (added 2026-05-02):** the agent architecture has been extended from a single-orchestrator model to a **Comms / Inbound / Outbound triad** with multi-channel chat, counterparty conversations, identity/onboarding, cross-tenant task projection, per-user policies, and the No-Delete principle. New architecture docs (13–19) elaborate.
+>
+> **Requirements bundle** (in `docs/requirements/`):
+> - [agent-triad-and-comms-substrate.md](requirements/agent-triad-and-comms-substrate.md) — actionable spec (FR-IDs, files, acceptance, wave plan)
+> - [build-readiness.md](requirements/build-readiness.md) — **read first before Wave 0**: kickoff PR sequence, rollout/migration ordering, verification matrix, API shapes, risk register, open-questions log
+> - [review-the-design-plans-squishy-eagle.md](requirements/review-the-design-plans-squishy-eagle.md) — design-conversation trail (the *why* — gaps A–AX, validation walkthroughs, stress tests, decisions)
+>
+> Companions:
+> - [arch/13-tenancy-model.md](architecture/13-tenancy-model.md)
+> - [arch/14-agent-triad.md](architecture/14-agent-triad.md)
+> - [arch/15-user-identity-and-onboarding.md](architecture/15-user-identity-and-onboarding.md)
+> - [arch/16-cross-user-conversations.md](architecture/16-cross-user-conversations.md)
+> - [arch/17-cross-tenant-task-projection.md](architecture/17-cross-tenant-task-projection.md)
+> - [arch/18-follow-up-cadence.md](architecture/18-follow-up-cadence.md)
+> - [arch/19-data-lifecycle-and-deletion-policy.md](architecture/19-data-lifecycle-and-deletion-policy.md)
+
 ---
 
 ## Table of Contents

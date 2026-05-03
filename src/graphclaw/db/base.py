@@ -35,14 +35,48 @@ implementations.  Synchronous backends must wrap their operations in
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from graphclaw.auth.principals import Principal
+
+
+# ---------------------------------------------------------------------------
+# Domain exceptions
+# ---------------------------------------------------------------------------
+
+
+class InsufficientPrivilegeError(Exception):
+    """Raised when a principal attempts an operation it lacks privilege for.
+
+    Wave 0 (FR-DEL-002): Raised by update_node() when agent_principal tries
+    to update lifecycle fields (archived_at, purge_after, legal_hold, etc.).
+    """
+
+
+class ACLContextMissingError(Exception):
+    """Raised when a repo call is made without a required caller_context.
+
+    Wave 0 (FR-AL-001): All public repo methods require caller_context once
+    mandatory ACL enforcement is rolled out.
+    """
 
 
 class GraphStore(ABC):
     """Abstract interface for graph node and edge CRUD operations.
 
     All backends (AGE, Neo4j, Neptune) implement this interface.
+
+    Every concrete implementation MUST expose a ``principal_name`` property
+    returning the string name of the service principal bound to its connection
+    pool.  This value is logged with every DB operation for audit purposes
+    (Wave 0 NFR-008).
     """
+
+    @property
+    def principal_name(self) -> str:
+        """Return the principal name bound to this store instance."""
+        return "unknown"
 
     @abstractmethod
     async def create_node(self, node: Any) -> dict: ...

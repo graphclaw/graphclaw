@@ -75,12 +75,15 @@ from graphclaw.models.enums import (
     ConfidenceLevel,
     ConstraintScope,
     ConstraintType,
+    DiscoverabilityLevel,
     GoalOrigin,
     GoalPriority,
     GoalState,
+    LinkStatus,
     MatchedBy,
     MCPTransport,
     MembershipStatus,
+    OrgDirectoryVisibility,
     OrgRole,
     OverrideType,
     ResourceType,
@@ -329,12 +332,43 @@ class AutonomyDefaults(BaseModel):
     auto_close_resolved: bool = False
 
 
+# ---------------------------------------------------------------------------
+# Wave 1 — Channel identity + alias models (FR-GRAPH-001, FR-GRAPH-002)
+# ---------------------------------------------------------------------------
+
+
+class ChannelIdentities(BaseModel):
+    """Per-node channel addresses (FR-GRAPH-001)."""
+
+    emails: list[str] = Field(default_factory=list)
+    phones: list[str] = Field(default_factory=list)
+    telegram_id: str | None = None
+    telegram_username: str | None = None
+    whatsapp_id: str | None = None
+    slack_user_id: str | None = None
+
+
+class AliasEntry(BaseModel):
+    """Single resolved alias with provenance (FR-GRAPH-002)."""
+
+    value: str
+    added_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    added_by: str  # user_id or SYSTEM
+    source: str  # "manual" | "inbound_match" | "onboarding" | "alias_drift"
+
+
 class UserPreferences(BaseModel):
     briefing_time: str | None = None  # "HH:MM"
     briefing_style: str = "concise"  # "concise" | "detailed"
     default_follow_up_days: int = 3
     interrupt_threshold: float = 0.8
     autonomy_defaults: AutonomyDefaults = AutonomyDefaults()
+    # Wave 1 (FR-GRAPH-005): channel stickiness + discoverability
+    discoverability: DiscoverabilityLevel = DiscoverabilityLevel.ORG_DEFAULT
+    channel_stickiness_hours: int = 48
+    channel_stickiness_overrides: dict[str, int] = Field(default_factory=dict)
+    # preferred_channel used by outbound resolution (FR-OUT-002)
+    preferred_channel: str = "email"  # "email" | "telegram" | "whatsapp" | "slack" | "chat"
 
 
 class BehavioralModel(BaseModel):
@@ -361,6 +395,9 @@ class UserNode(BaseNode):
     preferences: UserPreferences = UserPreferences()
     scoring_weights: ScoringWeights = ScoringWeights()
     behavioral_model: BehavioralModel = BehavioralModel()
+    # Wave 1 (FR-GRAPH-001, FR-GRAPH-002)
+    identities: ChannelIdentities = Field(default_factory=ChannelIdentities)
+    aliases: list[AliasEntry] = Field(default_factory=list)
 
     @field_validator("id")
     @classmethod
@@ -502,6 +539,11 @@ class ResourceNode(BaseNode):
     reliability: ReliabilityModel = ReliabilityModel()
     current_risk: CurrentRisk = CurrentRisk()
     communication_preferences: CommunicationPreferences = CommunicationPreferences()
+    # Wave 1 (FR-GRAPH-001, FR-GRAPH-002, FR-GRAPH-003)
+    identities: ChannelIdentities = Field(default_factory=ChannelIdentities)
+    aliases: list[AliasEntry] = Field(default_factory=list)
+    linked_user_id: str | None = None  # USER-{id} when this shadow maps to a platform user
+    link_status: LinkStatus = LinkStatus.ACTIVE
 
     @field_validator("id")
     @classmethod
@@ -535,6 +577,11 @@ class CheckinNode(BaseNode):
     outbound_message: str | None = None
     inbound_response: str | None = None
     resolution: list[CheckinResolution] = []
+    # Wave 1 (FR-GRAPH-004): channel context fields
+    recipient_id: str | None = None  # resource_id or user_id receiving the message
+    channel: str | None = None  # "email" | "telegram" | "whatsapp" | "slack"
+    thread_id: str | None = None  # channel-specific thread/message identifier
+    direction: str | None = None  # "out" | "in"
 
 
 # ---------------------------------------------------------------------------
@@ -576,6 +623,8 @@ class OrgSettings(BaseModel):
     allow_guest_members: bool = False
     require_approval_for_tasks: bool = False
     daily_briefing_hour_utc: int = 8  # 0-23
+    # Wave 1 (FR-GRAPH-006): directory visibility
+    directory_visibility: OrgDirectoryVisibility = OrgDirectoryVisibility.OPEN
 
 
 class OrgMember(BaseModel):

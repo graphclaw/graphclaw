@@ -2,8 +2,18 @@
 
 **Version:** 1.0  
 **Status:** Approved for build — Phase 4.5  
-**Date:** 2026-04-12  
+**Date:** 2026-04-12 (extended 2026-05-02 design pass)  
 **Relates to:** PRD Sections 36 (Node Intelligence), 37 (Embedding Pipeline), 32 (Observability)
+
+> **2026-05-02 extensions.** The Intelligence Layer is the substrate that the new comms/inbound/outbound triad shares. See:
+>
+> - [14-agent-triad.md](14-agent-triad.md) — distillation now applies to **all message sources including web chat** (FR-CA-002), not only inbound channels
+> - [16-cross-user-conversations.md](16-cross-user-conversations.md) — counterparty-scoped storage replaces flat `chat/history.json`; sender classification matrix; reply-key dual-write (Redis + Postgres `reply_lineage`)
+> - [15-user-identity-and-onboarding.md](15-user-identity-and-onboarding.md) — alias resolution + org-directory lookup augment the resolver tiers
+> - [17-cross-tenant-task-projection.md](17-cross-tenant-task-projection.md) — node intelligence remains in owner's substrate; cross-tenant visibility is metadata-only via org task index
+> - [19-data-lifecycle-and-deletion-policy.md](19-data-lifecycle-and-deletion-policy.md) — intelligence is append-only by design; trim via existing 500-word limiter; never deleted
+>
+> Tracked requirements: [/docs/requirements/agent-triad-and-comms-substrate.md](../requirements/agent-triad-and-comms-substrate.md).
 
 ---
 

@@ -1,0 +1,513 @@
+F.FFFFFF.......FFFF...F.....F..FF.FFF.............FFssss.......F.FFFFFEE [ 52%]
+EEEEEEEEEEEEEF.FFF.F.FFFFFFFFFF...................................       [100%]
+=================================== ERRORS ====================================
+_ ERROR at setup of TestCreateAndRetrieveNode.test_create_returns_properties __
+E   psycopg_pool.PoolTimeout: pool initialization incomplete after 30.0 sec
+----------------------------- Captured log setup ------------------------------
+WARNING  psycopg.pool:pool_async.py:739 error connecting in 'pool-5': connection failed: connection to server at "127.0.0.1", port 5432 failed: FATAL:  database "graphclaw_test" does not exist
+Multiple connection attempts failed. All failures were:
+- host: 'localhost', port: '5432', hostaddr: '::1': connection failed: connection to server at "::1", port 5432 failed: FATAL:  database "graphclaw_test" does not exist
+- host: 'localhost', port: '5432', hostaddr: '127.0.0.1': connection failed: connection to server at "127.0.0.1", port 5432 failed: FATAL:  database "graphclaw_test" does not exist
+WARNING  psycopg.pool:pool_async.py:739 error connecting in 'pool-5': connection failed: connection to server at "127.0.0.1", port 5432 failed: FATAL:  database "graphclaw_test" does not exist
+Multiple connection attempts failed. All failures were:
+- host: 'localhost', port: '5432', hostaddr: '::1': connection failed: connection to server at "::1", port 5432 failed: FATAL:  database "graphclaw_test" does not exist
+- host: 'localhost', port: '5432', hostaddr: '127.0.0.1': connection failed: connection to server at "127.0.0.1", port 5432 failed: FATAL:  database "graphclaw_test" does not exist
+WARNING  psycopg.pool:pool_async.py:739 error connecting in 'pool-5': connection failed: connection to server at "127.0.0.1", port 5432 failed: FATAL:  database "graphclaw_test" does not exist
+Multiple connection attempts failed. All failures were:
+- host: 'localhost', port: '5432', hostaddr: '::1': connection failed: connection to server at "::1", port 5432 failed: FATAL:  database "graphclaw_test" does not exist
+- host: 'localhost', port: '5432', hostaddr: '127.0.0.1': connection failed: connection to server at "127.0.0.1", port 5432 failed: FATAL:  database "graphclaw_test" does not exist
+WARNING  psycopg.pool:pool_async.py:739 error connecting in 'pool-5': connection failed: connection to server at "127.0.0.1", port 5432 failed: FATAL:  database "graphclaw_test" does not exist
+Multiple connection attempts failed. All failures were:
+- host: 'localhost', port: '5432', hostaddr: '::1': connection failed: connection to server at "::1", port 5432 failed: FATAL:  database "graphclaw_test" does not exist
+- host: 'localhost', port: '5432', hostaddr: '127.0.0.1': connection failed: connection to server at "127.0.0.1", port 5432 failed: FATAL:  database "graphclaw_test" does not exist
+WARNING  psycopg.pool:pool_async.py:739 error connecting in 'pool-5': connection failed: connection to server at "127.0.0.1", port 5432 failed: FATAL:  database "graphclaw_test" does not exist
+Multiple connection attempts failed. All failures were:
+- host: 'localhost', port: '5432', hostaddr: '::1': connection failed: connection to server at "::1", port 5432 failed: FATAL:  database "graphclaw_test" does not exist
+- host: 'localhost', port: '5432', hostaddr: '127.0.0.1': connection failed: connection to server at "127.0.0.1", port 5432 failed: FATAL:  database "graphclaw_test" does not exist
+_ ERROR at setup of TestCreateAndRetrieveNode.test_get_node_returns_inserted_data _
+E   psycopg_pool.PoolTimeout: pool initialization incomplete after 30.0 sec
+_ ERROR at setup of TestCreateAndRetrieveNode.test_get_node_missing_returns_none _
+E   psycopg_pool.PoolTimeout: pool initialization incomplete after 30.0 sec
+_ ERROR at setup of TestCreateAndRetrieveNode.test_update_node_changes_property _
+E   psycopg_pool.PoolTimeout: pool initialization incomplete after 30.0 sec
+_ ERROR at setup of TestCreateAndRetrieveNode.test_delete_node_removes_vertex _
+E   psycopg_pool.PoolTimeout: pool initialization incomplete after 30.0 sec
+______ ERROR at setup of TestEdgeCreation.test_create_edge_and_retrieve _______
+E   psycopg_pool.PoolTimeout: pool initialization incomplete after 30.0 sec
+_________ ERROR at setup of TestEdgeCreation.test_get_edges_outgoing __________
+E   psycopg_pool.PoolTimeout: pool initialization incomplete after 30.0 sec
+_____ ERROR at setup of TestEdgeCreation.test_create_edge_with_properties _____
+E   psycopg_pool.PoolTimeout: pool initialization incomplete after 30.0 sec
+___________ ERROR at setup of TestListNodes.test_list_all_by_label ____________
+E   psycopg_pool.PoolTimeout: pool initialization incomplete after 30.0 sec
+_________ ERROR at setup of TestListNodes.test_list_with_state_filter _________
+E   psycopg_pool.PoolTimeout: pool initialization incomplete after 30.0 sec
+____ ERROR at setup of TestListNodes.test_list_nodes_empty_when_none_match ____
+E   psycopg_pool.PoolTimeout: pool initialization incomplete after 30.0 sec
+______ ERROR at setup of TestDownstreamDependents.test_direct_dependent _______
+E   psycopg_pool.PoolTimeout: pool initialization incomplete after 30.0 sec
+____ ERROR at setup of TestDownstreamDependents.test_transitive_dependent _____
+E   psycopg_pool.PoolTimeout: pool initialization incomplete after 30.0 sec
+________ ERROR at setup of TestDownstreamDependents.test_no_dependents ________
+E   psycopg_pool.PoolTimeout: pool initialization incomplete after 30.0 sec
+____ ERROR at setup of TestDownstreamDependents.test_anchor_not_in_results ____
+E   psycopg_pool.PoolTimeout: pool initialization incomplete after 30.0 sec
+================================== FAILURES ===================================
+E   botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+C:\Users\abhis\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\botocore\client.py:1078: botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+E   botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+C:\Users\abhis\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\botocore\client.py:1078: botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+E   botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+C:\Users\abhis\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\botocore\client.py:1078: botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+E   botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+C:\Users\abhis\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\botocore\client.py:1078: botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+E   botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+C:\Users\abhis\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\botocore\client.py:1078: botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+E   botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+C:\Users\abhis\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\botocore\client.py:1078: botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+E   botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+C:\Users\abhis\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\botocore\client.py:1078: botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+E   botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+C:\Users\abhis\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\botocore\client.py:1078: botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+E   botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+C:\Users\abhis\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\botocore\client.py:1078: botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+E   botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+C:\Users\abhis\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\botocore\client.py:1078: botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+E   botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+C:\Users\abhis\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\botocore\client.py:1078: botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+E   botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+C:\Users\abhis\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\botocore\client.py:1078: botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+E   botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+
+During handling of the above exception, another exception occurred:
+E   botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the DeleteObject operation: The Access Key Id you provided does not exist in our records.
+C:\Users\abhis\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\botocore\client.py:1078: botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the DeleteObject operation: The Access Key Id you provided does not exist in our records.
+E   botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+
+During handling of the above exception, another exception occurred:
+E   botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the DeleteObject operation: The Access Key Id you provided does not exist in our records.
+C:\Users\abhis\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\botocore\client.py:1078: botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the DeleteObject operation: The Access Key Id you provided does not exist in our records.
+E   botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+C:\Users\abhis\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\botocore\client.py:1078: botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+E   AssertionError: assert 'TSK-TP-544f0b04-AT' in set()
+C:\Users\abhis\Projects\graphclaw\tests\test_agent\test_loop_new_tools_integration.py:316: AssertionError: assert 'TSK-TP-544f0b04-AT' in set()
+E   AssertionError: assert 'TSK-TP-889c5948-AT' in set()
+C:\Users\abhis\Projects\graphclaw\tests\test_agent\test_loop_new_tools_integration.py:340: AssertionError: assert 'TSK-TP-889c5948-AT' in set()
+E   AssertionError: assert 'TSK-TP-6a9a3aea-AT' in set()
+C:\Users\abhis\Projects\graphclaw\tests\test_agent\test_loop_new_tools_integration.py:358: AssertionError: assert 'TSK-TP-6a9a3aea-AT' in set()
+E   botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+C:\Users\abhis\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\botocore\client.py:1078: botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+E   botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+C:\Users\abhis\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\botocore\client.py:1078: botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+E   botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the GetObject operation: The Access Key Id you provided does not exist in our records.
+------------------------------ Captured log call ------------------------------
+WARNING  graphclaw.agent.knowledge:knowledge.py:139 knowledge.list_topics.failed
+WARNING  graphclaw.agent.catalog:catalog.py:160 catalog.list_failed
+WARNING  graphclaw.agent.catalog:catalog.py:160 catalog.list_failed
+WARNING  graphclaw.api.chat_streaming:chat_streaming.py:169 stream_chat_run: history save failed for user_id=test-api-2a74bd80: An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+C:\Users\abhis\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\botocore\client.py:1078: botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the GetObject operation: The Access Key Id you provided does not exist in our records.
+E   botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+
+The above exception was the direct cause of the following exception:
+E   RuntimeError: User provisioning failed for email='inttest-f8eb3d7b@example.com': An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+----------------------------- Captured log setup ------------------------------
+WARNING  graphclaw.auth.jwt:jwt.py:378 JWTService: JWT_PRIVATE_KEY not set ù generating ephemeral RS256 key pair. This is only suitable for local development. Set JWT_PRIVATE_KEY and JWT_PUBLIC_KEY in production.
+------------------------------ Captured log call ------------------------------
+ERROR    graphclaw.auth.provisioning:provisioning.py:282 provision_new_user: step failed ù rolling back
+Traceback (most recent call last):
+  File "C:\Users\abhis\Projects\graphclaw\src\graphclaw\auth\provisioning.py", line 228, in provision_new_user
+    await self._storage.write(keep_key, b"")
+  File "C:\Users\abhis\Projects\graphclaw\src\graphclaw\infra\storage.py", line 566, in write
+    await asyncio.to_thread(_write)
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.10_3.10.3056.0_x64__qbz5n2kfra8p0\lib\asyncio\threads.py", line 25, in to_thread
+    return await loop.run_in_executor(None, func_call)
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.10_3.10.3056.0_x64__qbz5n2kfra8p0\lib\asyncio\tasks.py", line 304, in __wakeup
+    future.result()
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.10_3.10.3056.0_x64__qbz5n2kfra8p0\lib\concurrent\futures\thread.py", line 58, in run
+    result = self.fn(*self.args, **self.kwargs)
+  File "C:\Users\abhis\Projects\graphclaw\src\graphclaw\infra\storage.py", line 559, in _write
+    client.put_object(
+  File "C:\Users\abhis\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\botocore\client.py", line 602, in _api_call
+    return self._make_api_call(operation_name, kwargs)
+  File "C:\Users\abhis\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\botocore\context.py", line 123, in wrapper
+    return func(*args, **kwargs)
+  File "C:\Users\abhis\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\botocore\client.py", line 1078, in _make_api_call
+    raise error_class(parsed_response, operation_name)
+botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+C:\Users\abhis\Projects\graphclaw\src\graphclaw\auth\provisioning.py:288: RuntimeError: User provisioning failed for email='inttest-f8eb3d7b@example.com': An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+E   botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+
+The above exception was the direct cause of the following exception:
+E   RuntimeError: User provisioning failed for email='inttest-a43cf62a@example.com': An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+------------------------------ Captured log call ------------------------------
+ERROR    graphclaw.auth.provisioning:provisioning.py:282 provision_new_user: step failed ù rolling back
+Traceback (most recent call last):
+  File "C:\Users\abhis\Projects\graphclaw\src\graphclaw\auth\provisioning.py", line 228, in provision_new_user
+    await self._storage.write(keep_key, b"")
+  File "C:\Users\abhis\Projects\graphclaw\src\graphclaw\infra\storage.py", line 566, in write
+    await asyncio.to_thread(_write)
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.10_3.10.3056.0_x64__qbz5n2kfra8p0\lib\asyncio\threads.py", line 25, in to_thread
+    return await loop.run_in_executor(None, func_call)
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.10_3.10.3056.0_x64__qbz5n2kfra8p0\lib\asyncio\tasks.py", line 304, in __wakeup
+    future.result()
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.10_3.10.3056.0_x64__qbz5n2kfra8p0\lib\concurrent\futures\thread.py", line 58, in run
+    result = self.fn(*self.args, **self.kwargs)
+  File "C:\Users\abhis\Projects\graphclaw\src\graphclaw\infra\storage.py", line 559, in _write
+    client.put_object(
+  File "C:\Users\abhis\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\botocore\client.py", line 602, in _api_call
+    return self._make_api_call(operation_name, kwargs)
+  File "C:\Users\abhis\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\botocore\context.py", line 123, in wrapper
+    return func(*args, **kwargs)
+  File "C:\Users\abhis\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\botocore\client.py", line 1078, in _make_api_call
+    raise error_class(parsed_response, operation_name)
+botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+C:\Users\abhis\Projects\graphclaw\src\graphclaw\auth\provisioning.py:288: RuntimeError: User provisioning failed for email='inttest-a43cf62a@example.com': An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+E   botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+
+The above exception was the direct cause of the following exception:
+E   RuntimeError: User provisioning failed for email='inttest-176aa317@example.com': An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+------------------------------ Captured log call ------------------------------
+ERROR    graphclaw.auth.provisioning:provisioning.py:282 provision_new_user: step failed ù rolling back
+Traceback (most recent call last):
+  File "C:\Users\abhis\Projects\graphclaw\src\graphclaw\auth\provisioning.py", line 228, in provision_new_user
+    await self._storage.write(keep_key, b"")
+  File "C:\Users\abhis\Projects\graphclaw\src\graphclaw\infra\storage.py", line 566, in write
+    await asyncio.to_thread(_write)
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.10_3.10.3056.0_x64__qbz5n2kfra8p0\lib\asyncio\threads.py", line 25, in to_thread
+    return await loop.run_in_executor(None, func_call)
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.10_3.10.3056.0_x64__qbz5n2kfra8p0\lib\asyncio\tasks.py", line 304, in __wakeup
+    future.result()
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.10_3.10.3056.0_x64__qbz5n2kfra8p0\lib\concurrent\futures\thread.py", line 58, in run
+    result = self.fn(*self.args, **self.kwargs)
+  File "C:\Users\abhis\Projects\graphclaw\src\graphclaw\infra\storage.py", line 559, in _write
+    client.put_object(
+  File "C:\Users\abhis\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\botocore\client.py", line 602, in _api_call
+    return self._make_api_call(operation_name, kwargs)
+  File "C:\Users\abhis\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\botocore\context.py", line 123, in wrapper
+    return func(*args, **kwargs)
+  File "C:\Users\abhis\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\botocore\client.py", line 1078, in _make_api_call
+    raise error_class(parsed_response, operation_name)
+botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+C:\Users\abhis\Projects\graphclaw\src\graphclaw\auth\provisioning.py:288: RuntimeError: User provisioning failed for email='inttest-176aa317@example.com': An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+E   botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+
+The above exception was the direct cause of the following exception:
+E   RuntimeError: User provisioning failed for email='inttest-59ffcfaf@example.com': An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+------------------------------ Captured log call ------------------------------
+ERROR    graphclaw.auth.provisioning:provisioning.py:282 provision_new_user: step failed ù rolling back
+Traceback (most recent call last):
+  File "C:\Users\abhis\Projects\graphclaw\src\graphclaw\auth\provisioning.py", line 228, in provision_new_user
+    await self._storage.write(keep_key, b"")
+  File "C:\Users\abhis\Projects\graphclaw\src\graphclaw\infra\storage.py", line 566, in write
+    await asyncio.to_thread(_write)
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.10_3.10.3056.0_x64__qbz5n2kfra8p0\lib\asyncio\threads.py", line 25, in to_thread
+    return await loop.run_in_executor(None, func_call)
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.10_3.10.3056.0_x64__qbz5n2kfra8p0\lib\asyncio\tasks.py", line 304, in __wakeup
+    future.result()
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.10_3.10.3056.0_x64__qbz5n2kfra8p0\lib\concurrent\futures\thread.py", line 58, in run
+    result = self.fn(*self.args, **self.kwargs)
+  File "C:\Users\abhis\Projects\graphclaw\src\graphclaw\infra\storage.py", line 559, in _write
+    client.put_object(
+  File "C:\Users\abhis\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\botocore\client.py", line 602, in _api_call
+    return self._make_api_call(operation_name, kwargs)
+  File "C:\Users\abhis\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\botocore\context.py", line 123, in wrapper
+    return func(*args, **kwargs)
+  File "C:\Users\abhis\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\botocore\client.py", line 1078, in _make_api_call
+    raise error_class(parsed_response, operation_name)
+botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+C:\Users\abhis\Projects\graphclaw\src\graphclaw\auth\provisioning.py:288: RuntimeError: User provisioning failed for email='inttest-59ffcfaf@example.com': An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+E   AssertionError: Expected 1 UserNode for cbtest-a37f47b681e7@example.com, got 0
+    assert 0 == 1
+     +  where 0 = len([])
+------------------------------ Captured log call ------------------------------
+ERROR    graphclaw.auth.provisioning:provisioning.py:282 provision_new_user: step failed ù rolling back
+Traceback (most recent call last):
+  File "C:\Users\abhis\Projects\graphclaw\src\graphclaw\auth\provisioning.py", line 228, in provision_new_user
+    await self._storage.write(keep_key, b"")
+  File "C:\Users\abhis\Projects\graphclaw\src\graphclaw\infra\storage.py", line 566, in write
+    await asyncio.to_thread(_write)
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.10_3.10.3056.0_x64__qbz5n2kfra8p0\lib\asyncio\threads.py", line 25, in to_thread
+    return await loop.run_in_executor(None, func_call)
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.10_3.10.3056.0_x64__qbz5n2kfra8p0\lib\asyncio\tasks.py", line 304, in __wakeup
+    future.result()
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.10_3.10.3056.0_x64__qbz5n2kfra8p0\lib\concurrent\futures\thread.py", line 58, in run
+    result = self.fn(*self.args, **self.kwargs)
+  File "C:\Users\abhis\Projects\graphclaw\src\graphclaw\infra\storage.py", line 559, in _write
+    client.put_object(
+  File "C:\Users\abhis\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\botocore\client.py", line 602, in _api_call
+    return self._make_api_call(operation_name, kwargs)
+  File "C:\Users\abhis\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\botocore\context.py", line 123, in wrapper
+    return func(*args, **kwargs)
+  File "C:\Users\abhis\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\botocore\client.py", line 1078, in _make_api_call
+    raise error_class(parsed_response, operation_name)
+botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+ERROR    graphclaw.auth.routes:routes.py:313 auth/callback: provisioning failed for cbtest-a37f47b681e7@example.com ù falling back to token-only: User provisioning failed for email='cbtest-a37f47b681e7@example.com': An error occurred (InvalidAccessKeyId) when calling the PutObject operation: The Access Key Id you provided does not exist in our records.
+C:\Users\abhis\Projects\graphclaw\tests\test_auth\test_provisioning_integration.py:278: AssertionError: Expected 1 UserNode for cbtest-a37f47b681e7@example.com, got 0
+E   AssertionError: assert 'TSK-TU-08797bb7-AT' in set()
+C:\Users\abhis\Projects\graphclaw\tests\test_db\test_user_scope_integration.py:106: AssertionError: assert 'TSK-TU-08797bb7-AT' in set()
+E   AssertionError: assert 'GOAL-2720d26a' in set()
+C:\Users\abhis\Projects\graphclaw\tests\test_db\test_user_scope_integration.py:127: AssertionError: assert 'GOAL-2720d26a' in set()
+E   AssertionError: assert 'TSK-TU-57839dbf-AT' in set()
+C:\Users\abhis\Projects\graphclaw\tests\test_db\test_user_scope_integration.py:143: AssertionError: assert 'TSK-TU-57839dbf-AT' in set()
+E   AssertionError: assert 'TSK-TU-025c0956-AT' in set()
+C:\Users\abhis\Projects\graphclaw\tests\test_db\test_user_scope_integration.py:169: AssertionError: assert 'TSK-TU-025c0956-AT' in set()
+E   AssertionError: assert 'TSK-TU-9f7e9688-AT' in set()
+C:\Users\abhis\Projects\graphclaw\tests\test_db\test_user_scope_integration.py:203: AssertionError: assert 'TSK-TU-9f7e9688-AT' in set()
+E   botocore.exceptions.ClientError: An error occurred (403) when calling the HeadObject operation: Forbidden
+------------------------------ Captured log call ------------------------------
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/prompts/system_header.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/node_creation_rules.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/edge_creation_rules.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/state_machine_rules.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/goal_inference_rules.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/scoring_context.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/follow_up_timing.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/agents/comms/profile.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/agents/comms/manifest.json ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/agents/comms/config.json ù An error occurred (403) when calling the HeadObject operation: Forbidden
+C:\Users\abhis\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\botocore\client.py:1078: botocore.exceptions.ClientError: An error occurred (403) when calling the HeadObject operation: Forbidden
+E   botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the GetObject operation: The Access Key Id you provided does not exist in our records.
+------------------------------ Captured log call ------------------------------
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/prompts/system_header.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/node_creation_rules.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/edge_creation_rules.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/state_machine_rules.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/goal_inference_rules.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/scoring_context.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/follow_up_timing.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/agents/comms/profile.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/agents/comms/manifest.json ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/agents/comms/config.json ù An error occurred (403) when calling the HeadObject operation: Forbidden
+C:\Users\abhis\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\botocore\client.py:1078: botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the GetObject operation: The Access Key Id you provided does not exist in our records.
+E   botocore.exceptions.ClientError: An error occurred (403) when calling the HeadObject operation: Forbidden
+------------------------------ Captured log call ------------------------------
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/prompts/system_header.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/node_creation_rules.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/edge_creation_rules.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/state_machine_rules.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/goal_inference_rules.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/scoring_context.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/follow_up_timing.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/agents/comms/profile.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/agents/comms/manifest.json ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/agents/comms/config.json ù An error occurred (403) when calling the HeadObject operation: Forbidden
+C:\Users\abhis\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\botocore\client.py:1078: botocore.exceptions.ClientError: An error occurred (403) when calling the HeadObject operation: Forbidden
+E   botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the GetObject operation: The Access Key Id you provided does not exist in our records.
+------------------------------ Captured log call ------------------------------
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/prompts/system_header.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/node_creation_rules.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/edge_creation_rules.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/state_machine_rules.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/goal_inference_rules.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/scoring_context.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/follow_up_timing.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/agents/comms/profile.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/agents/comms/manifest.json ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/agents/comms/config.json ù An error occurred (403) when calling the HeadObject operation: Forbidden
+C:\Users\abhis\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\botocore\client.py:1078: botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the GetObject operation: The Access Key Id you provided does not exist in our records.
+E   botocore.exceptions.ClientError: An error occurred (403) when calling the HeadObject operation: Forbidden
+------------------------------ Captured log call ------------------------------
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/prompts/system_header.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/node_creation_rules.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/edge_creation_rules.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/state_machine_rules.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/goal_inference_rules.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/scoring_context.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/follow_up_timing.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/agents/comms/profile.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/agents/comms/manifest.json ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/agents/comms/config.json ù An error occurred (403) when calling the HeadObject operation: Forbidden
+C:\Users\abhis\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\botocore\client.py:1078: botocore.exceptions.ClientError: An error occurred (403) when calling the HeadObject operation: Forbidden
+E   botocore.exceptions.ClientError: An error occurred (403) when calling the HeadObject operation: Forbidden
+------------------------------ Captured log call ------------------------------
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/prompts/system_header.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/node_creation_rules.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/edge_creation_rules.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/state_machine_rules.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/goal_inference_rules.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/scoring_context.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/follow_up_timing.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/agents/comms/profile.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/agents/comms/manifest.json ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/agents/comms/config.json ù An error occurred (403) when calling the HeadObject operation: Forbidden
+C:\Users\abhis\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\botocore\client.py:1078: botocore.exceptions.ClientError: An error occurred (403) when calling the HeadObject operation: Forbidden
+E   botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the GetObject operation: The Access Key Id you provided does not exist in our records.
+------------------------------ Captured log call ------------------------------
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/prompts/system_header.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/node_creation_rules.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/edge_creation_rules.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/state_machine_rules.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/goal_inference_rules.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/scoring_context.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/follow_up_timing.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/agents/comms/profile.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/agents/comms/manifest.json ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/agents/comms/config.json ù An error occurred (403) when calling the HeadObject operation: Forbidden
+C:\Users\abhis\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\botocore\client.py:1078: botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the GetObject operation: The Access Key Id you provided does not exist in our records.
+E   botocore.exceptions.ClientError: An error occurred (403) when calling the HeadObject operation: Forbidden
+------------------------------ Captured log call ------------------------------
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/prompts/system_header.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/node_creation_rules.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/edge_creation_rules.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/state_machine_rules.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/goal_inference_rules.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/scoring_context.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/follow_up_timing.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/agents/comms/profile.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/agents/comms/manifest.json ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/agents/comms/config.json ù An error occurred (403) when calling the HeadObject operation: Forbidden
+C:\Users\abhis\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\botocore\client.py:1078: botocore.exceptions.ClientError: An error occurred (403) when calling the HeadObject operation: Forbidden
+E   botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the GetObject operation: The Access Key Id you provided does not exist in our records.
+------------------------------ Captured log call ------------------------------
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/prompts/system_header.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/node_creation_rules.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/edge_creation_rules.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/state_machine_rules.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/goal_inference_rules.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/scoring_context.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/follow_up_timing.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/agents/comms/profile.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/agents/comms/manifest.json ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/agents/comms/config.json ù An error occurred (403) when calling the HeadObject operation: Forbidden
+C:\Users\abhis\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\botocore\client.py:1078: botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the GetObject operation: The Access Key Id you provided does not exist in our records.
+E   botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the GetObject operation: The Access Key Id you provided does not exist in our records.
+------------------------------ Captured log call ------------------------------
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/prompts/system_header.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/node_creation_rules.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/edge_creation_rules.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/state_machine_rules.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/goal_inference_rules.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/scoring_context.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/knowledge/follow_up_timing.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/agents/comms/profile.md ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/agents/comms/manifest.json ù An error occurred (403) when calling the HeadObject operation: Forbidden
+WARNING  graphclaw.gateway.seeding:seeding.py:361 seeding: failed to write system/agents/comms/config.json ù An error occurred (403) when calling the HeadObject operation: Forbidden
+C:\Users\abhis\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\botocore\client.py:1078: botocore.exceptions.ClientError: An error occurred (InvalidAccessKeyId) when calling the GetObject operation: The Access Key Id you provided does not exist in our records.
+============================== warnings summary ===============================
+tests\test_agent\test_catalog_integration.py:22
+  C:\Users\abhis\Projects\graphclaw\tests\test_agent\test_catalog_integration.py:22: PytestUnknownMarkWarning: Unknown pytest.mark.integration - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytestmark = pytest.mark.integration
+
+tests\test_agent\test_followup_spawn_integration.py:33
+  C:\Users\abhis\Projects\graphclaw\tests\test_agent\test_followup_spawn_integration.py:33: PytestUnknownMarkWarning: Unknown pytest.mark.integration - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytestmark = pytest.mark.integration
+
+tests\test_agent\test_knowledge_integration.py:27
+  C:\Users\abhis\Projects\graphclaw\tests\test_agent\test_knowledge_integration.py:27: PytestUnknownMarkWarning: Unknown pytest.mark.integration - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytestmark = pytest.mark.integration
+
+tests\test_agent\test_loop_new_tools_integration.py:30
+  C:\Users\abhis\Projects\graphclaw\tests\test_agent\test_loop_new_tools_integration.py:30: PytestUnknownMarkWarning: Unknown pytest.mark.integration - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytestmark = pytest.mark.integration
+
+tests\test_agent\test_loop_stream_integration.py:43
+  C:\Users\abhis\Projects\graphclaw\tests\test_agent\test_loop_stream_integration.py:43: PytestUnknownMarkWarning: Unknown pytest.mark.integration - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytestmark = pytest.mark.integration
+
+tests\test_api\test_chat_history_integration.py:23
+  C:\Users\abhis\Projects\graphclaw\tests\test_api\test_chat_history_integration.py:23: PytestUnknownMarkWarning: Unknown pytest.mark.integration - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytestmark = pytest.mark.integration
+
+tests\test_api\test_chat_stream.py:33
+  C:\Users\abhis\Projects\graphclaw\tests\test_api\test_chat_stream.py:33: PytestUnknownMarkWarning: Unknown pytest.mark.integration - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytestmark = pytest.mark.integration
+
+tests\test_auth\test_provisioning_integration.py:40
+  C:\Users\abhis\Projects\graphclaw\tests\test_auth\test_provisioning_integration.py:40: PytestUnknownMarkWarning: Unknown pytest.mark.integration - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytestmark = pytest.mark.integration
+
+..\..\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\typer\params.py:946
+  C:\Users\abhis\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\typer\params.py:946: DeprecationWarning: The 'is_flag' and 'flag_value' parameters are not supported by Typer and will be removed entirely in a future release.
+    return OptionInfo(
+
+tests\test_db\test_graph_repository.py:43
+  C:\Users\abhis\Projects\graphclaw\tests\test_db\test_graph_repository.py:43: PytestUnknownMarkWarning: Unknown pytest.mark.integration - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytestmark = pytest.mark.integration
+
+tests\test_db\test_user_scope_integration.py:24
+  C:\Users\abhis\Projects\graphclaw\tests\test_db\test_user_scope_integration.py:24: PytestUnknownMarkWarning: Unknown pytest.mark.integration - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytestmark = pytest.mark.integration
+
+tests\test_gateway\test_seeding_integration.py:22
+  C:\Users\abhis\Projects\graphclaw\tests\test_gateway\test_seeding_integration.py:22: PytestUnknownMarkWarning: Unknown pytest.mark.integration - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytestmark = pytest.mark.integration
+
+tests\test_graph\test_edge_wiring_integration.py:37
+  C:\Users\abhis\Projects\graphclaw\tests\test_graph\test_edge_wiring_integration.py:37: PytestUnknownMarkWarning: Unknown pytest.mark.integration - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytestmark = pytest.mark.integration
+
+tests\test_infra\test_user_events.py:37
+  C:\Users\abhis\Projects\graphclaw\tests\test_infra\test_user_events.py:37: PytestUnknownMarkWarning: Unknown pytest.mark.integration - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytestmark = pytest.mark.integration
+
+tests\test_scoring\test_score_persistence_integration.py:29
+  C:\Users\abhis\Projects\graphclaw\tests\test_scoring\test_score_persistence_integration.py:29: PytestUnknownMarkWarning: Unknown pytest.mark.integration - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytestmark = pytest.mark.integration
+
+tests\test_state\test_cascade_integration.py:42
+  C:\Users\abhis\Projects\graphclaw\tests\test_state\test_cascade_integration.py:42: PytestUnknownMarkWarning: Unknown pytest.mark.integration - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytestmark = pytest.mark.integration
+
+tests\test_state\test_state_history_integration.py:34
+  C:\Users\abhis\Projects\graphclaw\tests\test_state\test_state_history_integration.py:34: PytestUnknownMarkWarning: Unknown pytest.mark.integration - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytestmark = pytest.mark.integration
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/test_agent/test_catalog_integration.py::TestResolveSourceIntegration::test_system_agent_resolved
+FAILED tests/test_agent/test_catalog_integration.py::TestListAllIntegration::test_user_manifest_appears_in_list
+FAILED tests/test_agent/test_catalog_integration.py::TestListAllIntegration::test_system_manifest_appears_in_list
+FAILED tests/test_agent/test_catalog_integration.py::TestListAllIntegration::test_capability_filter_applied
+FAILED tests/test_agent/test_catalog_integration.py::TestListAllIntegration::test_non_manifest_files_not_included
+FAILED tests/test_agent/test_catalog_integration.py::TestGetCompactCatalogIntegration::test_catalog_includes_user_agent
+FAILED tests/test_agent/test_catalog_integration.py::TestGetCompactCatalogIntegration::test_catalog_includes_tool_hint
+FAILED tests/test_agent/test_knowledge_integration.py::TestListTopicsIntegration::test_custom_topic_appears_in_list
+FAILED tests/test_agent/test_knowledge_integration.py::TestListTopicsIntegration::test_list_topics_excludes_non_md_files
+FAILED tests/test_agent/test_knowledge_integration.py::TestReadIntegration::test_read_returns_stored_content
+FAILED tests/test_agent/test_knowledge_integration.py::TestReadIntegration::test_read_caches_content
+FAILED tests/test_agent/test_knowledge_integration.py::TestGetIndexIntegration::test_get_index_contains_custom_topic
+FAILED tests/test_agent/test_loop_new_tools_integration.py::TestToolReadKnowledge::test_custom_knowledge_topic
+FAILED tests/test_agent/test_loop_new_tools_integration.py::TestToolListAvailableAgents::test_user_agent_manifest_included
+FAILED tests/test_agent/test_loop_new_tools_integration.py::TestToolListAvailableAgents::test_capability_filter_applied
+FAILED tests/test_agent/test_loop_new_tools_integration.py::TestToolListTasksWithParams::test_goal_id_scopes_tasks
+FAILED tests/test_agent/test_loop_new_tools_integration.py::TestToolListTasksWithParams::test_completed_tasks_excluded_by_default
+FAILED tests/test_agent/test_loop_new_tools_integration.py::TestToolListTasksWithParams::test_include_completed_flag
+FAILED tests/test_api/test_chat_history_integration.py::TestGenerateAgentResponseWithRealStorage::test_history_passed_to_process_chat_message
+FAILED tests/test_api/test_chat_history_integration.py::TestGenerateAgentResponseWithRealStorage::test_history_persisted_after_send
+FAILED tests/test_api/test_chat_stream.py::TestChatStreamRoute::test_history_persisted_to_storage_after_stream
+FAILED tests/test_auth/test_provisioning_integration.py::TestProvisioningServiceIntegration::test_new_user_creates_usernode_in_age
+FAILED tests/test_auth/test_provisioning_integration.py::TestProvisioningServiceIntegration::test_new_user_creates_workspace_linked_via_owns_edge
+FAILED tests/test_auth/test_provisioning_integration.py::TestProvisioningServiceIntegration::test_idempotent_second_call_returns_existing_user
+FAILED tests/test_auth/test_provisioning_integration.py::TestProvisioningServiceIntegration::test_deprovision_removes_usernode
+FAILED tests/test_auth/test_provisioning_integration.py::TestCallbackProvisionsUser::test_callback_creates_usernode_via_provisioning
+FAILED tests/test_db/test_user_scope_integration.py::TestListNodesByUser::test_returns_only_owned_tasks
+FAILED tests/test_db/test_user_scope_integration.py::TestListNodesByUser::test_works_with_goal_label
+FAILED tests/test_db/test_user_scope_integration.py::TestListNodesByUser::test_multiple_tasks_same_user
+FAILED tests/test_db/test_user_scope_integration.py::TestListNodesForGoal::test_returns_tasks_linked_via_part_of
+FAILED tests/test_db/test_user_scope_integration.py::TestListNodesForGoal::test_does_not_return_tasks_from_other_goals
+FAILED tests/test_gateway/test_seeding_integration.py::TestSeedSystemContent::test_system_header_seeded
+FAILED tests/test_gateway/test_seeding_integration.py::TestSeedSystemContent::test_system_header_has_content
+FAILED tests/test_gateway/test_seeding_integration.py::TestSeedSystemContent::test_all_knowledge_files_seeded
+FAILED tests/test_gateway/test_seeding_integration.py::TestSeedSystemContent::test_knowledge_files_have_content
+FAILED tests/test_gateway/test_seeding_integration.py::TestSeedSystemContent::test_comms_profile_seeded
+FAILED tests/test_gateway/test_seeding_integration.py::TestSeedSystemContent::test_comms_manifest_seeded
+FAILED tests/test_gateway/test_seeding_integration.py::TestSeedSystemContent::test_comms_manifest_valid_json
+FAILED tests/test_gateway/test_seeding_integration.py::TestSeedSystemContent::test_comms_config_seeded
+FAILED tests/test_gateway/test_seeding_integration.py::TestSeedIdempotency::test_existing_content_not_overwritten
+FAILED tests/test_gateway/test_seeding_integration.py::TestSeedIdempotency::test_idempotent_for_knowledge_files
+ERROR tests/test_db/test_graph_repository.py::TestCreateAndRetrieveNode::test_create_returns_properties
+ERROR tests/test_db/test_graph_repository.py::TestCreateAndRetrieveNode::test_get_node_returns_inserted_data
+ERROR tests/test_db/test_graph_repository.py::TestCreateAndRetrieveNode::test_get_node_missing_returns_none
+ERROR tests/test_db/test_graph_repository.py::TestCreateAndRetrieveNode::test_update_node_changes_property
+ERROR tests/test_db/test_graph_repository.py::TestCreateAndRetrieveNode::test_delete_node_removes_vertex
+ERROR tests/test_db/test_graph_repository.py::TestEdgeCreation::test_create_edge_and_retrieve
+ERROR tests/test_db/test_graph_repository.py::TestEdgeCreation::test_get_edges_outgoing
+ERROR tests/test_db/test_graph_repository.py::TestEdgeCreation::test_create_edge_with_properties
+ERROR tests/test_db/test_graph_repository.py::TestListNodes::test_list_all_by_label
+ERROR tests/test_db/test_graph_repository.py::TestListNodes::test_list_with_state_filter
+ERROR tests/test_db/test_graph_repository.py::TestListNodes::test_list_nodes_empty_when_none_match
+ERROR tests/test_db/test_graph_repository.py::TestDownstreamDependents::test_direct_dependent
+ERROR tests/test_db/test_graph_repository.py::TestDownstreamDependents::test_transitive_dependent
+ERROR tests/test_db/test_graph_repository.py::TestDownstreamDependents::test_no_dependents
+ERROR tests/test_db/test_graph_repository.py::TestDownstreamDependents::test_anchor_not_in_results
+41 failed, 78 passed, 4 skipped, 1625 deselected, 17 warnings, 15 errors in 62.42s (0:01:02)

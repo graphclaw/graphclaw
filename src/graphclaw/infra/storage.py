@@ -666,6 +666,90 @@ class StoragePaths:
         ext = StoragePaths._validate_segment(extension, "extension")
         return f"system/logs/{service_segment}/{hour_path}.{ext}"
 
+    # ------------------------------------------------------------------
+    # Wave 1 — Conversation storage (FR-STORE-001)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def conversation_thread(
+        user_id: str, counterparty_id: str, channel: str, thread_id: str
+    ) -> str:
+        """JSONL log for one thread between owner and counterparty.
+
+        Example:
+        ``USER-abc/conversations/RES-bob/telegram/tg-thread-001.jsonl``
+
+        For owner self-chat (cockpit), counterparty_id == user_id.
+        """
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        counterparty = StoragePaths._validate_segment(counterparty_id, "counterparty_id")
+        chan = StoragePaths._validate_segment(channel, "channel")
+        thread = StoragePaths._validate_segment(thread_id, "thread_id")
+        return f"{user}/conversations/{counterparty}/{chan}/{thread}.jsonl"
+
+    @staticmethod
+    def conversation_index(user_id: str) -> str:
+        """Index JSON mapping counterparty_id → last_activity_at + channels list.
+
+        Example: ``USER-abc/conversations/index.json``
+        """
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        return f"{user}/conversations/index.json"
+
+    @staticmethod
+    def conversation_counterparty_dir(user_id: str, counterparty_id: str) -> str:
+        """Prefix for all threads with a given counterparty.
+
+        Example: ``USER-abc/conversations/RES-bob/``
+        """
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        counterparty = StoragePaths._validate_segment(counterparty_id, "counterparty_id")
+        return f"{user}/conversations/{counterparty}/"
+
+    @staticmethod
+    def conversation_legacy_archive(user_id: str) -> str:
+        """Archived legacy chat/history.json after migration.
+
+        Example: ``USER-abc/conversations/.legacy/chat-history.json.archived``
+        """
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        return f"{user}/conversations/.legacy/chat-history.json.archived"
+
+    # ------------------------------------------------------------------
+    # Wave 1 — Policy files (FR-STORE-002)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def agent_policy(user_id: str, agent_id: str, policy_name: str) -> str:
+        """Per-user per-agent policy markdown file with YAML frontmatter.
+
+        Example: ``USER-abc/agents/main/policies/delegation.md``
+        """
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        agent = StoragePaths._validate_segment(agent_id, "agent_id")
+        policy = StoragePaths._validate_segment(policy_name, "policy_name")
+        return f"{user}/agents/{agent}/policies/{policy}.md"
+
+    @staticmethod
+    def agent_policies_prefix(user_id: str, agent_id: str) -> str:
+        """Prefix to list all policy files for a user+agent pair.
+
+        Example: ``USER-abc/agents/main/policies/``
+        """
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        agent = StoragePaths._validate_segment(agent_id, "agent_id")
+        return f"{user}/agents/{agent}/policies/"
+
+    @staticmethod
+    def outbound_profile(user_id: str, agent_id: str) -> str:
+        """Per-user outbound communication agent profile (FR-OUT-001).
+
+        Example: ``USER-abc/agents/main/outbound_profile.md``
+        """
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        agent = StoragePaths._validate_segment(agent_id, "agent_id")
+        return f"{user}/agents/{agent}/outbound_profile.md"
+
 
 class StorageClient(ABC):
     """Abstract interface for object storage backends."""
@@ -735,6 +819,9 @@ class S3StorageClient(StorageClient):
         endpoint_url: Override for MinIO or other S3-compatible servers.
             Leave as None to use the default AWS endpoint.
         region: AWS region name (default ``"us-east-1"``).
+        principal_name: The storage principal this client is bound to.
+            Logged with every S3 operation for audit purposes (Wave 0 NFR-008).
+            Defaults to ``"agent_principal"``.
     """
 
     def __init__(
@@ -744,6 +831,7 @@ class S3StorageClient(StorageClient):
         region: str = "us-east-1",
         aws_access_key_id: str | None = None,
         aws_secret_access_key: str | None = None,
+        principal_name: str = "agent_principal",
     ) -> None:
         self._bucket = bucket
         self._endpoint_url = endpoint_url
@@ -751,6 +839,7 @@ class S3StorageClient(StorageClient):
         self._aws_access_key_id = aws_access_key_id
         self._aws_secret_access_key = aws_secret_access_key
         self._client: object | None = None  # lazy init
+        self._principal_name = principal_name
 
     # ------------------------------------------------------------------
     # Internal helpers

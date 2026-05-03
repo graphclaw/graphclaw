@@ -1,5 +1,14 @@
 # 10 — Agent Loop Orchestration
 
+> **Extended in 2026-05-02 design pass.** This doc describes the orchestrator turn loop. The orchestrator is now one of three peer agents in a triad — see [14-agent-triad.md](14-agent-triad.md). Additional behaviours added per the requirements at [/docs/requirements/agent-triad-and-comms-substrate.md](../requirements/agent-triad-and-comms-substrate.md):
+>
+> - **Channel-agnostic chat handler (FR-CA-001)** — `process_chat_message(user_id, text, channel, thread_id, session_id)`
+> - **Post-turn distillation (FR-CA-002)** — every turn writes `task_entry` (→ node intelligence) and `memory_note` (→ working memory) via shared distillation helper, going through outbox for retry
+> - **`counterparty_conversation` mode (FR-CA-003)** — new mode + system prompt variant + tool allow-list when responding to a counterparty on owner's behalf; loads delegation/etiquette/tone policies from MinIO
+> - **Trigger mode** — `process_trigger(user_id, trigger="follow_up_review", payload, session_id)`; see [18-follow-up-cadence.md](18-follow-up-cadence.md)
+> - **Onboarding mode** — first-run FSM; see [15-user-identity-and-onboarding.md](15-user-identity-and-onboarding.md)
+> - **No-Delete principle** — orchestrator's tools include `archive_*` (no `delete_*`); enforced at DB principal level. See [19-data-lifecycle-and-deletion-policy.md](19-data-lifecycle-and-deletion-policy.md)
+
 ## Purpose
 
 This document describes the `MainOrchestrator` — the central agent loop that handles all user chat interactions, graph reasoning, tool execution, and sub-agent delegation. It is the entry point for every message sent to an agent.

@@ -64,6 +64,11 @@ class AppConfig:
     anthropic_api_key: str = field(default_factory=lambda: os.getenv("ANTHROPIC_API_KEY", ""))
     log_level: str = field(default_factory=lambda: os.getenv("LOG_LEVEL", "INFO"))
     environment: str = field(default_factory=lambda: os.getenv("ENVIRONMENT", "development"))
+    # Wave 0: No-Delete enforcement feature flag.
+    # Defaults to False; flip to True only after all Wave 0 PRs merged + probes green.
+    no_delete_enforcement: bool = field(
+        default_factory=lambda: os.getenv("GRAPHCLAW_NO_DELETE_ENFORCEMENT", "false").lower() == "true"
+    )
 
 
 class Config:

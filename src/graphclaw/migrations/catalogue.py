@@ -316,4 +316,96 @@ MIGRATIONS: list[Migration] = [
             END $$;
         """,
     ),
+    # -----------------------------------------------------------------------
+    # Wave 1 — Tenancy & schema (FR-GRAPH-001..006 + FR-STORE-001..002)
+    # -----------------------------------------------------------------------
+    Migration(
+        version="0011",
+        name="wave1_node_identities",
+        description=(
+            "Wave 1 (FR-GRAPH-001): Document ChannelIdentities addition to UserNode "
+            "and ResourceNode.  AGE properties are JSONB; no DDL column needed. "
+            "Creates a GIN index on the identities JSONB property for fast lookup."
+        ),
+        sql_up="""
+            -- AGE stores all vertex properties in the agtype column; new fields
+            -- are written by application code without ALTER TABLE.
+            -- This migration creates a Postgres GIN index on the serialised
+            -- properties column to accelerate identity lookup queries.
+            DO $$ BEGIN
+              CREATE INDEX IF NOT EXISTS idx_graphclaw_identities_gin
+                ON graphclaw._ag_label_vertex
+                USING gin ((properties::jsonb));
+            EXCEPTION WHEN others THEN NULL;
+            END $$;
+        """,
+    ),
+    Migration(
+        version="0012",
+        name="wave1_node_aliases",
+        description=(
+            "Wave 1 (FR-GRAPH-002): Document aliases list addition to UserNode and "
+            "ResourceNode.  No DDL needed; alias lookups use the GIN index from 0011."
+        ),
+        sql_up="SELECT 1;",
+    ),
+    Migration(
+        version="0013",
+        name="wave1_linked_user_id",
+        description=(
+            "Wave 1 (FR-GRAPH-003): Document linked_user_id + link_status addition "
+            "to ResourceNode.  Creates btree index on linked_user_id for read-through "
+            "lookup performance."
+        ),
+        sql_up="""
+            -- Index on linked_user_id for fast read-through joins.
+            DO $$ BEGIN
+              CREATE INDEX IF NOT EXISTS idx_graphclaw_linked_user_id
+                ON graphclaw._ag_label_vertex
+                USING btree ((properties->>'linked_user_id'));
+            EXCEPTION WHEN others THEN NULL;
+            END $$;
+        """,
+    ),
+    Migration(
+        version="0014",
+        name="wave1_checkin_fields",
+        description=(
+            "Wave 1 (FR-GRAPH-004): Document CheckinNode field expansion "
+            "(recipient_id, channel, thread_id, direction).  Creates composite "
+            "index on (channel, thread_id) for sub-10ms stickiness lookups."
+        ),
+        sql_up="""
+            -- Composite index for channel+thread_id stickiness lookup (FR-OUT-002).
+            DO $$ BEGIN
+              CREATE INDEX IF NOT EXISTS idx_graphclaw_checkin_channel_thread
+                ON graphclaw._ag_label_vertex
+                USING btree (
+                  (properties->>'channel'),
+                  (properties->>'thread_id')
+                )
+                WHERE (properties->>'channel') IS NOT NULL;
+            EXCEPTION WHEN others THEN NULL;
+            END $$;
+        """,
+    ),
+    Migration(
+        version="0015",
+        name="wave1_user_preferences",
+        description=(
+            "Wave 1 (FR-GRAPH-005): Document UserPreferences extension "
+            "(discoverability, channel_stickiness_hours, channel_stickiness_overrides, "
+            "preferred_channel).  No DDL needed — JSONB field."
+        ),
+        sql_up="SELECT 1;",
+    ),
+    Migration(
+        version="0016",
+        name="wave1_org_directory_visibility",
+        description=(
+            "Wave 1 (FR-GRAPH-006): Document OrgSettings.directory_visibility "
+            "addition (OrgDirectoryVisibility enum, default OPEN).  No DDL needed."
+        ),
+        sql_up="SELECT 1;",
+    ),
 ]

@@ -278,3 +278,34 @@ class MCPTransport(str, Enum):
     STDIO = "stdio"
     SSE = "sse"
     HTTP = "http"
+
+
+# ---------------------------------------------------------------------------
+# Wave 1 — Identity, Tenancy Schema
+# ---------------------------------------------------------------------------
+
+
+class LinkStatus(str, Enum):
+    """Status of a ResourceNode's link to a UserNode (FR-GRAPH-003)."""
+
+    ACTIVE = "active"
+    DETACHED_USER_ARCHIVED = "detached_user_archived"
+    DETACHED_USER_PURGED = "detached_user_purged"
+
+
+class DiscoverabilityLevel(str, Enum):
+    """How discoverable a user is within their org directory (FR-GRAPH-005)."""
+
+    ORG_DEFAULT = "org_default"
+    DISCOVERABLE = "discoverable"
+    NAME_ONLY = "name_only"
+    HIDDEN = "hidden"
+
+
+class OrgDirectoryVisibility(str, Enum):
+    """Org-wide default for cross-user directory visibility (FR-GRAPH-006)."""
+
+    OPEN = "open"
+    NAME_ONLY = "name-only"
+    CONSENT_REQUIRED = "consent-required"
+    INVITATION_ONLY = "invitation-only"
