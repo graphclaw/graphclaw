@@ -9,6 +9,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from graphclaw.api.admin.agent_channels import router as agent_channels_router
+from graphclaw.api.admin.agents import router as agents_router
 from graphclaw.api.admin.audit import router as audit_router
 from graphclaw.api.admin.connectors import router as connectors_router
 from graphclaw.api.admin.features import router as features_router
@@ -19,6 +20,7 @@ from graphclaw.api.admin.lifecycle import router as lifecycle_router
 from graphclaw.api.admin.llm import router as llm_router
 from graphclaw.api.admin.members import router as members_router
 from graphclaw.api.admin.org_lifecycle import router as org_lifecycle_router
+from graphclaw.api.admin.reconciliation import router as reconciliation_router
 from graphclaw.api.admin.sso import router as sso_router
 from graphclaw.api.admin.triggers import router as triggers_router
 
@@ -37,3 +39,5 @@ admin_router.include_router(lifecycle_router)
 admin_router.include_router(org_lifecycle_router)
 admin_router.include_router(agent_channels_router)
 admin_router.include_router(triggers_router)
+admin_router.include_router(agents_router)
+admin_router.include_router(reconciliation_router)

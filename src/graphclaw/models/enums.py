@@ -289,6 +289,7 @@ class LinkStatus(str, Enum):
     """Status of a ResourceNode's link to a UserNode (FR-GRAPH-003)."""
 
     ACTIVE = "active"
+    ARCHIVED = "archived"
     DETACHED_USER_ARCHIVED = "detached_user_archived"
     DETACHED_USER_PURGED = "detached_user_purged"
 
