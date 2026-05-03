@@ -962,6 +962,91 @@ class AgeGraphStore(GraphStore):
 
         return {"channel": _unwrap(channel_val), "thread_id": _unwrap(thread_id_val)}
 
+    async def list_follow_up_candidates(
+        self,
+        user_id: str,
+        cutoff_iso: str,
+        states: list[str] | None = None,
+        limit: int = 10,
+    ) -> list[dict]:
+        """Return tasks due for follow-up review (FR-SCHED-001).
+
+        Candidates are tasks owned by *user_id* that:
+        - Have state in *states* (default: WAITING, IN_PROGRESS).
+        - Have ``archived_at`` unset.
+        - Have ``last_outbound_at`` NULL or before *cutoff_iso*.
+
+        Parameters
+        ----------
+        user_id:
+            Owner user ID.
+        cutoff_iso:
+            ISO-8601 cutoff: tasks with ``last_outbound_at`` before this are stale.
+        states:
+            Optional list of states to include (default ``["WAITING", "IN_PROGRESS"]``).
+        limit:
+            Maximum number of results to return.
+
+        Returns
+        -------
+        list[dict]
+            Each dict has keys: ``task_id``, ``title``, ``state``,
+            ``last_outbound_at``, ``score``.
+        """
+        if states is None:
+            states = ["WAITING", "IN_PROGRESS"]
+
+        eid_owner = _escape(user_id)
+        eid_cutoff = _escape(cutoff_iso)
+        # Build state list as AGE array literal
+        state_list = ", ".join(f"'{_escape(s)}'" for s in states)
+
+        async with get_connection(self._pool) as conn:
+            rows = await conn.fetch(
+                f"""
+                SELECT * FROM cypher('{self._graph}', $$
+                    MATCH (t:TaskNode)
+                    WHERE t.owner_user_id = '{eid_owner}'
+                      AND t.archived_at IS NULL
+                      AND t.state IN [{state_list}]
+                      AND (t.last_outbound_at IS NULL OR t.last_outbound_at <= '{eid_cutoff}')
+                    RETURN t.task_id AS task_id,
+                           t.title AS title,
+                           t.state AS state,
+                           t.last_outbound_at AS last_outbound_at,
+                           coalesce(t.score, 0) AS score
+                    ORDER BY coalesce(t.score, 0) DESC
+                    LIMIT {int(limit)}
+                $$) as (
+                    task_id agtype,
+                    title agtype,
+                    state agtype,
+                    last_outbound_at agtype,
+                    score agtype
+                )
+                """
+            )
+
+        def _unwrap(v: Any) -> Any:
+            if v is None:
+                return None
+            if isinstance(v, str):
+                v = v.strip('"')
+            return v
+
+        results = []
+        for row in rows:
+            results.append(
+                {
+                    "task_id": _unwrap(row["task_id"]),
+                    "title": _unwrap(row["title"]),
+                    "state": _unwrap(row["state"]),
+                    "last_outbound_at": _unwrap(row["last_outbound_at"]),
+                    "score": float(_unwrap(row["score"]) or 0),
+                }
+            )
+        return results
+
     async def get_resource_with_linked_view(
         self,
         resource_id: str,
@@ -1004,6 +1089,77 @@ class AgeGraphStore(GraphStore):
         if "identities" in linked_user:
             merged["identities"] = linked_user["identities"]
         return merged
+
+    # ------------------------------------------------------------------
+    # Identity Merge — FR-ID-004
+    # ------------------------------------------------------------------
+
+    async def redirect_edges(self, from_id: str, to_id: str) -> int:
+        """Re-point all edges from *from_id* to *to_id* (used by ResourceMerger).
+
+        Because Apache AGE does not support ``SET`` on a relationship endpoint,
+        we read, recreate and delete edges in two Cypher passes:
+        1. MATCH all edges leading **to** ``from_id`` → recreate pointing to ``to_id``.
+        2. MATCH all edges leading **from** ``from_id`` → recreate from ``to_id``.
+
+        Returns the number of edges redirected.
+
+        Parameters
+        ----------
+        from_id:
+            The node being merged / archived.
+        to_id:
+            The canonical node that should receive the edges.
+        """
+        from datetime import datetime, timezone  # noqa: PLC0415
+
+        eid_from = _escape(from_id)
+        eid_to = _escape(to_id)
+        now_iso = datetime.now(timezone.utc).isoformat()
+        total = 0
+
+        # Pass 1: in-bound edges  → ()-[e]->(from)  become ()-[e]->(to)
+        async with get_connection(self._pool) as conn:
+            result = await conn.execute(
+                f"""
+                SELECT * FROM cypher('{self._graph}', $$
+                    MATCH (src)-[e]->(old {{id: '{eid_from}'}})
+                    MATCH (tgt {{id: '{eid_to}'}})
+                    CREATE (src)-[:REDIRECTED_EDGE {{
+                        original_type: type(e),
+                        redirected_at: '{now_iso}',
+                        from_id: '{eid_from}'
+                    }}]->(tgt)
+                    DELETE e
+                    RETURN 1
+                $$) as (n agtype)
+                """
+            )
+            rows = await result.fetchall()
+            total += len(rows)
+
+        # Pass 2: out-bound edges  (from)-[e]->()  become (to)-[e]->()
+        async with get_connection(self._pool) as conn:
+            result = await conn.execute(
+                f"""
+                SELECT * FROM cypher('{self._graph}', $$
+                    MATCH (old {{id: '{eid_from}'}})-[e]->(dst)
+                    MATCH (src {{id: '{eid_to}'}})
+                    CREATE (src)-[:REDIRECTED_EDGE {{
+                        original_type: type(e),
+                        redirected_at: '{now_iso}',
+                        from_id: '{eid_from}'
+                    }}]->(dst)
+                    DELETE e
+                    RETURN 1
+                $$) as (n agtype)
+                """
+            )
+            rows = await result.fetchall()
+            total += len(rows)
+
+        logger.debug("redirect_edges", extra={"from_id": from_id, "to_id": to_id, "count": total})
+        return total
 
 
 # ---------------------------------------------------------------------------

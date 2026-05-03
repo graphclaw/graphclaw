@@ -60,7 +60,7 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel
 
-from graphclaw.api.deps import CurrentUserDep, GraphStoreDep, QueryEngineDep
+from graphclaw.api.deps import CallerContextDep, CurrentUserDep, GraphStoreDep, QueryEngineDep
 from graphclaw.models.base import generate_task_id, utcnow
 from graphclaw.models.enums import TaskState, TaskType
 
@@ -458,6 +458,7 @@ async def create_task(
     body: CreateTaskRequest,
     user_id: CurrentUserDep,
     graph_store: GraphStoreDep,
+    caller_context: CallerContextDep,
 ) -> dict[str, Any]:
     """Create a new TaskNode."""
 
@@ -520,7 +521,7 @@ async def create_task(
     )
 
     try:
-        created = await graph_store.create_node(node)
+        created = await graph_store.create_node(node, caller_context=caller_context)
     except Exception as exc:
         logger.error(
             "graph: failed to persist task %s type=%s user_id=%s: %s",
@@ -599,7 +600,7 @@ async def create_task(
             ),
         )
         try:
-            await graph_store.create_node(followup)
+            await graph_store.create_node(followup, caller_context=caller_context)
             await graph_store.create_edge(followup_id, task_id, "FOLLOW_UP_FOR", {})
             # Also update the delegated task's type_metadata with follow_up_task_id
             from graphclaw.models.type_metadata import DelegatedMetadata

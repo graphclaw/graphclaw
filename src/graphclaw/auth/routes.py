@@ -701,11 +701,14 @@ class DevTokenRequest(BaseModel):
 )
 async def dev_token(
     body: DevTokenRequest,
+    request: Request,
     jwt_service: JWTService = Depends(get_jwt_service),
 ) -> dict[str, Any]:
     """Issue a dev access + refresh token pair without OAuth.
 
-    Only works when ``ENVIRONMENT=development``.
+    Only works when ``ENVIRONMENT=development``.  Also provisions a minimal
+    UserNode in the graph store if one does not already exist, so that all
+    Wave 5+ admin/trigger endpoints work out of the box in dev mode.
     """
     if os.environ.get("ENVIRONMENT", "production") != "development":
         raise HTTPException(
@@ -714,6 +717,40 @@ async def dev_token(
         )
     access_token = jwt_service.issue_access_token(body.user_id, role=body.role)
     refresh_token = jwt_service.issue_refresh_token(body.user_id)
+
+    # Provision minimal UserNode in graph (idempotent – only creates if absent)
+    graph_store = getattr(request.app.state, "graph_store", None)
+    if graph_store is not None:
+        try:
+            from graphclaw.cross_tenant.acl import CallerContext  # noqa: PLC0415
+            from graphclaw.models.nodes import UserNode  # noqa: PLC0415
+
+            ctx = CallerContext(
+                user_id=body.user_id,
+                org_id="default",
+                principal="agent_principal",
+            )
+            existing = await graph_store.get_node(body.user_id, caller_context=ctx)
+            if existing is None:
+                from graphclaw.models.base import utcnow  # noqa: PLC0415
+
+                now = utcnow()
+                node = UserNode(
+                    id=body.user_id,
+                    name=f"Dev User ({body.user_id})",
+                    email=f"{body.user_id.lower()}@dev.local",
+                    role=body.role,
+                    timezone="UTC",
+                    created_at=now,
+                    updated_at=now,
+                )
+                await graph_store.create_node(node, caller_context=ctx)
+                logger.info("auth/dev-token: provisioned UserNode for %s", body.user_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "auth/dev-token: could not provision UserNode for %s: %s", body.user_id, exc
+            )
+
     logger.info("auth/dev-token: issued token for user_id=%s role=%s", body.user_id, body.role)
     return {
         "access_token": access_token,

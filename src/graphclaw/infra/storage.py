@@ -750,6 +750,16 @@ class StoragePaths:
         agent = StoragePaths._validate_segment(agent_id, "agent_id")
         return f"{user}/agents/{agent}/outbound_profile.md"
 
+    @staticmethod
+    def working_context(user_id: str, agent_id: str = "main") -> str:
+        """Working memory context file for the agent.
+
+        Example: ``USER-abc/agents/main/working/context.md``
+        """
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        agent = StoragePaths._validate_segment(agent_id, "agent_id")
+        return f"{user}/agents/{agent}/working/context.md"
+
 
 class StorageClient(ABC):
     """Abstract interface for object storage backends."""

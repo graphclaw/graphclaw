@@ -109,6 +109,14 @@ class GraphStore(ABC):
         """
         return []
 
+    async def redirect_edges(self, from_id: str, to_id: str) -> int:
+        """Re-point all edges from *from_id* to *to_id* (FR-ID-004 merge support).
+
+        Default implementation is a no-op returning 0.
+        Concrete backends (AgeGraphStore) override with a graph traversal.
+        """
+        return 0
+
     @abstractmethod
     async def create_edge(
         self,

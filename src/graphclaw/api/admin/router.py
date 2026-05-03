@@ -20,6 +20,7 @@ from graphclaw.api.admin.llm import router as llm_router
 from graphclaw.api.admin.members import router as members_router
 from graphclaw.api.admin.org_lifecycle import router as org_lifecycle_router
 from graphclaw.api.admin.sso import router as sso_router
+from graphclaw.api.admin.triggers import router as triggers_router
 
 admin_router = APIRouter()
 
@@ -35,3 +36,4 @@ admin_router.include_router(connectors_router)
 admin_router.include_router(lifecycle_router)
 admin_router.include_router(org_lifecycle_router)
 admin_router.include_router(agent_channels_router)
+admin_router.include_router(triggers_router)

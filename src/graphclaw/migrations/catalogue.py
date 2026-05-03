@@ -503,4 +503,188 @@ MIGRATIONS: list[Migration] = [
             END $$;
         """,
     ),
+    # -----------------------------------------------------------------------
+    # Wave 5 — Scheduler / follow-ups (FR-SCHED-001..002)
+    # -----------------------------------------------------------------------
+    Migration(
+        version="0019",
+        name="wave5_escalation_queue",
+        description=(
+            "Wave 5 (FR-SCHED-002): Create escalation_queue table for owner-offline "
+            "pending decisions with timeout fallback."
+        ),
+        sql_up="""
+            CREATE TABLE IF NOT EXISTS escalation_queue (
+                id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+                user_id          TEXT        NOT NULL,
+                context_ref      TEXT        NOT NULL DEFAULT '',
+                prompt           TEXT        NOT NULL DEFAULT '',
+                proposed_action  JSONB       NOT NULL DEFAULT '{}',
+                created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                expires_at       TIMESTAMPTZ,
+                resolved_at      TIMESTAMPTZ,
+                resolution       TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_escalation_queue_user_id
+                ON escalation_queue (user_id)
+                WHERE resolved_at IS NULL;
+
+            CREATE INDEX IF NOT EXISTS idx_escalation_queue_expires_at
+                ON escalation_queue (expires_at)
+                WHERE resolved_at IS NULL;
+
+            DO $$ BEGIN
+              IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'agent_principal') THEN
+                GRANT SELECT, INSERT, UPDATE ON escalation_queue TO agent_principal;
+              END IF;
+            END $$;
+
+            DO $$ BEGIN
+              IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'admin_principal') THEN
+                GRANT SELECT, INSERT, UPDATE, DELETE ON escalation_queue TO admin_principal;
+              END IF;
+            END $$;
+        """,
+    ),
+    # -----------------------------------------------------------------------
+    # Wave 8 — Org directory (FR-DIR-001..002)
+    # -----------------------------------------------------------------------
+    Migration(
+        version="0020",
+        name="wave8_user_directory",
+        description=(
+            "Wave 8 (FR-DIR-001): Create user_directory table with trigram indexes "
+            "for fast fuzzy name + alias search scoped by org_id."
+        ),
+        sql_up="""
+            CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+            CREATE TABLE IF NOT EXISTS user_directory (
+                user_id             TEXT        NOT NULL,
+                org_id              TEXT        NOT NULL,
+                display_name        TEXT        NOT NULL DEFAULT '',
+                emails              TEXT[]      NOT NULL DEFAULT '{}',
+                identities          JSONB       NOT NULL DEFAULT '{}',
+                discoverable_aliases TEXT[]     NOT NULL DEFAULT '{}',
+                visibility_policy   TEXT        NOT NULL DEFAULT 'org_default',
+                last_updated        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                PRIMARY KEY (user_id, org_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_user_dir_name_trgm
+                ON user_directory
+                USING gin (display_name gin_trgm_ops);
+
+            CREATE INDEX IF NOT EXISTS idx_user_dir_aliases
+                ON user_directory
+                USING gin (discoverable_aliases);
+
+            CREATE INDEX IF NOT EXISTS idx_user_dir_org_id
+                ON user_directory (org_id);
+
+            DO $$ BEGIN
+              IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'agent_principal') THEN
+                GRANT SELECT ON user_directory TO agent_principal;
+              END IF;
+            END $$;
+
+            DO $$ BEGIN
+              IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'admin_principal') THEN
+                GRANT SELECT, INSERT, UPDATE, DELETE ON user_directory TO admin_principal;
+              END IF;
+            END $$;
+        """,
+    ),
+    # -----------------------------------------------------------------------
+    # Wave 8.5 — Cross-tenant task projection (FR-XT-001..005)
+    # -----------------------------------------------------------------------
+    Migration(
+        version="0021",
+        name="wave85_org_task_index",
+        description=(
+            "Wave 8.5 (FR-XT-001): Create org_task_index table for cross-tenant "
+            "assignee-side task visibility.  Indexed on assignee_linked_user_ids "
+            "(GIN) and (org_id, state)."
+        ),
+        sql_up="""
+            CREATE TABLE IF NOT EXISTS org_task_index (
+                task_id                  TEXT        PRIMARY KEY,
+                owner_user_id            TEXT        NOT NULL,
+                org_id                   TEXT        NOT NULL,
+                workspace_id             TEXT,
+                assignee_linked_user_ids TEXT[]      NOT NULL DEFAULT '{}',
+                state                    TEXT        NOT NULL DEFAULT 'OPEN',
+                deadline                 TIMESTAMPTZ,
+                last_activity_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                summary_text             TEXT        NOT NULL DEFAULT '',
+                archived_at              TIMESTAMPTZ
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_oti_assignees
+                ON org_task_index
+                USING gin (assignee_linked_user_ids);
+
+            CREATE INDEX IF NOT EXISTS idx_oti_org_state
+                ON org_task_index (org_id, state)
+                WHERE archived_at IS NULL;
+
+            CREATE INDEX IF NOT EXISTS idx_oti_owner
+                ON org_task_index (owner_user_id)
+                WHERE archived_at IS NULL;
+
+            DO $$ BEGIN
+              IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'agent_principal') THEN
+                GRANT SELECT ON org_task_index TO agent_principal;
+              END IF;
+            END $$;
+
+            DO $$ BEGIN
+              IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'admin_principal') THEN
+                GRANT SELECT, INSERT, UPDATE, DELETE ON org_task_index TO admin_principal;
+              END IF;
+            END $$;
+        """,
+    ),
+    # -----------------------------------------------------------------------
+    # Wave 10 — Resilience (FR-RES-001..005)
+    # -----------------------------------------------------------------------
+    Migration(
+        version="0022",
+        name="wave10_distillation_outbox",
+        description=(
+            "Wave 10 (FR-RES-001): Create distillation_outbox table for idempotent "
+            "post-turn intelligence writes with retry semantics."
+        ),
+        sql_up="""
+            CREATE TABLE IF NOT EXISTS distillation_outbox (
+                id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+                message_id      TEXT        NOT NULL,
+                target_node_id  TEXT        NOT NULL,
+                target_type     TEXT        NOT NULL DEFAULT 'intelligence',
+                payload         JSONB       NOT NULL DEFAULT '{}',
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                processed_at    TIMESTAMPTZ,
+                retry_count     INT         NOT NULL DEFAULT 0,
+                error_detail    TEXT,
+                UNIQUE (message_id, target_node_id, target_type)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_distillation_outbox_pending
+                ON distillation_outbox (created_at)
+                WHERE processed_at IS NULL;
+
+            DO $$ BEGIN
+              IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'agent_principal') THEN
+                GRANT SELECT, INSERT, UPDATE ON distillation_outbox TO agent_principal;
+              END IF;
+            END $$;
+
+            DO $$ BEGIN
+              IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'admin_principal') THEN
+                GRANT SELECT, INSERT, UPDATE, DELETE ON distillation_outbox TO admin_principal;
+              END IF;
+            END $$;
+        """,
+    ),
 ]
