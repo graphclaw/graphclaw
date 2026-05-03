@@ -178,8 +178,13 @@ class MainOrchestrator:
         sub_agent_pool: SubAgentPool | None = None,
         event_publisher: UserEventPublisher | None = None,
         redis_client: Any | None = None,
+        admin_repo: GraphStore | None = None,
     ) -> None:
         self._repo = graph_repo
+        # Wave 0 (FR-DEL-002): admin_principal store for archive operations.
+        # Falls back to self._repo for backwards-compat tests; real deployments
+        # must pass admin_repo so lifecycle-field writes succeed.
+        self._admin_repo: GraphStore = admin_repo if admin_repo is not None else graph_repo
         self._engine = scoring_engine
         self._sm = state_machine
         self._llm = llm_client
@@ -1427,6 +1432,13 @@ class MainOrchestrator:
                 result = await self._tool_update_task(user_id, arguments)
             elif name == "update_goal":
                 result = await self._tool_update_goal(user_id, arguments)
+            # Wave 0 (FR-DEL-002): Archive tools — replace delete_*
+            elif name == "archive_task":
+                result = await self._tool_archive_task(user_id, arguments)
+            elif name == "archive_resource":
+                result = await self._tool_archive_resource(user_id, arguments)
+            elif name == "archive_goal":
+                result = await self._tool_archive_goal(user_id, arguments)
             # --- planning set ---
             elif name == "propose_plan":
                 result = await self._tool_propose_plan(user_id, arguments)
@@ -2021,6 +2033,70 @@ class MainOrchestrator:
         self._invalidate_cached_queue(user_id)
         changed = [k for k in updates if k != "updated_at"]
         return {"goal_id": goal_id, "status": "updated", "fields_updated": changed}
+
+    # ------------------------------------------------------------------
+    # Wave 0 (FR-DEL-002): Archive tool handlers
+    # These use self._admin_repo so the lifecycle-field guard (W0-PR4) is
+    # satisfied.  The agent_principal store (self._repo) cannot write
+    # lifecycle fields.
+    # ------------------------------------------------------------------
+
+    async def _tool_archive_task(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
+        from graphclaw.agent.tools.archive import ArchiveError, archive_task  # noqa: PLC0415
+
+        task_id = args.get("task_id")
+        reason = args.get("reason", "")
+        redirect_to = args.get("redirect_to")
+        if not task_id:
+            return {"error": "task_id is required"}
+        try:
+            return await archive_task(
+                task_id=task_id,
+                archived_by=user_id,
+                reason=reason,
+                redirect_to=redirect_to,
+                admin_store=self._admin_repo,
+            )
+        except ArchiveError as exc:
+            return {"error": str(exc)}
+
+    async def _tool_archive_resource(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
+        from graphclaw.agent.tools.archive import ArchiveError, archive_resource  # noqa: PLC0415
+
+        resource_id = args.get("resource_id")
+        reason = args.get("reason", "")
+        redirect_to = args.get("redirect_to")
+        if not resource_id:
+            return {"error": "resource_id is required"}
+        try:
+            return await archive_resource(
+                resource_id=resource_id,
+                archived_by=user_id,
+                reason=reason,
+                redirect_to=redirect_to,
+                admin_store=self._admin_repo,
+            )
+        except ArchiveError as exc:
+            return {"error": str(exc)}
+
+    async def _tool_archive_goal(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
+        from graphclaw.agent.tools.archive import ArchiveError, archive_goal  # noqa: PLC0415
+
+        goal_id = args.get("goal_id")
+        reason = args.get("reason", "")
+        redirect_to = args.get("redirect_to")
+        if not goal_id:
+            return {"error": "goal_id is required"}
+        try:
+            return await archive_goal(
+                goal_id=goal_id,
+                archived_by=user_id,
+                reason=reason,
+                redirect_to=redirect_to,
+                admin_store=self._admin_repo,
+            )
+        except ArchiveError as exc:
+            return {"error": str(exc)}
 
     async def _tool_get_task_details(self, _user_id: str, args: dict[str, Any]) -> dict[str, Any]:
         """Return a layered detail view for one task or goal (§12.5).

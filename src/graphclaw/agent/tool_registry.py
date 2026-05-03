@@ -307,6 +307,56 @@ def _make_task_management_tools() -> list[ToolDefinition]:
             },
             required=["goal_id"],
         ),
+        # Wave 0 — FR-DEL-002: Archive tools (replaces delete_*)
+        _td(
+            "archive_task",
+            (
+                "Archive a task (soft-delete). The task is marked archived and a TombstoneNode is "
+                "created. Use redirect_to if a replacement task exists; otherwise the node is simply "
+                "archived. NEVER use this to permanently delete data."
+            ),
+            {
+                "task_id": {"type": "string", "description": "TSK-* task node ID to archive."},
+                "reason": {"type": "string", "description": "Why this task is being archived."},
+                "redirect_to": {
+                    "type": "string",
+                    "description": "Optional TSK-* or GOAL-* replacement node ID.",
+                },
+            },
+            required=["task_id", "reason"],
+        ),
+        _td(
+            "archive_resource",
+            (
+                "Archive a resource node (soft-delete). Marks the resource archived and creates a "
+                "TombstoneNode. Use redirect_to if a replacement resource exists."
+            ),
+            {
+                "resource_id": {"type": "string", "description": "RES-* resource node ID."},
+                "reason": {"type": "string", "description": "Why this resource is being archived."},
+                "redirect_to": {
+                    "type": "string",
+                    "description": "Optional RES-* replacement node ID.",
+                },
+            },
+            required=["resource_id", "reason"],
+        ),
+        _td(
+            "archive_goal",
+            (
+                "Archive a goal node (soft-delete). Marks the goal archived and creates a "
+                "TombstoneNode. Use redirect_to if a replacement goal exists."
+            ),
+            {
+                "goal_id": {"type": "string", "description": "GOAL-* goal node ID."},
+                "reason": {"type": "string", "description": "Why this goal is being archived."},
+                "redirect_to": {
+                    "type": "string",
+                    "description": "Optional GOAL-* replacement node ID.",
+                },
+            },
+            required=["goal_id", "reason"],
+        ),
     ]
 
 

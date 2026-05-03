@@ -150,6 +150,19 @@ class StateMachine:
         cls, task: TaskNode, from_state: TaskState, new_state: TaskState
     ) -> None:
         """Raise if new_state is not in the allowed list for from_state."""
+        # Wave 0 (FR-DEL-002): Explicitly forbid DELETED / PURGED target states.
+        # These strings are not in TaskState enum, but a defensive string check
+        # ensures that even future code additions cannot sneak them in.
+        _forbidden_str = {"DELETED", "PURGED"}
+        new_state_str = new_state.value if isinstance(new_state, TaskState) else str(new_state)
+        if new_state_str in _forbidden_str:
+            reason = (
+                f"Transitioning to {new_state_str} is permanently forbidden "
+                "(Wave 0 No-Delete principle FR-DEL-002). Use archive_task instead."
+            )
+            cls._log_guard_rejection(task, from_state, new_state, "wave0_no_delete", reason)
+            raise InvalidTransitionError(from_state, new_state, reason)
+
         allowed = VALID_TRANSITIONS.get(from_state, [])
         # Special case: COMPLETE → NEEDS_REVIEW is allowed (low-confidence reopen).
         if from_state == TaskState.COMPLETE and new_state == TaskState.NEEDS_REVIEW:

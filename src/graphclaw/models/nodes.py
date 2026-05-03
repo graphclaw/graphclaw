@@ -63,6 +63,8 @@ from graphclaw.models.base import (
     USER_ID_PATTERN,
     WORKSPACE_ID_PATTERN,
     BaseNode,
+    generate_id,
+    utcnow,
 )
 from graphclaw.models.enums import (
     AutonomyLevel,
@@ -717,8 +719,13 @@ class TombstoneNode(BaseNode):
     find the current live node.
 
     node_type is fixed as ``"TombstoneNode"`` (frozen field).
+    id, created_at, updated_at auto-generated so callers only need to supply
+    the domain fields (archived_node_id, redirect_to, reason).
     """
 
+    id: str = Field(default_factory=lambda: generate_id("TOMB"))
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
     node_type: str = Field(default="TombstoneNode", frozen=True)
     archived_node_id: str = Field(
         ...,
