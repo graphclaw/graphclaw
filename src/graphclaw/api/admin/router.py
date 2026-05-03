@@ -14,6 +14,7 @@ from graphclaw.api.admin.features import router as features_router
 from graphclaw.api.admin.guardrails import router as guardrails_router
 from graphclaw.api.admin.infra import router as infra_router
 from graphclaw.api.admin.judge import router as judge_router
+from graphclaw.api.admin.lifecycle import router as lifecycle_router
 from graphclaw.api.admin.llm import router as llm_router
 from graphclaw.api.admin.members import router as members_router
 from graphclaw.api.admin.sso import router as sso_router
@@ -29,3 +30,4 @@ admin_router.include_router(sso_router)
 admin_router.include_router(audit_router)
 admin_router.include_router(infra_router)
 admin_router.include_router(connectors_router)
+admin_router.include_router(lifecycle_router)
