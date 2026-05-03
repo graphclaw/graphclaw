@@ -55,6 +55,8 @@ if TYPE_CHECKING:
     from graphclaw.agent.main_orchestrator import MainOrchestrator
     from graphclaw.agent.outbound import OutboundDispatcher
     from graphclaw.agent.result_collector import ResultCollector
+    from graphclaw.cross_tenant.indexer import OrgTaskIndexer
+    from graphclaw.identity.directory_indexer import DirectoryIndexer
     from graphclaw.infra.storage import StorageClient
 
 logger = logging.getLogger(__name__)
@@ -87,6 +89,8 @@ class AgentEventConsumer:
         storage: StorageClient | None = None,
         health_monitor: AgentHealthMonitor | None = None,
         result_collector: ResultCollector | None = None,
+        directory_indexer: DirectoryIndexer | None = None,
+        task_indexer: OrgTaskIndexer | None = None,
     ) -> None:
         self._broker = broker
         self._loop = agent_loop
@@ -102,6 +106,8 @@ class AgentEventConsumer:
         self._intelligence_agent: Any = None  # InboundIntelligenceAgent wired in start()
         self._health_monitor: AgentHealthMonitor | None = health_monitor
         self._result_collector: ResultCollector | None = result_collector
+        self._directory_indexer: DirectoryIndexer | None = directory_indexer  # Wave 8
+        self._task_indexer: OrgTaskIndexer | None = task_indexer  # Wave 8
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -130,8 +136,8 @@ class AgentEventConsumer:
         # Wire InboundIntelligenceAgent if LLM is available
         llm_client = self._llm_client()
         if llm_client is not None and self._storage is not None:
-            from graphclaw.inbound.intelligence_agent import (
-                InboundIntelligenceAgent,  # noqa: PLC0415
+            from graphclaw.inbound.intelligence_agent import (  # noqa: PLC0415
+                InboundIntelligenceAgent,
             )
 
             self._intelligence_agent = InboundIntelligenceAgent(
@@ -140,6 +146,12 @@ class AgentEventConsumer:
                 storage=self._storage,
                 memory_lock=self._memory_lock,
             )
+
+        # Wave 8 — Start directory + task indexers if provided
+        if self._directory_indexer is not None:
+            await self._directory_indexer.start()
+        if self._task_indexer is not None:
+            await self._task_indexer.start()
 
         logger.info("AgentEventConsumer: started")
 
@@ -164,6 +176,11 @@ class AgentEventConsumer:
                 await self._agent_updates_task
             except asyncio.CancelledError:
                 pass
+        # Wave 8 — Stop indexers
+        if self._directory_indexer is not None:
+            await self._directory_indexer.stop()
+        if self._task_indexer is not None:
+            await self._task_indexer.stop()
         logger.info("AgentEventConsumer: stopped")
 
     def register_user_channels(self, user_id: str, channels: list[dict[str, Any]]) -> None:

@@ -19,7 +19,8 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel
 
-from graphclaw.api.deps import AdminUserDep, GraphStoreDep
+from graphclaw.api.deps import AdminUserDep, BrokerDep, GraphStoreDep
+from graphclaw.infra.broker import MEMBERSHIP_EVENTS
 from graphclaw.models.base import utcnow
 
 logger = logging.getLogger(__name__)
@@ -121,6 +122,7 @@ async def invite_member(
     body: InviteRequest,
     admin_user_id: AdminUserDep,
     graph_store: GraphStoreDep,
+    broker: BrokerDep,
 ) -> MemberOut:
     org = await _get_admin_org(admin_user_id, graph_store)
     if org is None:
@@ -140,6 +142,23 @@ async def invite_member(
     members.append(new_member)
     await graph_store.update_node(org["id"], {"members": members})
     logger.debug("admin/members: invited %s to org %s", body.email, org["id"])
+    # Publish membership event for directory indexer sync (FR-DIR-001)
+    if broker is not None:
+        import json as _json  # noqa: PLC0415
+
+        try:
+            await broker.publish(
+                MEMBERSHIP_EVENTS,
+                _json.dumps(
+                    {
+                        "event": "member_added",
+                        "user_id": new_member["user_id"],
+                        "org_id": org["id"],
+                    }
+                ),
+            )
+        except Exception as _exc:  # noqa: BLE001
+            logger.debug("admin/members: MEMBERSHIP_EVENTS publish failed: %s", _exc)
     return MemberOut(
         user_id=new_member["user_id"],
         role=new_member["role"],
@@ -196,6 +215,7 @@ async def remove_member(
     member_id: str,
     admin_user_id: AdminUserDep,
     graph_store: GraphStoreDep,
+    broker: BrokerDep,
 ) -> None:
     org = await _get_admin_org(admin_user_id, graph_store)
     if org is None:
@@ -209,3 +229,20 @@ async def remove_member(
         )
     await graph_store.update_node(org["id"], {"members": updated})
     logger.debug("admin/members: removed %s from org %s", member_id, org["id"])
+    # Publish membership event for directory indexer sync (FR-DIR-001)
+    if broker is not None:
+        import json as _json  # noqa: PLC0415
+
+        try:
+            await broker.publish(
+                MEMBERSHIP_EVENTS,
+                _json.dumps(
+                    {
+                        "event": "member_removed",
+                        "user_id": member_id,
+                        "org_id": org["id"],
+                    }
+                ),
+            )
+        except Exception as _exc:  # noqa: BLE001
+            logger.debug("admin/members: MEMBERSHIP_EVENTS publish failed: %s", _exc)

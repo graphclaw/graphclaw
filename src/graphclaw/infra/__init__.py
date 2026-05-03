@@ -25,7 +25,7 @@ Public API
 - EnvFileSecretsClient: Concrete implementation backed by os.environ / dotenv.
 - MessageBroker: Abstract base class for message queue operations.
 - RedisMessageBroker: Concrete implementation backed by Redis.
-- INBOUND_MESSAGES, TRIGGER_EVENTS, SKILL_JOBS, STATUS_UPDATES, OUTBOUND_MESSAGES: Queue name constants.
+- INBOUND_MESSAGES, TRIGGER_EVENTS, SKILL_JOBS, STATUS_UPDATES, OUTBOUND_MESSAGES, MEMBERSHIP_EVENTS, TASK_MUTATION_EVENTS: Queue name constants.
 - AsyncLogger: Non-blocking structured JSON logger with async flush loop.
 - generate_session_id: Generate a SES-{uuid4} session identifier.
 - PII-safe log events: AgentToolCallEvent, AgentMessageEvent, etc.
@@ -51,10 +51,14 @@ logger, secrets, storage, broker, embeddings so circular imports are avoided.
 from __future__ import annotations
 
 from graphclaw.infra.broker import (
+    AGENT_JOBS,
+    AGENT_UPDATES,
     INBOUND_MESSAGES,
+    MEMBERSHIP_EVENTS,
     OUTBOUND_MESSAGES,
     SKILL_JOBS,
     STATUS_UPDATES,
+    TASK_MUTATION_EVENTS,
     TRIGGER_EVENTS,
     MessageBroker,
     RedisMessageBroker,
@@ -89,6 +93,10 @@ __all__ = [
     "SKILL_JOBS",
     "STATUS_UPDATES",
     "OUTBOUND_MESSAGES",
+    "AGENT_JOBS",
+    "AGENT_UPDATES",
+    "MEMBERSHIP_EVENTS",
+    "TASK_MUTATION_EVENTS",
     # Logging
     "generate_session_id",
     # PII-safe log events

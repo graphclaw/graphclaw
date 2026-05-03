@@ -62,6 +62,9 @@ OUTBOUND_MESSAGES: str = "outbound_messages"
 # Phase 5 — Sub-agent orchestration queues
 AGENT_JOBS: str = "agent_jobs"
 AGENT_UPDATES: str = "agent_updates"
+# Wave 8 — Indexer sync queues
+MEMBERSHIP_EVENTS: str = "membership_events"
+TASK_MUTATION_EVENTS: str = "task_mutation_events"
 
 
 class MessageBroker(ABC):

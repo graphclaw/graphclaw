@@ -247,6 +247,40 @@ Wave 3 (parallel): WS-P45-E (event consumer wiring), WS-P45-G (outbound logging)
 
 ---
 
+### Agent Triad & Comms Substrate — Continuation (Active)
+
+> Wave numbering follows `docs/requirements/agent-triad-and-comms-substrate.md`.
+
+**Committed waves:** 0, 0.5, 1, 2, 3, 4, 5, 7, 8, 8.5, 10
+
+**Remaining work — Wave 8 completion (event-bus sync):**
+
+| Requirement | Files | Status |
+|-------------|-------|--------|
+| FR-DIR-001 AC1/AC2 | `identity/directory_indexer.py` (NEW), wire in `event_consumer.py` | ❌ Not built |
+| FR-DIR-001 embedding | `identity/embedding.py` (NEW) | ❌ Not built |
+| FR-XT-001 AC1 | `cross_tenant/indexer.py` (NEW), wire in `event_consumer.py` | ❌ Not built |
+| Broker constants | `infra/broker.py` — add `MEMBERSHIP_EVENTS`, `TASK_MUTATION_EVENTS` | ❌ Not built |
+| FR-XT-002/003 | `cross_tenant/repo.py` (NEW) — ACL query builder | ❌ Not built |
+
+**Remaining work — FR-BRF-001..002 Briefing renderer:**
+
+| Requirement | Files | Status |
+|-------------|-------|--------|
+| FR-BRF-001 | `agent/briefing_renderer.py` (NEW), refactor `agent/briefing.py` | ❌ Not built |
+| FR-BRF-002 | `agent/briefing.py` — duplicate-suspicion pass | ❌ Not built |
+
+**Remaining work — Wave 9:**
+
+| Requirement | Files | Status |
+|-------------|-------|--------|
+| FR-AM-001 | `api/admin/agents.py` (NEW) multi-agent admin REST | ❌ Not built |
+| FR-AE-001 | `cross_tenant/reconciler.py` (NEW), `api/admin/reconciliation.py` (NEW) | ❌ Not built |
+| FR-UI-001 | Cockpit `CounterpartyConversations.tsx` — deferred to cockpit session | ❌ Deferred |
+| FR-UI-002 | Cockpit `OrgSwitcher.tsx` — deferred to cockpit session | ❌ Deferred |
+
+---
+
 ### Phase 5 — Sub-Agent Parallel Orchestration (Weeks 41-46) 🔄 IN PROGRESS
 
 **Goal:** The main `AgentLoop` can decompose work into parallel tasks, delegate each to a specialized sub-agent running in the background, receive structured typed updates, and re-engage once all delegated work completes.

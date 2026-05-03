@@ -48,7 +48,7 @@ Dependencies
 from __future__ import annotations
 
 import logging
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import Depends, HTTPException, Request, status
 
@@ -308,6 +308,14 @@ CurrentUserDep = Annotated[str, Depends(require_auth)]
 AdminUserDep = Annotated[str, Depends(require_admin)]
 AgentGraphStoreDep = Annotated[GraphStore, Depends(get_agent_graph_store)]
 AdminGraphStoreDep = Annotated[GraphStore, Depends(get_admin_graph_store)]
+
+
+async def get_broker(request: Request):  # type: ignore[return]
+    """Return the ``MessageBroker`` from app state, or None if not configured."""
+    return getattr(request.app.state, "broker", None)
+
+
+BrokerDep = Annotated[Any, Depends(get_broker)]
 
 
 # ---------------------------------------------------------------------------

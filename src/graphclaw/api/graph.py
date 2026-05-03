@@ -60,7 +60,14 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel
 
-from graphclaw.api.deps import CallerContextDep, CurrentUserDep, GraphStoreDep, QueryEngineDep
+from graphclaw.api.deps import (
+    BrokerDep,
+    CallerContextDep,
+    CurrentUserDep,
+    GraphStoreDep,
+    QueryEngineDep,
+)
+from graphclaw.infra.broker import TASK_MUTATION_EVENTS
 from graphclaw.models.base import generate_task_id, utcnow
 from graphclaw.models.enums import TaskState, TaskType
 
@@ -459,6 +466,7 @@ async def create_task(
     user_id: CurrentUserDep,
     graph_store: GraphStoreDep,
     caller_context: CallerContextDep,
+    broker: BrokerDep,
 ) -> dict[str, Any]:
     """Create a new TaskNode."""
 
@@ -625,6 +633,27 @@ async def create_task(
             )
 
     logger.info("graph: created task %s for user_id=%s", task_id, user_id)
+    # Publish task mutation event for org_task_index sync (FR-XT-001)
+    if broker is not None:
+        import json as _json  # noqa: PLC0415
+
+        try:
+            await broker.publish(
+                TASK_MUTATION_EVENTS,
+                _json.dumps(
+                    {
+                        "event": "task_created",
+                        "task_id": task_id,
+                        "owner_user_id": user_id,
+                        "org_id": caller_context.org_id
+                        if hasattr(caller_context, "org_id")
+                        else "",
+                        "state": "PENDING",
+                    }
+                ),
+            )
+        except Exception as _exc:  # noqa: BLE001
+            logger.debug("graph: TASK_MUTATION_EVENTS publish failed: %s", _exc)
     return created
 
 
@@ -640,6 +669,7 @@ async def update_task(
     body: UpdateTaskRequest,
     user_id: CurrentUserDep,
     graph_store: GraphStoreDep,
+    broker: BrokerDep,
 ) -> dict[str, Any]:
     """Partial-update a TaskNode."""
     existing = await graph_store.get_node(task_id)
@@ -657,6 +687,10 @@ async def update_task(
     if not updates:
         return existing
 
+    # Remap request field name to graph storage field name (TaskNode uses assigned_to)
+    if "assignee_id" in updates:
+        updates["assigned_to"] = updates.pop("assignee_id")
+
     updated = await graph_store.update_node(task_id, updates)
     if updated is None:
         raise HTTPException(
@@ -664,6 +698,23 @@ async def update_task(
         )
 
     logger.info("graph: updated task %s fields=%s user_id=%s", task_id, list(updates), user_id)
+    # Publish task mutation event for org_task_index sync (FR-XT-001)
+    if broker is not None:
+        import json as _json  # noqa: PLC0415
+
+        try:
+            await broker.publish(
+                TASK_MUTATION_EVENTS,
+                _json.dumps(
+                    {
+                        "event": "task_updated",
+                        "task_id": task_id,
+                        "state": updates.get("state", ""),
+                    }
+                ),
+            )
+        except Exception as _exc:  # noqa: BLE001
+            logger.debug("graph: TASK_MUTATION_EVENTS publish failed: %s", _exc)
     return updated
 
 
