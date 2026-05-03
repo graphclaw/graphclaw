@@ -139,7 +139,6 @@ class AgentEventConsumer:
                 graph_repo=self._graph_repo(),
                 storage=self._storage,
                 memory_lock=self._memory_lock,
-                logger=None,
             )
 
         logger.info("AgentEventConsumer: started")
