@@ -247,6 +247,18 @@ Wave 3 (parallel): WS-P45-E (event consumer wiring), WS-P45-G (outbound logging)
 
 ---
 
+### Wave Comms-Substrate — Agent Triad & Comms Substrate (cockpit FR support) ✅ COMPLETE
+
+**Commits:** 59f822b, 822c5ed, 663cc6e, 6218030 (backend FRs); 954e317 (conversations API + user/orgs API)
+
+**Delivered:**
+- FR-STORE-001: `api/conversations.py` — `GET /app/v1/conversations`, `GET /app/v1/conversations/{cp_id}`, `GET /app/v1/conversations/{cp_id}/{channel}/{thread_id}`
+- FR-UI-002 (backend): `api/user.py` — `GET /app/v1/user/orgs` (membership scan over OrganizationNode graph)
+- FR-POL-001 (backend): `api/policies.py` — `GET/PUT /app/v1/agents/{agent_id}/policies/{policy_name}` for the 4 policy types
+- Tests: `tests/test_api/test_conversation_routes.py`, `tests/test_api/test_user_routes.py`
+
+---
+
 ### Agent Triad & Comms Substrate — Continuation (Complete)
 
 > Wave numbering follows `docs/requirements/agent-triad-and-comms-substrate.md`.
