@@ -229,6 +229,20 @@ See `.claude/` for agent definitions and custom skills used during the build.
 ### Running the pgadmin client for accessing the postgress age running in local container.
 docker run -d --name pgadmin --network graphclaw-cockpit_default -e PGADMIN_DEFAULT_EMAIL=**********gmail.com -e PGADMIN_DEFAULT_PASSWORD=admin -p 5050:80 dpage/pgadmin4
 
+#### To log into the home page
+http://localhost:5050/login
+Login to pdAdmin: abhishekgupta86@gmail.com/admin
+connect to database: 
+Host: db
+Port: 5432
+Username: graphclaw
+Database: graphclaw
+Password: graphclaw_dev
+
+### To Login into Minio for the object store inspection on local
+http://localhost:9001/login
+user id: graphclaw/ graphclaw_dev
+
 
 
 ## License

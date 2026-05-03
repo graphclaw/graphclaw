@@ -27,6 +27,42 @@ This project is built entirely using Claude Code multi-agent system.
 - MinIO (local S3-compatible storage)
 - Redis (caching, message broker for local dev)
 
+
+## Development Methodology
+
+Follow these phases in order for every development task, without skipping steps.
+
+### Phase 1 — Orient
+1. Read CLAUDE.md, build-plan.md, and the relevant PRD section(s) before touching code.
+2. Read existing code in the area you will modify — understand what is already there.
+3. For UI work (via cockpit): review the relevant wireframe in wireframes-v2/pages/ before designing.
+
+### Phase 2 — Requirements & Planning
+4. Document requirements in a .md file; cross-reference existing PRDs and build-plan.md.
+5. Validate completeness: identify edge cases, stress scenarios, and failure modes.
+6. Identify gaps and ambiguities — clarify key decisions with the user before proceeding. Do not assume.
+7. Update build-plan.md with the planned wave/task before writing any code.
+
+### Phase 3 — Implementation
+8. Write code sequentially — do not spawn parallel sub-agents (risk of system instability).
+9. Write modular code following project conventions (ABC/Factory/Strategy patterns, plugin architecture).
+10. Align all API calls with the backend OpenAPI spec; no invented or assumed endpoints.
+11. No stubs or fake interfaces — always use the real backend, MinIO, and GraphClaw database.
+
+### Phase 4 — Testing & Validation
+12. Run co-located unit tests after each requirement is implemented; all must pass before moving on.
+13. Run actual application tests against the live Docker stack — not just unit tests.
+14. For front-end (cockpit): verify the UI in a browser against the wireframe; test the golden path and edge cases.
+15. Validate data in MinIO and the GraphClaw database directly.
+16. Use the CLI interface to test backend APIs directly.
+17. Chat with the main orchestrating agent via CLI chat session to verify agent behavior end-to-end.
+18. Log in using the Dev auth account for full authentication flow validation.
+
+### Phase 5 — Commit & Close
+19. Run the full quality gate: `ruff check --fix src/ tests/ && ruff format src/ tests/ && pytest tests/` — all must pass.
+20. Update build-plan.md and relevant docs to mark the wave/requirement complete.
+21. Git commit per requirement and per wave using the format: `feat(wave-N): description`.
+
 ## Sub-Agent Orchestration Layer (Phase 5)
 The main `AgentLoop` orchestrates work by delegating tasks to sub-agents running in parallel background. Key components:
 
