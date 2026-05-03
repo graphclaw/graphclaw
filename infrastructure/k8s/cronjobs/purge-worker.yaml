@@ -1,0 +1,81 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: graphclaw-purge-worker
+  namespace: graphclaw
+  labels:
+    app: graphclaw
+    component: purge-worker
+spec:
+  schedule: "0 * * * *"  # Every hour
+  concurrencyPolicy: Forbid  # Never run concurrent purge jobs
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 1800  # 30-minute hard timeout
+      template:
+        metadata:
+          labels:
+            app: graphclaw
+            component: purge-worker
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: graphclaw-purge-worker
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+          containers:
+            - name: purge-worker
+              image: graphclaw/gateway:latest
+              imagePullPolicy: Always
+              command:
+                - python
+                - -m
+                - graphclaw.workers.purge_worker
+              env:
+                - name: ENVIRONMENT
+                  value: production
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: graphclaw-db-secrets
+                      key: admin_principal_dsn
+                - name: ADMIN_PRINCIPAL_DSN
+                  valueFrom:
+                    secretKeyRef:
+                      name: graphclaw-db-secrets
+                      key: admin_principal_dsn
+                - name: STORAGE_ENDPOINT_URL
+                  valueFrom:
+                    configMapKeyRef:
+                      name: graphclaw-config
+                      key: storage_endpoint_url
+                - name: STORAGE_BUCKET
+                  valueFrom:
+                    configMapKeyRef:
+                      name: graphclaw-config
+                      key: storage_bucket
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: graphclaw-storage-secrets
+                      key: access_key_id
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: graphclaw-storage-secrets
+                      key: secret_access_key
+                - name: REDIS_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: graphclaw-redis-secrets
+                      key: url
+              resources:
+                requests:
+                  memory: "128Mi"
+                  cpu: "100m"
+                limits:
+                  memory: "512Mi"
+                  cpu: "500m"
