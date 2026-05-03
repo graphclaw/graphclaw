@@ -174,6 +174,14 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
                 app.state.query_engine = create_query_engine("age", pool=_db_pool)
                 app.state.startup_health["database"] = _build_dependency_status(ok=True)
                 logger.info("GraphClaw: graph store and query engine initialised")
+
+                # Wave 0: Run no-delete startup probe if enforcement is enabled.
+                no_delete_enforcement = os.environ.get(
+                    "GRAPHCLAW_NO_DELETE_ENFORCEMENT", "false"
+                ).lower() == "true"
+                if no_delete_enforcement:
+                    from graphclaw.auth.principals import startup_assert_no_delete  # noqa: PLC0415
+                    await startup_assert_no_delete(_db_pool)  # SystemExit on failure
             else:
                 app.state.startup_health["database"] = _build_dependency_status(
                     ok=False,
@@ -221,6 +229,20 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
                     await seed_system_content(app.state.storage_client)
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("GraphClaw: system content seeding failed — %s", exc)
+
+                # Wave 0 (FR-DEL-008): audit storage lifecycle rules at startup.
+                try:
+                    from graphclaw.observability.startup_audit import (  # noqa: PLC0415
+                        startup_assert_no_lifecycle_rules,
+                    )
+
+                    await startup_assert_no_lifecycle_rules(app.state.storage_client)
+                except SystemExit:
+                    raise  # propagate fatal lifecycle violation
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "GraphClaw: lifecycle audit failed (non-fatal) — %s", exc
+                    )
 
             # Secrets backend
             secrets_backend = os.environ.get("SECRETS_BACKEND", "env_file")
