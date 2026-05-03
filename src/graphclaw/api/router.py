@@ -108,6 +108,11 @@ app_router.include_router(intelligence_router)
 # Wave 8
 app_router.include_router(canvas_router)
 
+# Wave 7 — Identity (FR-ID-002..005)
+from graphclaw.api.identity import router as identity_router  # noqa: E402
+
+app_router.include_router(identity_router)
+
 # Wave 1 — Policies (FR-STORE-002)
 from graphclaw.api.policies import router as policies_router  # noqa: E402
 

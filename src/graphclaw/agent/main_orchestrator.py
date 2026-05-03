@@ -1705,6 +1705,32 @@ class MainOrchestrator:
                 result = await self._tool_delegate_to_agent(user_id, arguments)
             elif name == "create_agent":
                 result = await self._tool_create_agent(user_id, arguments)
+            # --- identity set (FR-ID-002..005) ---
+            elif name == "resolve_user":
+                result = await self._tool_resolve_user(user_id, arguments)
+            elif name == "start_create_person_dialog":
+                result = await self._tool_start_create_person_dialog(user_id, arguments)
+            elif name == "respond_to_create_person_dialog":
+                result = await self._tool_respond_to_create_person_dialog(user_id, arguments)
+            elif name == "merge_resource":
+                result = await self._tool_merge_resource(user_id, arguments)
+            elif name == "register_alias":
+                result = await self._tool_register_alias(user_id, arguments)
+            # --- onboarding set (FR-ID-001) ---
+            elif name == "set_user_name":
+                result = await self._tool_set_user_name(user_id, arguments)
+            elif name == "set_user_persona":
+                result = await self._tool_set_user_persona(user_id, arguments)
+            elif name == "add_user_identity":
+                result = await self._tool_add_user_identity(user_id, arguments)
+            elif name == "set_working_hours":
+                result = await self._tool_set_working_hours(user_id, arguments)
+            elif name == "set_preferences":
+                result = await self._tool_set_preferences(user_id, arguments)
+            elif name == "seed_policy_from_template":
+                result = await self._tool_seed_policy_from_template(user_id, arguments)
+            elif name == "complete_onboarding":
+                result = await self._tool_complete_onboarding(user_id, arguments)
             else:
                 result = {"error": f"Unknown tool: {name}"}
 
@@ -4127,6 +4153,152 @@ class MainOrchestrator:
                     exc,
                 )
         return tasks
+
+    # ------------------------------------------------------------------
+    # Identity tool handlers (FR-ID-001..005)
+    # ------------------------------------------------------------------
+
+    async def _tool_resolve_user(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
+        from graphclaw.identity.resolver import UserResolver  # noqa: PLC0415
+
+        query = args.get("query", "")
+        hints = args.get("hints") or {}
+        resolver = UserResolver(self._store)
+        candidates = await resolver.resolve(query, user_id, [], hints)
+        return {
+            "candidates": [
+                {
+                    "node_id": c.node_id,
+                    "source": c.source,
+                    "confidence": c.confidence,
+                    "display_name": c.display_name,
+                    "reason": c.reason,
+                }
+                for c in candidates
+            ]
+        }
+
+    async def _tool_start_create_person_dialog(
+        self, user_id: str, args: dict[str, Any]
+    ) -> dict[str, Any]:
+        from graphclaw.agent.tools.identity_tools import start_create_person_dialog  # noqa: PLC0415
+
+        query = args.get("query", "")
+        session_ctx = self._session_context if hasattr(self, "_session_context") else {}
+        return await start_create_person_dialog(
+            query=query,
+            caller_user_id=user_id,
+            store=self._store,
+            session_context=session_ctx,
+        )
+
+    async def _tool_respond_to_create_person_dialog(
+        self, user_id: str, args: dict[str, Any]
+    ) -> dict[str, Any]:
+        from graphclaw.agent.tools.identity_tools import (
+            respond_to_create_person_dialog,  # noqa: PLC0415
+        )
+
+        session_ctx = self._session_context if hasattr(self, "_session_context") else {}
+        return await respond_to_create_person_dialog(
+            session_key=args.get("session_key", ""),
+            user_input=args.get("user_input", ""),
+            store=self._store,
+            session_context=session_ctx,
+        )
+
+    async def _tool_merge_resource(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
+        from graphclaw.agent.tools.identity_tools import merge_resource  # noqa: PLC0415
+
+        return await merge_resource(
+            keep_id=args.get("keep_id", ""),
+            merge_id=args.get("merge_id", ""),
+            canonical_name=args.get("canonical_name"),
+            store=self._store,
+            storage=self._storage,
+            broker=getattr(self, "_broker", None),
+        )
+
+    async def _tool_register_alias(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
+        from graphclaw.agent.tools.identity_tools import register_alias  # noqa: PLC0415
+
+        return await register_alias(
+            node_id=args.get("node_id", ""),
+            alias=args.get("alias", ""),
+            source=args.get("source", "user"),
+            added_by=user_id,
+            store=self._store,
+        )
+
+    async def _tool_set_user_name(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
+        from graphclaw.agent.tools.onboarding_tools import set_user_name  # noqa: PLC0415
+
+        return await set_user_name(user_id=user_id, name=args.get("name", ""), store=self._store)
+
+    async def _tool_set_user_persona(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
+        from graphclaw.agent.tools.onboarding_tools import set_user_persona  # noqa: PLC0415
+
+        return await set_user_persona(
+            user_id=user_id,
+            role=args.get("role", ""),
+            timezone=args.get("timezone", "UTC"),
+            store=self._store,
+        )
+
+    async def _tool_add_user_identity(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
+        from graphclaw.agent.tools.onboarding_tools import add_user_identity  # noqa: PLC0415
+
+        return await add_user_identity(
+            user_id=user_id,
+            channel=args.get("channel", ""),
+            value=args.get("value", ""),
+            store=self._store,
+        )
+
+    async def _tool_set_working_hours(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
+        from graphclaw.agent.tools.onboarding_tools import set_working_hours  # noqa: PLC0415
+
+        return await set_working_hours(
+            user_id=user_id,
+            start=args.get("start", "09:00"),
+            end=args.get("end", "18:00"),
+            store=self._store,
+        )
+
+    async def _tool_set_preferences(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
+        from graphclaw.agent.tools.onboarding_tools import set_preferences  # noqa: PLC0415
+
+        return await set_preferences(
+            user_id=user_id,
+            preferred_channel=args.get("preferred_channel", "email"),
+            briefing_time=args.get("briefing_time", "08:00"),
+            briefing_style=args.get("briefing_style", "summary"),
+            default_follow_up_days=int(args.get("default_follow_up_days", 3)),
+            store=self._store,
+        )
+
+    async def _tool_seed_policy_from_template(
+        self, user_id: str, args: dict[str, Any]
+    ) -> dict[str, Any]:
+        from graphclaw.agent.tools.onboarding_tools import (
+            seed_policy_from_template,  # noqa: PLC0415
+        )
+
+        return await seed_policy_from_template(
+            user_id=user_id,
+            agent_id=self._agent_id,
+            policy_name=args.get("policy_name", "delegation"),
+            storage=self._storage,
+        )
+
+    async def _tool_complete_onboarding(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
+        from graphclaw.agent.tools.onboarding_tools import complete_onboarding  # noqa: PLC0415
+
+        return await complete_onboarding(
+            user_id=user_id,
+            agent_id=self._agent_id,
+            storage=self._storage,
+        )
 
 
 def _deserialise_graph_props(props: dict) -> dict:

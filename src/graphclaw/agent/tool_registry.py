@@ -162,13 +162,21 @@ def _make_core_tools() -> list[ToolDefinition]:
             "load_tool_set",
             (
                 "Activate a named tool set to access additional tools for this session. "
-                "Available sets: task_management, planning, skills, mcp, delegation."
+                "Available sets: task_management, planning, skills, mcp, delegation, identity, onboarding."
             ),
             {
                 "name": {
                     "type": "string",
-                    "description": "Tool set name: task_management | planning | skills | mcp | delegation.",
-                    "enum": ["task_management", "planning", "skills", "mcp", "delegation"],
+                    "description": "Tool set name: task_management | planning | skills | mcp | delegation | identity | onboarding.",
+                    "enum": [
+                        "task_management",
+                        "planning",
+                        "skills",
+                        "mcp",
+                        "delegation",
+                        "identity",
+                        "onboarding",
+                    ],
                 },
             },
             required=["name"],
@@ -616,6 +624,152 @@ def _make_delegation_tools() -> list[ToolDefinition]:
     ]
 
 
+def _make_identity_tools() -> list[ToolDefinition]:
+    """Identity resolution and management tools (FR-ID-002..005)."""
+    return [
+        _td(
+            "resolve_user",
+            "Find an existing user or contact by name, alias, or email. Returns ranked candidates.",
+            {
+                "query": {"type": "string", "description": "Name, alias, or email to search for."},
+                "hints": {
+                    "type": "object",
+                    "description": "Optional hints: workspace_id, org_id.",
+                },
+            },
+            required=["query"],
+        ),
+        _td(
+            "start_create_person_dialog",
+            "Start a dialog to create a new contact or pick an existing one (disambiguation first).",
+            {
+                "query": {
+                    "type": "string",
+                    "description": "The person's name or alias you want to add.",
+                },
+            },
+            required=["query"],
+        ),
+        _td(
+            "respond_to_create_person_dialog",
+            "Continue the create-person dialog with the user's response.",
+            {
+                "session_key": {
+                    "type": "string",
+                    "description": "Session key from start_create_person_dialog.",
+                },
+                "user_input": {
+                    "type": "string",
+                    "description": "The user's response to the dialog prompt.",
+                },
+            },
+            required=["session_key", "user_input"],
+        ),
+        _td(
+            "merge_resource",
+            "Merge two duplicate resource/contact nodes. keep_id becomes canonical; merge_id gets a tombstone.",
+            {
+                "keep_id": {
+                    "type": "string",
+                    "description": "ID of the node to keep as canonical.",
+                },
+                "merge_id": {
+                    "type": "string",
+                    "description": "ID of the duplicate node to archive.",
+                },
+                "canonical_name": {
+                    "type": "string",
+                    "description": "Optional new canonical display name.",
+                },
+            },
+            required=["keep_id", "merge_id"],
+        ),
+        _td(
+            "register_alias",
+            "Add a new alias (email, handle, nickname) to an existing contact node.",
+            {
+                "node_id": {"type": "string", "description": "Target node ID."},
+                "alias": {"type": "string", "description": "The new alias value."},
+                "source": {
+                    "type": "string",
+                    "description": "Source of alias (e.g. 'email', 'telegram').",
+                },
+            },
+            required=["node_id", "alias"],
+        ),
+    ]
+
+
+def _make_onboarding_tools() -> list[ToolDefinition]:
+    """Onboarding wizard tools (FR-ID-001)."""
+    return [
+        _td(
+            "set_user_name",
+            "Set the user's display name during onboarding.",
+            {"name": {"type": "string"}},
+            required=["name"],
+        ),
+        _td(
+            "set_user_persona",
+            "Set the user's role and timezone during onboarding.",
+            {
+                "role": {"type": "string"},
+                "timezone": {
+                    "type": "string",
+                    "description": "IANA timezone e.g. America/New_York.",
+                },
+            },
+            required=["role"],
+        ),
+        _td(
+            "add_user_identity",
+            "Add a channel identity (email, Telegram, etc.) for the user.",
+            {
+                "channel": {"type": "string", "description": "email | telegram | whatsapp | slack"},
+                "value": {"type": "string", "description": "The address/handle for this channel."},
+            },
+            required=["channel", "value"],
+        ),
+        _td(
+            "set_working_hours",
+            "Set the user's working hours.",
+            {
+                "start": {"type": "string", "description": "Start time e.g. '09:00'."},
+                "end": {"type": "string", "description": "End time e.g. '18:00'."},
+            },
+            required=["start", "end"],
+        ),
+        _td(
+            "set_preferences",
+            "Set the user's notification and briefing preferences.",
+            {
+                "preferred_channel": {"type": "string"},
+                "briefing_time": {"type": "string"},
+                "briefing_style": {"type": "string"},
+                "default_follow_up_days": {"type": "integer"},
+            },
+            required=[],
+        ),
+        _td(
+            "seed_policy_from_template",
+            "Seed a policy file from a built-in template.",
+            {
+                "policy_name": {
+                    "type": "string",
+                    "enum": ["delegation", "escalation", "counterparty_etiquette", "reply_tone"],
+                },
+            },
+            required=["policy_name"],
+        ),
+        _td(
+            "complete_onboarding",
+            "Mark onboarding as complete for the current user.",
+            {},
+            required=[],
+        ),
+    ]
+
+
 # ---------------------------------------------------------------------------
 # ToolSetRegistry
 # ---------------------------------------------------------------------------
@@ -627,7 +781,9 @@ Call load_tool_set(name) to activate additional tools for this session.
 - planning        : decompose goals into structured execution plans
 - skills          : run AI automation skills
 - mcp             : call external integrations (GitHub, Calendar, Slack, etc.)
-- delegation      : delegate tasks to sub-agents asynchronously"""
+- delegation      : delegate tasks to sub-agents asynchronously
+- identity        : resolve users, create contacts, merge duplicates
+- onboarding      : guide new users through initial setup"""
 
 
 class ToolSetRegistry:
@@ -652,6 +808,8 @@ class ToolSetRegistry:
             "task_management": _make_task_management_tools(),
             "planning": _make_planning_tools(),
             "delegation": _make_delegation_tools(),
+            "identity": _make_identity_tools(),
+            "onboarding": _make_onboarding_tools(),
         }
         if has_skill_registry:
             self._available["skills"] = _make_skills_tools()
@@ -719,6 +877,8 @@ class ToolSetRegistry:
             "skills": "run AI automation skills",
             "mcp": "call external integrations (GitHub, Calendar, Slack, etc.)",
             "delegation": "delegate tasks to sub-agents asynchronously",
+            "identity": "resolve users, create contacts, merge duplicates",
+            "onboarding": "guide new users through initial setup",
         }
         for name in available_set_names:
             desc = labels.get(name, name)
