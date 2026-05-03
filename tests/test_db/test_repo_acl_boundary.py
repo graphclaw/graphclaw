@@ -129,9 +129,9 @@ class TestRepoCallerContextIntegration:
                 pass
 
         with patch("graphclaw.db.age.repository.get_connection", return_value=_Ctx()):
-                with patch("graphclaw.config.AppConfig") as MockCfg:
-                    MockCfg.return_value.no_delete_enforcement = False
-                    result = await store.get_node("NODE-1")  # no caller_context
+            with patch("graphclaw.config.AppConfig") as MockCfg:
+                MockCfg.return_value.no_delete_enforcement = False
+                result = await store.get_node("NODE-1")  # no caller_context
 
         assert result is None
 

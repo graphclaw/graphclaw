@@ -593,7 +593,9 @@ async def put_agent_config(
     # This allows wiring the orchestrator and intelligence-hub agents that have no canvas def.
     canvas_def_exists = await storage_client.exists(_def_path(user_id, agent_id))
     if not canvas_def_exists:
-        manifest_exists = await storage_client.exists(StoragePaths.agent_manifest(user_id, agent_id))
+        manifest_exists = await storage_client.exists(
+            StoragePaths.agent_manifest(user_id, agent_id)
+        )
         config_exists = await storage_client.exists(StoragePaths.agent_config(user_id, agent_id))
         if not manifest_exists and not config_exists:
             raise HTTPException(
@@ -670,7 +672,9 @@ async def get_agent_wiring(
                     )
                 else:
                     # ID wired but skill no longer installed — include as orphan
-                    wired_skills.append(WiredSkillEntry(skill_id=sid, skill_name=sid, enabled=False))
+                    wired_skills.append(
+                        WiredSkillEntry(skill_id=sid, skill_name=sid, enabled=False)
+                    )
         except Exception as exc:
             logger.warning("agents: skill wiring resolution failed: %s", exc)
 
@@ -687,16 +691,22 @@ async def get_agent_wiring(
                         WiredMCPServerEntry(
                             server_id=srv.server_id,
                             name=srv.name,
-                            transport=str(srv.transport.value if hasattr(srv.transport, "value") else srv.transport),
+                            transport=str(
+                                srv.transport.value
+                                if hasattr(srv.transport, "value")
+                                else srv.transport
+                            ),
                             endpoint_url=getattr(srv, "endpoint_url", None),
-                            trust_tier=str(srv.trust_tier.value if hasattr(srv.trust_tier, "value") else srv.trust_tier),
+                            trust_tier=str(
+                                srv.trust_tier.value
+                                if hasattr(srv.trust_tier, "value")
+                                else srv.trust_tier
+                            ),
                             enabled=getattr(srv, "enabled", True),
                         )
                     )
                 else:
-                    wired_mcp.append(
-                        WiredMCPServerEntry(server_id=sid, name=sid, enabled=False)
-                    )
+                    wired_mcp.append(WiredMCPServerEntry(server_id=sid, name=sid, enabled=False))
         except Exception as exc:
             logger.warning("agents: MCP wiring resolution failed: %s", exc)
 

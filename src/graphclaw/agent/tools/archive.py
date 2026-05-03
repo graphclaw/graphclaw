@@ -68,7 +68,7 @@ async def _write_archive_fields(
     archived_by: str,
     reason: str,
     redirect_to: str | None,
-    admin_store: "GraphStore",
+    admin_store: GraphStore,
 ) -> None:
     """Update lifecycle fields on *node_id* using admin_principal store."""
     updates: dict = {
@@ -84,7 +84,7 @@ async def _create_tombstone(
     archived_node_id: str,
     redirect_to: str | None,
     reason: str,
-    admin_store: "GraphStore",
+    admin_store: GraphStore,
 ) -> str:
     """Create a TombstoneNode and return its id."""
     from graphclaw.models.nodes import TombstoneNode  # noqa: PLC0415
@@ -111,7 +111,7 @@ async def archive_task(
     archived_by: str,
     reason: str,
     redirect_to: str | None,
-    admin_store: "GraphStore",
+    admin_store: GraphStore,
 ) -> dict:
     """Archive a TaskNode.
 
@@ -180,7 +180,7 @@ async def archive_resource(
     archived_by: str,
     reason: str,
     redirect_to: str | None,
-    admin_store: "GraphStore",
+    admin_store: GraphStore,
 ) -> dict:
     """Archive a ResourceNode.
 
@@ -245,7 +245,7 @@ async def archive_goal(
     archived_by: str,
     reason: str,
     redirect_to: str | None,
-    admin_store: "GraphStore",
+    admin_store: GraphStore,
 ) -> dict:
     """Archive a GoalNode.
 

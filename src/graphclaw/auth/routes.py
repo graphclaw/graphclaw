@@ -55,7 +55,6 @@ from graphclaw.auth.jwt import JWTService
 from graphclaw.auth.middleware import get_current_user_id, get_jwt_service
 from graphclaw.auth.oauth import OAuthService
 
-
 # ── Pending-purge gate (FR-DEL-004) ───────────────────────────────────────────
 
 
@@ -87,13 +86,19 @@ async def _check_pending_purge_gate(request: Request, user_id: str) -> None:
     if purge_after is not None and purge_cancelled_at is None:
         archived_at = getattr(node, "archived_at", None)
         detail = PendingPurgeDetail(
-            purge_after=purge_after.isoformat() if hasattr(purge_after, "isoformat") else str(purge_after),
-            purge_initiated_at=archived_at.isoformat() if archived_at and hasattr(archived_at, "isoformat") else "",
+            purge_after=purge_after.isoformat()
+            if hasattr(purge_after, "isoformat")
+            else str(purge_after),
+            purge_initiated_at=archived_at.isoformat()
+            if archived_at and hasattr(archived_at, "isoformat")
+            else "",
         )
         raise HTTPException(
             status_code=status.HTTP_423_LOCKED,
             detail=detail.model_dump(),
         )
+
+
 from graphclaw.auth.provisioning import UserProvisioningService
 
 logger = logging.getLogger(__name__)

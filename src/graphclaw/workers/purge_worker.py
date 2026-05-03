@@ -209,9 +209,7 @@ class PurgeWorker:
         if self._redis is None:
             return True  # No Redis → single-instance mode, always proceed.
         try:
-            acquired = await self._redis.set(
-                _LOCK_KEY, "1", nx=True, ex=_LOCK_TTL_SECONDS
-            )
+            acquired = await self._redis.set(_LOCK_KEY, "1", nx=True, ex=_LOCK_TTL_SECONDS)
             return bool(acquired)
         except Exception:  # noqa: BLE001
             logger.warning("purge_worker: Redis lock acquisition failed — proceeding without lock")

@@ -11,14 +11,10 @@ Tests cover:
 
 from __future__ import annotations
 
-import json
-from datetime import UTC, date, datetime
+from datetime import date
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
-
 from graphclaw.audit.immutable_log import AuditEntry, AuditEventType, AuditLog
-
 
 # ---------------------------------------------------------------------------
 # AuditEntry unit tests
@@ -115,9 +111,7 @@ class TestAuditLog:
     async def test_record_returns_audit_entry(self) -> None:
         storage = _make_storage()
         log = AuditLog(storage)
-        entry = await log.record(
-            AuditEventType.LEGAL_HOLD_SET, "admin", "TASK-99"
-        )
+        entry = await log.record(AuditEventType.LEGAL_HOLD_SET, "admin", "TASK-99")
         assert isinstance(entry, AuditEntry)
         assert entry.event_type == AuditEventType.LEGAL_HOLD_SET
 

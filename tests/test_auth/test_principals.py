@@ -92,7 +92,6 @@ class TestAgeGraphStorePrincipalTracking:
 
     def test_principal_name_base_class_default(self) -> None:
         """GraphStore ABC default principal_name returns 'unknown'."""
-        from graphclaw.db.base import GraphStore
 
         # We can't instantiate the ABC directly, but we can test via AgeGraphStore
         from unittest.mock import MagicMock

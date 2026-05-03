@@ -12,7 +12,7 @@ Tests cover (AC1 + AC2):
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -24,7 +24,6 @@ from graphclaw.api.admin.org_lifecycle import (
     archive_org,
     cancel_org_archive,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -189,9 +188,7 @@ class TestCancelOrgArchive:
         org = _make_org(archived_at=datetime.now(UTC))
         storage = _make_storage()
         store = _make_store(org=org)
-        await cancel_org_archive(
-            CancelOrgArchiveRequest(org_id="ORG-x"), "admin", store, storage
-        )
+        await cancel_org_archive(CancelOrgArchiveRequest(org_id="ORG-x"), "admin", store, storage)
         storage.write.assert_called()
         written = storage.write.call_args[0][1].decode()
         assert "org_archive_cancelled" in written

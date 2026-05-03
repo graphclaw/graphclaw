@@ -3169,6 +3169,7 @@ class MainOrchestrator:
         if self._storage is None:
             return None
         from graphclaw.infra.storage import StoragePaths
+
         try:
             raw = await self._storage.read(StoragePaths.agent_config(user_id, agent_id))
             return json.loads(raw.decode())

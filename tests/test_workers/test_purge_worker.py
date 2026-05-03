@@ -16,13 +16,10 @@ Tests cover:
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
-
-import pytest
+from unittest.mock import AsyncMock, MagicMock
 
 from graphclaw.workers.heartbeat import HeartbeatRecord, WorkerHeartbeat
-from graphclaw.workers.purge_worker import PurgeResult, PurgeWorker
-
+from graphclaw.workers.purge_worker import PurgeWorker
 
 # ---------------------------------------------------------------------------
 # WorkerHeartbeat tests

@@ -64,7 +64,7 @@ class MaxHopsExceeded(Exception):
 
 async def resolve_canonical(
     node_id: str,
-    store: "GraphStore",
+    store: GraphStore,
     max_hops: int = DEFAULT_MAX_HOPS,
 ) -> dict | None:
     """Follow TombstoneNode redirects to the current live node.
@@ -163,7 +163,7 @@ async def resolve_canonical(
     )
 
 
-async def _find_tombstone(archived_node_id: str, store: "GraphStore") -> dict | None:
+async def _find_tombstone(archived_node_id: str, store: GraphStore) -> dict | None:
     """Return the TombstoneNode for *archived_node_id*, or None if absent."""
     tombstones = await store.list_nodes(
         "TombstoneNode",

@@ -176,11 +176,12 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
                 logger.info("GraphClaw: graph store and query engine initialised")
 
                 # Wave 0: Run no-delete startup probe if enforcement is enabled.
-                no_delete_enforcement = os.environ.get(
-                    "GRAPHCLAW_NO_DELETE_ENFORCEMENT", "false"
-                ).lower() == "true"
+                no_delete_enforcement = (
+                    os.environ.get("GRAPHCLAW_NO_DELETE_ENFORCEMENT", "false").lower() == "true"
+                )
                 if no_delete_enforcement:
                     from graphclaw.auth.principals import startup_assert_no_delete  # noqa: PLC0415
+
                     await startup_assert_no_delete(_db_pool)  # SystemExit on failure
             else:
                 app.state.startup_health["database"] = _build_dependency_status(
@@ -240,9 +241,7 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
                 except SystemExit:
                     raise  # propagate fatal lifecycle violation
                 except Exception as exc:  # noqa: BLE001
-                    logger.warning(
-                        "GraphClaw: lifecycle audit failed (non-fatal) — %s", exc
-                    )
+                    logger.warning("GraphClaw: lifecycle audit failed (non-fatal) — %s", exc)
 
             # Secrets backend
             secrets_backend = os.environ.get("SECRETS_BACKEND", "env_file")
@@ -257,6 +256,14 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
             # Scoring engine — stateless, no external deps
             app.state.scoring_engine = ScoringEngine()
             logger.info("GraphClaw: scoring engine initialised")
+
+            # FR-IN-003: AgentChannelIdentity registry (in-memory, hot-reloaded by admin API)
+            from graphclaw.gateway.agent_channel_identity import (  # noqa: PLC0415
+                AgentChannelIdentityRegistry,
+            )
+
+            app.state.channel_registry = AgentChannelIdentityRegistry()
+            logger.info("GraphClaw: AgentChannelIdentityRegistry initialised (empty)")
 
             # Redis — required for auth OTC exchange and user event publishing
             app.state.redis = None

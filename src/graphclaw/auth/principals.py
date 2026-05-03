@@ -101,7 +101,11 @@ def resolve_principal_dsn(principal: Principal) -> str:
     dsn = os.environ.get(env_key) or os.environ[_FALLBACK_DSN_ENV]
     logger.debug(
         "Resolved principal DSN",
-        extra={"principal": principal.value, "env_key": env_key, "using_fallback": not os.environ.get(env_key)},
+        extra={
+            "principal": principal.value,
+            "env_key": env_key,
+            "using_fallback": not os.environ.get(env_key),
+        },
     )
     return dsn
 

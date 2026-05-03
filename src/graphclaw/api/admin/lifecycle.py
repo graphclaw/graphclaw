@@ -41,7 +41,7 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 
 from graphclaw.api.deps import AdminGraphStoreDep, AdminUserDep, StorageClientDep

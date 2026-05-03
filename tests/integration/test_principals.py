@@ -12,7 +12,6 @@ import os
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Unit-level tests (no DB required)
 # ---------------------------------------------------------------------------
@@ -139,9 +138,7 @@ class TestStartupProbeIntegration:
       and the default one (unrestricted)
     """
 
-    @pytest.mark.skipif(
-        not os.environ.get("DATABASE_URL"), reason="DATABASE_URL not set"
-    )
+    @pytest.mark.skipif(not os.environ.get("DATABASE_URL"), reason="DATABASE_URL not set")
     async def test_probe_passes_when_no_delete_enforced(self) -> None:
         """When agent_principal truly has no DELETE, probe logs pass and does not exit."""
         pytest.skip(

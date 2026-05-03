@@ -24,7 +24,6 @@ Dependencies
 
 from __future__ import annotations
 
-import json
 import logging
 from datetime import UTC, datetime
 
@@ -58,9 +57,7 @@ class WorkerHeartbeat:
         self._redis = redis
         self._ttl = int(interval_seconds * 2.5)
 
-    async def beat(
-        self, worker_name: str, metadata: dict | None = None
-    ) -> HeartbeatRecord:
+    async def beat(self, worker_name: str, metadata: dict | None = None) -> HeartbeatRecord:
         """Record a successful heartbeat for *worker_name*.
 
         Writes a Redis key with TTL 2.5× interval.  Silently no-ops if Redis

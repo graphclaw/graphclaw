@@ -465,7 +465,11 @@ async def create_task(
 
     logger.info(
         "graph: create_task request type=%s title=%r deadline=%s priority=%s user_id=%s",
-        body.task_type, body.title, body.deadline, body.priority, user_id,
+        body.task_type,
+        body.title,
+        body.deadline,
+        body.priority,
+        user_id,
     )
 
     if body.parent_goal_id:
@@ -520,7 +524,10 @@ async def create_task(
     except Exception as exc:
         logger.error(
             "graph: failed to persist task %s type=%s user_id=%s: %s",
-            task_id, body.task_type, user_id, exc,
+            task_id,
+            body.task_type,
+            user_id,
+            exc,
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

@@ -186,3 +186,31 @@ class AliasResolver:
                 await self._redis.aclose()
             except Exception as exc:  # noqa: BLE001
                 logger.warning("AliasResolver.close failed: %s", exc)
+
+    # ------------------------------------------------------------------
+    # FR-IN-002: Counterparty resolution
+    # ------------------------------------------------------------------
+
+    async def resolve_to_node(
+        self,
+        channel: str,
+        sender_id: str,
+        owner_user_id: str,  # noqa: ARG002 — reserved for future scoped lookups
+    ) -> str | None:
+        """Map ``(channel, sender_id)`` to a counterparty graph node ID (FR-IN-002).
+
+        The counterparty can be a ``UserNode`` (known GraphClaw user) or a
+        ``ResourceNode`` (external contact).  The lookup uses the existing
+        forward alias mapping in Redis.
+
+        Args:
+            channel: Channel identifier (e.g. ``"telegram"``, ``"email"``).
+            sender_id: Channel-specific sender address.
+            owner_user_id: Owner who would hold the contact — reserved for
+                future multi-tenant scoped lookups.
+
+        Returns:
+            The canonical GraphClaw node ID (``USER-…`` or ``RES-…``), or
+            ``None`` if not found.
+        """
+        return await self.resolve(channel, sender_id)

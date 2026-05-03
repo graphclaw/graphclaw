@@ -456,4 +456,51 @@ MIGRATIONS: list[Migration] = [
             END $$;
         """,
     ),
+    # -----------------------------------------------------------------------
+    # Wave 3 — Inbound router (FR-IN-003)
+    # -----------------------------------------------------------------------
+    Migration(
+        version="0018",
+        name="wave3_agent_channel_identities",
+        description=(
+            "Wave 3 (FR-IN-003): Create agent_channel_identities table mapping "
+            "receiving channel accounts to (user_id, agent_id) pairs.  "
+            "The in-memory AgentChannelIdentityRegistry is populated from this "
+            "table at startup and hot-reloaded on admin CRUD."
+        ),
+        sql_up="""
+            -- Registry mapping receiving accounts → owner agents.
+            CREATE TABLE IF NOT EXISTS agent_channel_identities (
+                channel           TEXT     NOT NULL,
+                account_id        TEXT     NOT NULL,
+                user_id           TEXT     NOT NULL,
+                agent_id          TEXT     NOT NULL,
+                display_name      TEXT     NOT NULL DEFAULT '',
+                credentials_ref   TEXT     NOT NULL DEFAULT '',
+                active            BOOLEAN  NOT NULL DEFAULT TRUE,
+                owner_identities  TEXT     NOT NULL DEFAULT '[]',
+                PRIMARY KEY (channel, account_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_aci_user_id
+                ON agent_channel_identities (user_id);
+
+            CREATE INDEX IF NOT EXISTS idx_aci_agent_id
+                ON agent_channel_identities (agent_id);
+
+            -- Grant agent_principal read only.
+            DO $$ BEGIN
+              IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'agent_principal') THEN
+                GRANT SELECT ON agent_channel_identities TO agent_principal;
+              END IF;
+            END $$;
+
+            -- Grant admin_principal full access.
+            DO $$ BEGIN
+              IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'admin_principal') THEN
+                GRANT SELECT, INSERT, UPDATE, DELETE ON agent_channel_identities TO admin_principal;
+              END IF;
+            END $$;
+        """,
+    ),
 ]

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
+from graphclaw.api.admin.agent_channels import router as agent_channels_router
 from graphclaw.api.admin.audit import router as audit_router
 from graphclaw.api.admin.connectors import router as connectors_router
 from graphclaw.api.admin.features import router as features_router
@@ -33,3 +34,4 @@ admin_router.include_router(infra_router)
 admin_router.include_router(connectors_router)
 admin_router.include_router(lifecycle_router)
 admin_router.include_router(org_lifecycle_router)
+admin_router.include_router(agent_channels_router)

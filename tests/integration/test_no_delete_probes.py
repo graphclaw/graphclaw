@@ -131,9 +131,7 @@ class TestMinIOLifecycleAudit:
             region=os.environ.get("STORAGE_REGION", "us-east-1"),
         )
         result = await audit_lifecycle_rules(storage)
-        assert result.ok, (
-            f"MinIO lifecycle rules found on forbidden prefixes: {result.violations}"
-        )
+        assert result.ok, f"MinIO lifecycle rules found on forbidden prefixes: {result.violations}"
 
 
 # ---------------------------------------------------------------------------
@@ -201,7 +199,10 @@ class TestCallerContextEnforcement:
 
     def test_require_caller_context_passes_with_context(self) -> None:
 
-        from graphclaw.cross_tenant.acl import CallerContext, require_caller_context  # noqa: PLC0415
+        from graphclaw.cross_tenant.acl import (  # noqa: PLC0415
+            CallerContext,
+            require_caller_context,
+        )
 
         ctx = CallerContext(user_id="u", org_id="o")
         require_caller_context(ctx)  # must not raise

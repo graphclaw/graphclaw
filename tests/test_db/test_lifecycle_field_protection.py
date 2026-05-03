@@ -141,7 +141,6 @@ class TestBaseNodeLifecycleFields:
 
     def test_lifecycle_fields_default_none(self) -> None:
         """All nullable lifecycle fields default to None/False."""
-        from datetime import timezone
         from graphclaw.models.base import BaseNode, utcnow
 
         now = utcnow()

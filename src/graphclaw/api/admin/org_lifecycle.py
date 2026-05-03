@@ -124,9 +124,7 @@ async def archive_org(
     # Archive all workspaces under this org — do NOT touch UserNodes.
     workspaces_archived = 0
     try:
-        workspaces = await store.list_nodes(
-            "WorkspaceNode", filters={"org_id": req.org_id}
-        )
+        workspaces = await store.list_nodes("WorkspaceNode", filters={"org_id": req.org_id})
         for ws in workspaces:
             ws_id = getattr(ws, "id", None)
             if ws_id and getattr(ws, "archived_at", None) is None:

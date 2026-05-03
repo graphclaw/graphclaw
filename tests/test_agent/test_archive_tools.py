@@ -11,12 +11,11 @@ Verifies:
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 from graphclaw.agent.tools.archive import ArchiveError, archive_goal, archive_resource, archive_task
-
 
 # ---------------------------------------------------------------------------
 # Mock store helpers
@@ -163,7 +162,6 @@ class TestStateMachineNoDeletion:
 
     def test_deleted_state_rejected(self) -> None:
         """State machine raises when trying to transition to DELETED."""
-        from graphclaw.models.enums import TaskState
         from graphclaw.state.machine import StateMachine
         from graphclaw.state.transitions import InvalidTransitionError
 
@@ -177,7 +175,6 @@ class TestStateMachineNoDeletion:
 
     def test_purged_state_rejected(self) -> None:
         """State machine raises when trying to transition to PURGED."""
-        from graphclaw.models.enums import TaskState
         from graphclaw.state.machine import StateMachine
         from graphclaw.state.transitions import InvalidTransitionError
 

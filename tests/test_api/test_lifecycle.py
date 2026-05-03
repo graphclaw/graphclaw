@@ -11,7 +11,7 @@ Tests cover:
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import HTTPException
@@ -27,8 +27,6 @@ from graphclaw.api.admin.lifecycle import (
     right_to_erasure,
     set_legal_hold,
 )
-from graphclaw.audit.immutable_log import AuditEventType
-
 
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
@@ -67,13 +65,17 @@ class TestCancelPurge:
     async def test_raises_404_if_node_missing(self) -> None:
         store = _make_store(node=None)
         with pytest.raises(HTTPException) as exc:
-            await cancel_purge(CancelPurgeRequest(user_id="USER-x"), "admin", store, _make_storage())
+            await cancel_purge(
+                CancelPurgeRequest(user_id="USER-x"), "admin", store, _make_storage()
+            )
         assert exc.value.status_code == 404
 
     async def test_raises_409_if_no_pending_purge(self) -> None:
         store = _make_store(_make_node(purge_after=None))
         with pytest.raises(HTTPException) as exc:
-            await cancel_purge(CancelPurgeRequest(user_id="USER-x"), "admin", store, _make_storage())
+            await cancel_purge(
+                CancelPurgeRequest(user_id="USER-x"), "admin", store, _make_storage()
+            )
         assert exc.value.status_code == 409
 
     async def test_clears_purge_fields(self) -> None:
@@ -113,14 +115,18 @@ class TestConfirmPurge:
     async def test_raises_409_if_no_pending_purge(self) -> None:
         store = _make_store(_make_node(purge_after=None))
         with pytest.raises(HTTPException) as exc:
-            await confirm_purge(ConfirmPurgeRequest(user_id="USER-x"), "admin", store, _make_storage())
+            await confirm_purge(
+                ConfirmPurgeRequest(user_id="USER-x"), "admin", store, _make_storage()
+            )
         assert exc.value.status_code == 409
 
     async def test_raises_409_if_legal_hold(self) -> None:
         future = datetime.now(UTC) + timedelta(hours=20)
         store = _make_store(_make_node(purge_after=future, legal_hold=True))
         with pytest.raises(HTTPException) as exc:
-            await confirm_purge(ConfirmPurgeRequest(user_id="USER-x"), "admin", store, _make_storage())
+            await confirm_purge(
+                ConfirmPurgeRequest(user_id="USER-x"), "admin", store, _make_storage()
+            )
         assert exc.value.status_code == 409
 
     async def test_moves_purge_after_to_past(self) -> None:
@@ -247,7 +253,9 @@ class TestSetLegalHold:
     async def test_raises_404_if_missing(self) -> None:
         store = _make_store(None)
         with pytest.raises(HTTPException) as exc:
-            await set_legal_hold("TASK-x", LegalHoldRequest(reason="litigation"), "admin", store, _make_storage())
+            await set_legal_hold(
+                "TASK-x", LegalHoldRequest(reason="litigation"), "admin", store, _make_storage()
+            )
         assert exc.value.status_code == 404
 
     async def test_raises_409_if_already_held(self) -> None:
@@ -258,7 +266,9 @@ class TestSetLegalHold:
 
     async def test_sets_legal_hold_fields(self) -> None:
         store = _make_store(_make_node(legal_hold=False))
-        await set_legal_hold("TASK-x", LegalHoldRequest(reason="litigation"), "admin", store, _make_storage())
+        await set_legal_hold(
+            "TASK-x", LegalHoldRequest(reason="litigation"), "admin", store, _make_storage()
+        )
         updates = store.update_node.call_args[0][1]
         assert updates["legal_hold"] is True
         assert updates["hold_set_by"] == "admin"

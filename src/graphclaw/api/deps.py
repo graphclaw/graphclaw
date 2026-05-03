@@ -318,16 +318,15 @@ AdminGraphStoreDep = Annotated[GraphStore, Depends(get_admin_graph_store)]
 async def get_caller_context(
     request: Request,
     user_id: str = Depends(require_auth),
-) -> "CallerContextDep_type":
+) -> CallerContextDep_type:
     """Build a CallerContext from the authenticated request.
 
     Provides user_id, org_id (from request state or header), and principal.
     """
     from graphclaw.cross_tenant.acl import CallerContext  # noqa: PLC0415
 
-    org_id: str = (
-        getattr(request.state, "org_id", None)
-        or request.headers.get("X-Org-Id", "default")
+    org_id: str = getattr(request.state, "org_id", None) or request.headers.get(
+        "X-Org-Id", "default"
     )
     principal: str = getattr(request.state, "principal", "agent_principal")
     session_id: str | None = getattr(request.state, "session_id", None)

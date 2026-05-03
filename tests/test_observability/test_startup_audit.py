@@ -11,13 +11,11 @@ Verifies:
 
 from __future__ import annotations
 
-import sys
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from graphclaw.observability.startup_audit import (
-    AuditResult,
     audit_lifecycle_rules,
     startup_assert_no_lifecycle_rules,
 )

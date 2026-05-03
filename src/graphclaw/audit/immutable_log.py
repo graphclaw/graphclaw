@@ -115,7 +115,7 @@ class AuditEntry(BaseModel):
         subject_id: str,
         metadata: dict[str, Any] | None = None,
         prev_hash: str | None = None,
-    ) -> "AuditEntry":
+    ) -> AuditEntry:
         """Factory that auto-computes entry_id and entry_hash."""
         now = datetime.now(UTC)
         ts_ms = int(now.timestamp() * 1000)
@@ -239,7 +239,9 @@ class AuditLog:
         except FileNotFoundError:
             existing = ""
         new_content = existing.rstrip("\n") + "\n" + entry.model_dump_json() + "\n"
-        await self._storage.write(path, new_content.encode("utf-8"), content_type="application/jsonl")
+        await self._storage.write(
+            path, new_content.encode("utf-8"), content_type="application/jsonl"
+        )
 
     @staticmethod
     def _day_path(day: date) -> str:

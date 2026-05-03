@@ -405,7 +405,9 @@ class InboundIntelligenceAgent:
         # Resolution order: user override > system default > fallback constant.
         system_prompt = await self._load_profile(user_id)
         config = await self._load_config(user_id)
-        model = os.getenv(INTELLIGENCE_AGENT_MODEL_ENV) or config.get("model", DEFAULT_INTELLIGENCE_MODEL)
+        model = os.getenv(INTELLIGENCE_AGENT_MODEL_ENV) or config.get(
+            "model", DEFAULT_INTELLIGENCE_MODEL
+        )
         max_tokens = int(config.get("max_tokens", 512))
         temperature = float(config.get("temperature", 0.0))
         max_body_chars = int(config.get("max_body_chars", 600))

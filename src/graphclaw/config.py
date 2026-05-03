@@ -67,7 +67,9 @@ class AppConfig:
     # Wave 0: No-Delete enforcement feature flag.
     # Defaults to False; flip to True only after all Wave 0 PRs merged + probes green.
     no_delete_enforcement: bool = field(
-        default_factory=lambda: os.getenv("GRAPHCLAW_NO_DELETE_ENFORCEMENT", "false").lower() == "true"
+        default_factory=lambda: (
+            os.getenv("GRAPHCLAW_NO_DELETE_ENFORCEMENT", "false").lower() == "true"
+        )
     )
 
 
