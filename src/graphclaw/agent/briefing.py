@@ -259,9 +259,103 @@ def has_interrupt_items(queue: list[ActionQueueEntry], interrupt_threshold: floa
     return any(e.final_score > interrupt_threshold for e in queue)
 
 
+def find_duplicate_resource_candidates(
+    resources: list[dict[str, Any]],
+    *,
+    threshold: float = 0.75,
+    name_key: str = "display_name",
+    id_key: str = "id",
+) -> list[tuple[str, str, str, str, float]]:
+    """Fuzzy-match ResourceNode display names and surface suspicious pairs.
+
+    Implements FR-BRF-002: scans recently-touched resources for name pairs
+    whose normalised Levenshtein similarity exceeds *threshold*, then returns
+    them as candidate pairs for the duplicate-suspicion section of the briefing.
+
+    The similarity metric is the ratio of the Levenshtein distance to the
+    maximum of the two lengths, clamped to ``[0.0, 1.0]`` and then inverted
+    (``1 - distance_ratio``) so that 1.0 means identical.
+
+    Parameters
+    ----------
+    resources:
+        List of resource dicts; each must have *name_key* and *id_key* fields.
+    threshold:
+        Minimum similarity score (inclusive) for a pair to be included.
+        Default 0.75.
+    name_key:
+        Dict key for the display name.  Default ``"display_name"``.
+    id_key:
+        Dict key for the node ID.  Default ``"id"``.
+
+    Returns
+    -------
+    list[tuple[str, str, str, str, float]]
+        Each element is ``(node_id_a, name_a, node_id_b, name_b, similarity)``.
+        Empty when no suspicious pairs found.
+    """
+    pairs: list[tuple[str, str, str, str, float]] = []
+    n = len(resources)
+    for i in range(n):
+        for j in range(i + 1, n):
+            a = resources[i]
+            b = resources[j]
+            name_a: str = str(a.get(name_key) or "")
+            name_b: str = str(b.get(name_key) or "")
+            id_a: str = str(a.get(id_key) or "")
+            id_b: str = str(b.get(id_key) or "")
+
+            # Skip identical node IDs (same entity, not a duplicate).
+            if id_a and id_b and id_a == id_b:
+                continue
+
+            sim = _name_similarity(name_a, name_b)
+            if sim >= threshold:
+                pairs.append((id_a, name_a, id_b, name_b, sim))
+
+    return pairs
+
+
+def _name_similarity(a: str, b: str) -> float:
+    """Return normalised name similarity in ``[0.0, 1.0]``.
+
+    Uses Levenshtein distance on lowercased, whitespace-stripped strings.
+    Identical strings → 1.0; completely dissimilar → 0.0.
+    """
+    a = a.strip().lower()
+    b = b.strip().lower()
+    if not a and not b:
+        return 1.0
+    if not a or not b:
+        return 0.0
+    if a == b:
+        return 1.0
+    max_len = max(len(a), len(b))
+    dist = _levenshtein(a, b)
+    return max(0.0, 1.0 - dist / max_len)
+
+
+def _levenshtein(a: str, b: str) -> int:
+    """Iterative Levenshtein distance (Wagner–Fischer)."""
+    m, n = len(a), len(b)
+    # Use two-row DP to keep memory O(n).
+    prev = list(range(n + 1))
+    curr = [0] * (n + 1)
+    for i in range(1, m + 1):
+        curr[0] = i
+        for j in range(1, n + 1):
+            if a[i - 1] == b[j - 1]:
+                curr[j] = prev[j - 1]
+            else:
+                curr[j] = 1 + min(prev[j], curr[j - 1], prev[j - 1])
+        prev, curr = curr, [0] * (n + 1)
+    return prev[n]
+
+
 __all__ = [
     "format_briefing",
     "has_interrupt_items",
+    "find_duplicate_resource_candidates",
     "BriefingContext",
     "MAX_CRITICAL_ITEMS",
 ]
