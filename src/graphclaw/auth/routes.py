@@ -54,6 +54,46 @@ from pydantic import BaseModel
 from graphclaw.auth.jwt import JWTService
 from graphclaw.auth.middleware import get_current_user_id, get_jwt_service
 from graphclaw.auth.oauth import OAuthService
+
+
+# ── Pending-purge gate (FR-DEL-004) ───────────────────────────────────────────
+
+
+class PendingPurgeDetail(BaseModel):
+    """Body returned with HTTP 423 when the user has a pending purge."""
+
+    code: str = "PENDING_PURGE"
+    purge_after: str  # ISO-8601
+    purge_initiated_at: str  # ISO-8601 (archived_at)
+
+
+async def _check_pending_purge_gate(request: Request, user_id: str) -> None:
+    """Raise HTTP 423 Locked if the user has a pending purge (FR-DEL-004).
+
+    Called after user_id is resolved.  Reads from the graph store on
+    app.state; no-ops gracefully when the store is unavailable.
+    """
+    graph_store = getattr(request.app.state, "graph_store", None)
+    if graph_store is None:
+        return
+    try:
+        node = await graph_store.get_node(user_id, include_archived=True)
+    except Exception:  # noqa: BLE001
+        return  # Non-fatal; let the login proceed if store is unreachable.
+    if node is None:
+        return
+    purge_after = getattr(node, "purge_after", None)
+    purge_cancelled_at = getattr(node, "purge_cancelled_at", None)
+    if purge_after is not None and purge_cancelled_at is None:
+        archived_at = getattr(node, "archived_at", None)
+        detail = PendingPurgeDetail(
+            purge_after=purge_after.isoformat() if hasattr(purge_after, "isoformat") else str(purge_after),
+            purge_initiated_at=archived_at.isoformat() if archived_at and hasattr(archived_at, "isoformat") else "",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_423_LOCKED,
+            detail=detail.model_dump(),
+        )
 from graphclaw.auth.provisioning import UserProvisioningService
 
 logger = logging.getLogger(__name__)
@@ -396,6 +436,8 @@ async def callback(
                 provider_name,
                 email,
             )
+            # FR-DEL-004: block sign-in when user has pending purge.
+            await _check_pending_purge_gate(request, result.user_id)
             return await _issue_otc_redirect(
                 request=request,
                 user_id=result.user_id,
