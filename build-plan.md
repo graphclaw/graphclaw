@@ -247,37 +247,39 @@ Wave 3 (parallel): WS-P45-E (event consumer wiring), WS-P45-G (outbound logging)
 
 ---
 
-### Agent Triad & Comms Substrate — Continuation (Active)
+### Agent Triad & Comms Substrate — Continuation (Complete)
 
 > Wave numbering follows `docs/requirements/agent-triad-and-comms-substrate.md`.
 
 **Committed waves:** 0, 0.5, 1, 2, 3, 4, 5, 7, 8, 8.5, 10
 
-**Remaining work — Wave 8 completion (event-bus sync):**
+**Wave 8 completion — event-bus sync (`59f822b`):**
 
 | Requirement | Files | Status |
 |-------------|-------|--------|
-| FR-DIR-001 AC1/AC2 | `identity/directory_indexer.py` (NEW), wire in `event_consumer.py` | ❌ Not built |
-| FR-DIR-001 embedding | `identity/embedding.py` (NEW) | ❌ Not built |
-| FR-XT-001 AC1 | `cross_tenant/indexer.py` (NEW), wire in `event_consumer.py` | ❌ Not built |
-| Broker constants | `infra/broker.py` — add `MEMBERSHIP_EVENTS`, `TASK_MUTATION_EVENTS` | ❌ Not built |
-| FR-XT-002/003 | `cross_tenant/repo.py` (NEW) — ACL query builder | ❌ Not built |
+| FR-DIR-001 AC1/AC2 | `identity/directory_indexer.py` (NEW), wire in `event_consumer.py` | ✅ Done |
+| FR-DIR-001 embedding | `identity/embedding.py` (NEW) | ✅ Done |
+| FR-XT-001 AC1 | `cross_tenant/indexer.py` (NEW), wire in `event_consumer.py` | ✅ Done |
+| Broker constants | `infra/broker.py` — `MEMBERSHIP_EVENTS`, `TASK_MUTATION_EVENTS` | ✅ Done |
+| FR-XT-002/003 | `cross_tenant/repo.py` (NEW) — ACL query builder | ✅ Done |
+| Event publishing | `api/graph.py`, `api/admin/members.py` — fire-and-forget publish | ✅ Done |
 
-**Remaining work — FR-BRF-001..002 Briefing renderer:**
-
-| Requirement | Files | Status |
-|-------------|-------|--------|
-| FR-BRF-001 | `agent/briefing_renderer.py` (NEW), refactor `agent/briefing.py` | ❌ Not built |
-| FR-BRF-002 | `agent/briefing.py` — duplicate-suspicion pass | ❌ Not built |
-
-**Remaining work — Wave 9:**
+**FR-BRF-001..002 Briefing renderer (`822c5ed`):**
 
 | Requirement | Files | Status |
 |-------------|-------|--------|
-| FR-AM-001 | `api/admin/agents.py` (NEW) multi-agent admin REST | ❌ Not built |
-| FR-AE-001 | `cross_tenant/reconciler.py` (NEW), `api/admin/reconciliation.py` (NEW) | ❌ Not built |
-| FR-UI-001 | Cockpit `CounterpartyConversations.tsx` — deferred to cockpit session | ❌ Deferred |
-| FR-UI-002 | Cockpit `OrgSwitcher.tsx` — deferred to cockpit session | ❌ Deferred |
+| FR-BRF-001 | `agent/briefing_renderer.py` (NEW), `agent/briefing.py` extended | ✅ Done |
+| FR-BRF-002 | `agent/briefing.py` — `find_duplicate_resource_candidates` + Levenshtein | ✅ Done |
+
+**Wave 9 backend (`663cc6e`):**
+
+| Requirement | Files | Status |
+|-------------|-------|--------|
+| FR-AM-001 | `api/admin/agents.py` (NEW) multi-agent admin REST | ✅ Done |
+| FR-AE-001 | `cross_tenant/reconciler.py` (NEW), `api/admin/reconciliation.py` (NEW) | ✅ Done |
+| LinkStatus.ARCHIVED | `models/enums.py` — new enum value | ✅ Done |
+| FR-UI-001 | Cockpit `CounterpartyConversations.tsx` — deferred to cockpit session | ⏸ Deferred |
+| FR-UI-002 | Cockpit `OrgSwitcher.tsx` — deferred to cockpit session | ⏸ Deferred |
 
 ---
 
