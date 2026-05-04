@@ -98,6 +98,39 @@ jobs:
           REDIS_URL: redis://localhost:6379/0
           SECRETS_BACKEND: env_file
 
+  # ── Header lint ───────────────────────────────────────────────────────────────
+  header-lint:
+    name: Test Header Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Check test file headers
+        run: python scripts/check_test_headers.py
+        # Exits 0 (warnings only) for legacy files; exits 1 if new files have malformed headers
+
+  # ── Inventory check ───────────────────────────────────────────────────────────
+  inventory-check:
+    name: Inventory Sync Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Regenerate inventory
+        run: python scripts/regen_inventory.py
+      - name: Check inventory is up to date
+        run: |
+          if ! git diff --exit-code tests/; then
+            echo "::error::inventory.md is stale — run: python scripts/regen_inventory.py"
+            exit 1
+          fi
+
   security-scan:
     name: Security Scan
     runs-on: ubuntu-latest
