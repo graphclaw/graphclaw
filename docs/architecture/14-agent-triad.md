@@ -10,7 +10,9 @@ GraphClaw's user-facing intelligence is delivered by three peer agents that shar
 
 All three write to the same `node.intelligence`, `working/context.md`, `conversations/...`, `CheckinNode` substrate, so context is automatically continuous regardless of which agent acted last.
 
-Companion docs: [10-agent-loop-orchestration.md](10-agent-loop-orchestration.md), [11-sub-agent-orchestration.md](11-sub-agent-orchestration.md), [intelligence-layer.md](intelligence-layer.md), [16-cross-user-conversations.md](16-cross-user-conversations.md), [18-follow-up-cadence.md](18-follow-up-cadence.md). Source plan §8.
+Companion docs: [10-agent-loop-orchestration.md](10-agent-loop-orchestration.md), [11-sub-agent-orchestration.md](11-sub-agent-orchestration.md), [intelligence-layer.md](intelligence-layer.md), [16-cross-user-conversations.md](16-cross-user-conversations.md), [18-follow-up-cadence.md](18-follow-up-cadence.md), [20-agent-activity-logging.md](20-agent-activity-logging.md). Source plan §8.
+
+> **2026-05-03 Agent Monitor v2 update.** All three triad agents now emit `agent.tool_call` structured logs at every TOOL_COMPLETED site (per [`docs/requirements/agent-monitor-v2-backend.md`](../requirements/agent-monitor-v2-backend.md) FR-6). Wiring sites: `comms_agent.py`, `inbound_agent.py`, `outbound_agent.py` (plus `main_orchestrator.py` and `sub_agent_runner.py`). The cockpit's Agent Monitor reads these from MinIO via `GET /app/v1/agent/activity` and displays them in the Activity panel. See [20-agent-activity-logging.md](20-agent-activity-logging.md) for the pipeline.
 
 ---
 

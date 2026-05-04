@@ -28,11 +28,13 @@
 | [17 — Cross-Tenant Task Projection (A.1)](17-cross-tenant-task-projection.md) | Org task index, list_external_assignments_for_me, ACL |
 | [18 — Follow-Up Cadence](18-follow-up-cadence.md) | Scheduler-driven follow-ups, escalation queue |
 | [19 — Data Lifecycle & Deletion Policy (No-Delete)](19-data-lifecycle-and-deletion-policy.md) | **Foundational:** service-principal split, archive+tombstone, GDPR flows |
+| [20 — Agent Activity Logging](20-agent-activity-logging.md) | Logging pipeline (5 agent files → MinIO → activity feed), `agent_session_log` table, plain-language formatter, MinIO write race fix. Backs the cockpit's Agent Monitor v2. |
 
 > **Requirements bundle** (in `docs/requirements/`):
 > - [agent-triad-and-comms-substrate.md](../requirements/agent-triad-and-comms-substrate.md) — actionable spec (FR-IDs, files, acceptance, wave plan)
 > - [build-readiness.md](../requirements/build-readiness.md) — **read first before Wave 0**: kickoff PR sequence, rollout/migration ordering, verification matrix, API shapes, risk register, open-questions log
 > - [review-the-design-plans-squishy-eagle.md](../requirements/review-the-design-plans-squishy-eagle.md) — design-conversation trail (gaps A–AX, validation walkthroughs, stress tests, decision rationale)
+> - [agent-monitor-v2-backend.md](../requirements/agent-monitor-v2-backend.md) — backend functional requirements for Agent Monitor v2 (B-1..B-9: tool call wiring, session log, /agent/activity, /comms/summary, /tasks/{in,out}bound-log, MinIO race fix)
 
 ---
 

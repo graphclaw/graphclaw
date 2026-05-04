@@ -1,0 +1,29 @@
+[
+  {
+    "name": "task scored with top title",
+    "record": {
+      "event_type": "task.scored",
+      "tasks_scored": 14,
+      "top_task_title": "Competitive analysis",
+      "task_id": "TK-4821"
+    },
+    "expected": "Scored 14 tasks - top priority: Competitive analysis"
+  },
+  {
+    "name": "skill completed failed",
+    "record": {
+      "event_type": "skill.completed",
+      "skill_name": "Research",
+      "status": "FAILED",
+      "task_id": "TK-4821"
+    },
+    "expected": "Research failed."
+  },
+  {
+    "name": "briefing ready",
+    "record": {
+      "event_type": "briefing.ready"
+    },
+    "expected": "Daily briefing is ready."
+  }
+]

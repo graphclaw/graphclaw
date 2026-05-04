@@ -44,6 +44,7 @@ from graphclaw.api.admin.router import admin_router
 
 # ── Wave 4: Agent monitor ─────────────────────────────────────────────────────
 from graphclaw.api.agent import router as agent_router
+from graphclaw.api.agent_activity import router as agent_activity_router
 
 # ── Wave 5: Agents canvas, MCP approvals ─────────────────────────────────────
 from graphclaw.api.agents import router as agents_router
@@ -94,6 +95,7 @@ app_router.include_router(secrets_router)
 
 # Wave 4
 app_router.include_router(agent_router)
+app_router.include_router(agent_activity_router)
 
 # Wave 5
 app_router.include_router(agents_router)
