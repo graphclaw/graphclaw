@@ -15,6 +15,9 @@ env/
 .coverage
 htmlcov/
 
+# Test artifacts — never commit these
+tests/agent_evals/reports/
+
 # PRD docs kept at root for convenience (canonical copies live in docs/)
 task-graph-requirements.md
 task-graph-review-notes.md
