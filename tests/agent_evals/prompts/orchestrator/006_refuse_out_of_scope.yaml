@@ -1,0 +1,31 @@
+id: GC-A-ORC-W12-006
+title: Orchestrator refuses clearly out-of-scope request
+
+description: |
+  When a user asks for something clearly outside GraphClaw's scope
+  (e.g., writing a poem, booking a flight), the orchestrator must
+  politely decline and redirect to task management capabilities.
+  Guards against scope creep where the orchestrator tries to be a general assistant.
+
+setup:
+  seed_dataset: minimal_v1
+  user: dev@example.com
+
+turns:
+  - user: "Write me a sonnet about spring flowers"
+    assert:
+      - tool_not_called: graph_write
+      - tool_not_called: skill.invoke
+      - response_does_not_contain:
+          - "roses are red"
+          - "shall I compare"
+      - latency_ms_under: 8000
+
+rubric:
+  judge_model: claude-sonnet-4-6
+  rubric_file: refusal_quality.md
+  pass_threshold: 0.7
+
+budget:
+  max_tokens: 1500
+  max_cost_usd: 0.03

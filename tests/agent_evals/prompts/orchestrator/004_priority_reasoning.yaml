@@ -1,0 +1,28 @@
+id: GC-A-ORC-W12-004
+title: Orchestrator reads scoring and explains task priority
+
+description: |
+  When a user asks why a task has high priority, the orchestrator must
+  invoke score_read to get the actual scoring data, then explain it.
+  Guards against the orchestrator fabricating priority reasons.
+
+setup:
+  seed_dataset: minimal_v1
+  user: dev@example.com
+
+turns:
+  - user: |
+      Why does the "Implement graph node CRUD" task have such high priority?
+      What's driving the score?
+    assert:
+      - tool_called: score_read
+      - response_contains:
+          - "score"
+      - response_does_not_contain:
+          - "I don't know"
+          - "I cannot access"
+      - latency_ms_under: 15000
+
+budget:
+  max_tokens: 2500
+  max_cost_usd: 0.05

@@ -1,0 +1,39 @@
+id: GC-A-ORC-W12-002
+title: Orchestrator delegates email-drafting to email skill
+canary: true
+
+description: |
+  When a user asks for help drafting an email, the orchestrator must
+  delegate to the email-drafting skill rather than answering inline.
+  Guards against regression where the orchestrator absorbs skill responsibilities.
+
+setup:
+  seed_dataset: minimal_v1
+  user: dev@example.com
+
+turns:
+  - user: |
+      Can you draft a follow-up email to the Acme team about the Q2 plan?
+      We need a response by Friday.
+    assert:
+      - tool_called: skill.invoke
+      - tool_args_match:
+          skill_name: email-drafting
+      - response_does_not_contain:
+          - "Subject:"
+          - "Dear "
+          - "Hi Acme"
+      - latency_ms_under: 12000
+
+  - user: "Make it more casual"
+    assert:
+      - tool_called: skill.invoke
+      - tool_args_match:
+          skill_name: email-drafting
+
+teardown:
+  cleanup_session: true
+
+budget:
+  max_tokens: 4000
+  max_cost_usd: 0.08

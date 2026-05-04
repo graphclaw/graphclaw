@@ -1,0 +1,38 @@
+id: GC-A-ORC-W12-001
+title: Orchestrator creates a task via graph tool
+canary: true
+
+description: |
+  When a user asks to create a task, the orchestrator must invoke the
+  graph_write tool rather than answering with text only. Guards against
+  regression where the orchestrator describes how to create a task instead
+  of actually creating it.
+
+setup:
+  seed_dataset: minimal_v1
+  user: dev@example.com
+
+turns:
+  - user: |
+      Create a task called "Review Q3 performance metrics" with HIGH priority
+      under the current active goal.
+    assert:
+      - tool_called: graph_write
+      - response_does_not_contain:
+          - "you can create"
+          - "to create a task"
+          - "you would need to"
+      - latency_ms_under: 15000
+
+  - user: "What's the ID of the task you just created?"
+    assert:
+      - response_contains:
+          - "TASK-"
+      - tool_called: graph_read
+
+teardown:
+  cleanup_session: true
+
+budget:
+  max_tokens: 3000
+  max_cost_usd: 0.05

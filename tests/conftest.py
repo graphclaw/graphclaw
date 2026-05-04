@@ -48,6 +48,12 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=False,
         help="Run tests marked with @pytest.mark.integration after service precheck.",
     )
+    parser.addoption(
+        "--run-evals",
+        action="store_true",
+        default=False,
+        help="Run agent eval tests (requires ANTHROPIC_API_KEY and live orchestrator).",
+    )
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -55,6 +61,14 @@ def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line(
         "markers",
         "integration: tests that require live DB/Redis/MinIO services",
+    )
+    config.addinivalue_line(
+        "markers",
+        "agent_eval: agent behavioral eval tests — gated by --run-evals",
+    )
+    config.addinivalue_line(
+        "markers",
+        "eval_canary: cheap canary subset of agent_evals that runs on relevant PRs",
     )
 
 

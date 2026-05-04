@@ -1,0 +1,29 @@
+id: GC-A-ORC-W12-003
+title: Orchestrator processes inbound context and updates task status
+canary: true
+
+description: |
+  When a user mentions an inbound email that resolved an open task,
+  the orchestrator must update the task status via graph_write and
+  link the inbound message. Guards against silent inbound events being
+  ignored without graph updates.
+
+setup:
+  seed_dataset: minimal_v1
+  user: dev@example.com
+
+turns:
+  - user: |
+      I just got a reply from Sarah confirming the infrastructure review
+      is done. Please mark that task as completed.
+    assert:
+      - tool_called: graph_write
+      - tool_args_match:
+          status: COMPLETED
+      - response_contains:
+          - "completed"
+      - latency_ms_under: 15000
+
+budget:
+  max_tokens: 2000
+  max_cost_usd: 0.04
