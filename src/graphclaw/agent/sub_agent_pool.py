@@ -77,6 +77,7 @@ class _BatchState:
 
     batch_id: str
     total_count: int
+    current_jobs: list[AgentJobEvent] = field(default_factory=list)
     completed_count: int = 0
     next_tier_jobs: list[AgentJobEvent] = field(default_factory=list)
     session_id: str = ""
@@ -105,6 +106,7 @@ class BatchCoordinator:
         batch_id: str,
         count: int,
         session_id: str,
+        current_jobs: list[AgentJobEvent] | None = None,
         next_tier_jobs: list[AgentJobEvent] | None = None,
         is_final_tier: bool = False,
     ) -> None:
@@ -120,6 +122,7 @@ class BatchCoordinator:
         self._batches[batch_id] = _BatchState(
             batch_id=batch_id,
             total_count=count,
+            current_jobs=current_jobs or [],
             next_tier_jobs=next_tier_jobs or [],
             session_id=session_id,
             is_final_tier=is_final_tier,
@@ -291,6 +294,72 @@ class SubAgentPool:
         """Return point-in-time status snapshots for all active runners."""
         return [r.status for r in self._active_runners.values()]
 
+    def get_dispatch_plan(self, session_id: str) -> list[dict[str, object]]:
+        """Return dispatch tiers and job states for a given orchestration session."""
+
+        def _tier_index(batch_id: str) -> int:
+            marker = "-t"
+            if marker not in batch_id:
+                return 0
+            try:
+                return int(batch_id.rsplit(marker, 1)[1])
+            except ValueError:
+                return 0
+
+        def _job_state(raw_state: str, batch_done: bool) -> str:
+            state = raw_state.upper()
+            if state in {"FAILED", "TIMED_OUT", "CANCELLED", "BLOCKED"}:
+                return "BLOCKED"
+            if state in {"RUNNING", "WORKING", "BUSY"}:
+                return "RUNNING"
+            if state in {"COMPLETED"}:
+                return "COMPLETED"
+            return "COMPLETED" if batch_done else "PENDING"
+
+        active_by_task: dict[str, str] = {}
+        for status in self.get_runner_statuses():
+            if status.session_id != session_id or not status.task_id:
+                continue
+            active_by_task[status.task_id] = getattr(status.state, "value", str(status.state))
+
+        tiers: list[dict[str, object]] = []
+        for batch in self.batch_coordinator._batches.values():
+            if batch.session_id != session_id:
+                continue
+
+            batch_done = batch.completed_count >= batch.total_count
+            jobs: list[dict[str, str]] = []
+            for job in batch.current_jobs:
+                raw_state = active_by_task.get(job.task_id, "COMPLETED" if batch_done else "PENDING")
+                jobs.append(
+                    {
+                        "agent_id": job.agent_id,
+                        "task_id": job.task_id,
+                        "batch_id": job.batch_id,
+                        "status": _job_state(raw_state, batch_done),
+                    }
+                )
+
+            tier_status = "COMPLETED" if batch_done else "PENDING"
+            if any(job["status"] == "RUNNING" for job in jobs):
+                tier_status = "RUNNING"
+            elif any(job["status"] == "BLOCKED" for job in jobs):
+                tier_status = "BLOCKED"
+
+            tiers.append(
+                {
+                    "tier": _tier_index(batch.batch_id),
+                    "batch_id": batch.batch_id,
+                    "total_count": batch.total_count,
+                    "completed_count": batch.completed_count,
+                    "status": tier_status,
+                    "jobs": jobs,
+                }
+            )
+
+        tiers.sort(key=lambda tier: int(tier.get("tier", 0)))
+        return tiers
+
     @property
     def active_count(self) -> int:
         """Number of currently running runners."""
@@ -329,6 +398,7 @@ class SubAgentPool:
                 batch_id=batch_id,
                 count=len(tier_jobs),
                 session_id=session_id,
+                current_jobs=tier_jobs,
                 next_tier_jobs=next_tier,
                 is_final_tier=is_final,
             )

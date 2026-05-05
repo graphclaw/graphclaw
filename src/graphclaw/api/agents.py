@@ -19,6 +19,8 @@ GET    /app/v1/agents/{id}/config      — read runtime config.json
 PUT    /app/v1/agents/{id}/config      — update runtime config.json
 GET    /app/v1/agents/{id}/wiring      — resolved wiring summary
 POST   /app/v1/agents/{id}/test        — run a quick test of the agent
+GET    /app/v1/agents/delegations      — list active sub-agent delegations
+GET    /app/v1/agents/dispatch-plan/{session_id} — list planned dispatch tiers for a session
 
 Storage layout
 --------------
@@ -240,6 +242,33 @@ class AgentDelegationRow(BaseModel):
     duration_seconds: int | None = None
 
 
+class DispatchPlanJob(BaseModel):
+    """Single delegated job inside a dispatch tier."""
+
+    agent_id: str
+    task_id: str
+    batch_id: str
+    status: str
+
+
+class DispatchPlanTier(BaseModel):
+    """One dispatch tier (swim-lane row) for a delegation session."""
+
+    tier: int
+    batch_id: str
+    total_count: int
+    completed_count: int
+    status: str
+    jobs: list[DispatchPlanJob] = []
+
+
+class DispatchPlanResponse(BaseModel):
+    """Dispatch plan response for a single orchestration session."""
+
+    session_id: str
+    tiers: list[DispatchPlanTier] = []
+
+
 def _seconds_since(value: datetime | None) -> int | None:
     if value is None:
         return None
@@ -440,6 +469,37 @@ async def list_agent_delegations(
         reverse=True,
     )
     return rows
+
+
+@router.get(
+    "/dispatch-plan/{session_id}",
+    response_model=DispatchPlanResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get dispatch plan tiers for a session",
+    description=(
+        "Return dispatch tier swim-lanes for a delegation session from the "
+        "in-memory SubAgentPool planner snapshot. Returns an empty tier list "
+        "when the pool is not initialised or no plan is registered."
+    ),
+)
+async def get_dispatch_plan(
+    session_id: str,
+    user_id: CurrentUserDep,
+    request: Request,
+) -> DispatchPlanResponse:
+    """Return dispatch tier structure and job states for a session."""
+    sub_agent_pool = getattr(request.app.state, "sub_agent_pool", None)
+    if sub_agent_pool is None or not hasattr(sub_agent_pool, "get_dispatch_plan"):
+        return DispatchPlanResponse(session_id=session_id, tiers=[])
+
+    try:
+        raw_tiers = sub_agent_pool.get_dispatch_plan(session_id)
+    except Exception as exc:
+        logger.warning("agents: dispatch plan lookup failed for session %s: %s", session_id, exc)
+        return DispatchPlanResponse(session_id=session_id, tiers=[])
+
+    tiers = [DispatchPlanTier.model_validate(tier) for tier in raw_tiers]
+    return DispatchPlanResponse(session_id=session_id, tiers=tiers)
 
 
 @router.get(

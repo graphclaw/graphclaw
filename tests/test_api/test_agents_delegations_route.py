@@ -2,7 +2,8 @@
 GC-U-API-W50-001 - exposes active sub-agent delegations for the cockpit agents panel.
 
 Scenario: The API should return active delegation rows from in-memory sub-agent
-runner snapshots, gracefully returning an empty list when the pool is not available.
+runner snapshots and dispatch tiers, gracefully returning empty payloads when
+the pool is not available.
 
 PRD: docs/cockpit-backend-api-prd.md
 Build wave: W50
@@ -14,6 +15,8 @@ Cases covered:
 - returns empty list when sub-agent pool is not initialised
 - maps runner status snapshots to delegation rows
 - sorts delegations by started_at descending
+- returns empty dispatch plan when sub-agent pool is not initialised
+- returns dispatch plan tiers for a session id
 """
 
 from __future__ import annotations
@@ -34,11 +37,19 @@ _TEST_USER = "USER-test-delegations-001"
 
 
 class _FakeSubAgentPool:
-    def __init__(self, statuses: list[RunnerStatus]) -> None:
+    def __init__(
+        self,
+        statuses: list[RunnerStatus],
+        dispatch_plans: dict[str, list[dict[str, object]]] | None = None,
+    ) -> None:
         self._statuses = statuses
+        self._dispatch_plans = dispatch_plans or {}
 
     def get_runner_statuses(self) -> list[RunnerStatus]:
         return self._statuses
+
+    def get_dispatch_plan(self, session_id: str) -> list[dict[str, object]]:
+        return self._dispatch_plans.get(session_id, [])
 
 
 def _make_app(pool: _FakeSubAgentPool | None = None) -> FastAPI:
@@ -141,3 +152,56 @@ def test_list_delegations_sorts_latest_first() -> None:
     assert response.status_code == 200
     rows = response.json()
     assert [row["task_id"] for row in rows] == ["TSK-new", "TSK-old"]
+
+
+def test_get_dispatch_plan_returns_empty_when_pool_missing() -> None:
+    app = _make_app(pool=None)
+    client = TestClient(app)
+
+    response = client.get("/app/v1/agents/dispatch-plan/ses-missing")
+
+    assert response.status_code == 200
+    assert response.json() == {"session_id": "ses-missing", "tiers": []}
+
+
+def test_get_dispatch_plan_returns_tiers_for_session() -> None:
+    pool = _FakeSubAgentPool(
+        statuses=[],
+        dispatch_plans={
+            "ses-123": [
+                {
+                    "tier": 1,
+                    "batch_id": "batch-ses123-t1",
+                    "total_count": 2,
+                    "completed_count": 1,
+                    "status": "RUNNING",
+                    "jobs": [
+                        {
+                            "agent_id": "agent-a",
+                            "task_id": "TSK-1",
+                            "batch_id": "batch-ses123-t1",
+                            "status": "RUNNING",
+                        },
+                        {
+                            "agent_id": "agent-b",
+                            "task_id": "TSK-2",
+                            "batch_id": "batch-ses123-t1",
+                            "status": "PENDING",
+                        },
+                    ],
+                }
+            ]
+        },
+    )
+
+    app = _make_app(pool=pool)
+    client = TestClient(app)
+
+    response = client.get("/app/v1/agents/dispatch-plan/ses-123")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["session_id"] == "ses-123"
+    assert len(payload["tiers"]) == 1
+    assert payload["tiers"][0]["status"] == "RUNNING"
+    assert payload["tiers"][0]["jobs"][0]["task_id"] == "TSK-1"
