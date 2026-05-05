@@ -70,6 +70,10 @@ def pytest_configure(config: pytest.Config) -> None:
         "markers",
         "eval_canary: cheap canary subset of agent_evals that runs on relevant PRs",
     )
+    config.addinivalue_line(
+        "markers",
+        "slow: tests expected to take more than 10 seconds",
+    )
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:

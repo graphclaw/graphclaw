@@ -33,7 +33,8 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from datetime import UTC, date, datetime
+from datetime import date, datetime
+from datetime import timezone as _tz; UTC = _tz.utc
 from enum import Enum
 from typing import Any
 

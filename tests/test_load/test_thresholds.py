@@ -41,6 +41,19 @@ from __future__ import annotations
 
 import inspect
 
+import pytest
+
+# locust has an SSL recursion bug on Windows Python 3.10; importorskip only
+# catches ImportError so we need a broader guard.
+try:
+    import locust as _locust_check  # noqa: F401
+except (ImportError, RecursionError):
+    pytest.skip(
+        "locust not importable in this environment (missing or Windows SSL bug) "
+        "— runs in Linux CI after `pip install '.[dev]'`",
+        allow_module_level=True,
+    )
+
 # ---------------------------------------------------------------------------
 # Import the module under test
 # ---------------------------------------------------------------------------
