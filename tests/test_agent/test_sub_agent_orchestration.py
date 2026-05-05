@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -839,3 +840,66 @@ class TestSubAgentRunnerTimeouts:
         )
         assert attempts == 2
         assert result.get("status") == "COMPLETED"
+
+    @pytest.mark.asyncio
+    async def test_dispatch_tool_logs_agent_tool_call_attempt_metadata(self, caplog):
+        from graphclaw.agent.sub_agent_runner import AgentJobEvent, SubAgentRunner
+
+        broker = FakeBroker()
+        llm = MagicMock()
+        runner = SubAgentRunner(
+            runner_id="runner-log-attempts",
+            broker=broker,
+            llm_client=llm,
+            execution_timeout_seconds=5,
+            tool_timeout_seconds=1,
+            tool_max_retries=2,
+            retry_backoff_base_ms=0,
+            retry_backoff_max_ms=0,
+            retryable_skills={"retryable-skill"},
+        )
+
+        attempts = 0
+
+        async def _flaky_skill(_args: dict, _job: AgentJobEvent) -> dict[str, str]:
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                return {"error": "No idle skill workers available. Try again shortly."}
+            return {"status": "COMPLETED", "output": "ok", "error": ""}
+
+        runner._tool_invoke_skill = _flaky_skill  # type: ignore[method-assign]
+
+        job = AgentJobEvent(
+            agent_id="agent-log",
+            task_id="TSK-log",
+            session_id="SES-log",
+            user_id="USR-log",
+            instructions="log test",
+        )
+
+        with caplog.at_level(logging.INFO):
+            result = await runner._dispatch_tool(
+                "invoke_skill",
+                {"skill_name": "retryable-skill", "task_id": "TSK-log"},
+                job,
+            )
+
+        assert result.get("status") == "COMPLETED"
+
+        tool_records = [
+            record
+            for record in caplog.records
+            if getattr(record, "event_type", "") == "agent.tool_call"
+            and getattr(record, "tool_name", "") == "invoke_skill"
+        ]
+        assert len(tool_records) == 2
+
+        assert getattr(tool_records[0], "attempt", None) == 1
+        assert getattr(tool_records[0], "success", None) is False
+        assert getattr(tool_records[0], "session_id", None) == "SES-log"
+        assert getattr(tool_records[0], "task_id", None) == "TSK-log"
+
+        assert getattr(tool_records[1], "attempt", None) == 2
+        assert getattr(tool_records[1], "success", None) is True
+        assert getattr(tool_records[1], "user_id", None) == "USR-log"

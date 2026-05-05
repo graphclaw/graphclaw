@@ -583,6 +583,41 @@ class TestSmartRetrievalBehaviors:
         assert parent_payload["state"] == TaskState.COMPLETE.value
 
 
+class TestToolCallLogging:
+    @pytest.mark.asyncio
+    async def test_execute_tool_logs_failure_metadata(self, caplog):
+        loop, _repo, _engine = _make_loop()
+
+        async def _raise_tool(_user_id: str, _args: dict[str, Any]) -> dict[str, Any]:
+            raise RuntimeError("boom")
+
+        loop._tool_list_tasks = _raise_tool  # type: ignore[method-assign]
+        loop._current_session_id = "SES-tool-log"
+
+        with caplog.at_level(logging.INFO):
+            result = await loop._execute_tool(
+                "USER-tool",
+                "list_tasks",
+                {"task_id": "TSK-123", "attempt": "2"},
+            )
+
+        assert "error" in result
+
+        tool_records = [
+            record
+            for record in caplog.records
+            if getattr(record, "event_type", "") == "agent.tool_call"
+            and getattr(record, "tool_name", "") == "list_tasks"
+        ]
+        assert len(tool_records) == 1
+
+        record = tool_records[0]
+        assert getattr(record, "success", None) is False
+        assert getattr(record, "session_id", None) == "SES-tool-log"
+        assert getattr(record, "task_id", None) == "TSK-123"
+        assert getattr(record, "attempt", None) == 2
+
+
 # ---------------------------------------------------------------------------
 # AgentLoop constructor / wiring
 # ---------------------------------------------------------------------------

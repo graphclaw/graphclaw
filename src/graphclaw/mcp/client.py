@@ -39,6 +39,8 @@ import time
 import uuid
 from datetime import datetime, timezone
 
+from graphclaw.infra.logging.context import get_session_id
+from graphclaw.infra.logging.events import AgentToolCallEvent
 from graphclaw.mcp.models import MCPTool, MCPToolCall, MCPToolResult
 from graphclaw.models.enums import MCPTransport, TrustTier
 from graphclaw.models.nodes import MCPServerNode
@@ -372,9 +374,24 @@ class MCPClient:
         result:
             The result (may be ``None`` if call was never executed).
         """
+        agent_event = AgentToolCallEvent(
+            tool_name=call.tool_name,
+            user_id=call.user_id,
+            latency_ms=result.latency_ms if result else 0,
+            session_id=get_session_id(),
+            task_id=str(call.arguments.get("task_id", "")).strip() or None,
+            success=result.success if result else False,
+            attempt=1,
+        )
+        logger.info(
+            "agent.tool_call",
+            extra={"event_type": "agent.tool_call", **agent_event.model_dump()},
+        )
+
         logger.info(
             "mcp.tool_call",
             extra={
+                "event_type": "mcp.tool_call",
                 "call_id": call.call_id,
                 "server_id": call.server_id,
                 "tool_name": call.tool_name,

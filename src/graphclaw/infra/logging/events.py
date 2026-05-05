@@ -22,6 +22,10 @@ class AgentToolCallEvent(BaseModel):
     tool_name: str
     user_id: str
     latency_ms: int
+    session_id: str
+    task_id: str | None = None
+    success: bool
+    attempt: int = 1
 
 
 class AgentMessageEvent(BaseModel):

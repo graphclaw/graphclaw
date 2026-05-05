@@ -18,13 +18,13 @@ This document describes how GraphClaw captures, stores, and surfaces agent activ
 
 ```
                         (per request / per cycle)
-   Agent code (5 files)
+    Agent code (tool-call emitters)
    ─────────────────────
-   main_orchestrator         │
-   sub_agent_runner          │  logger.info("agent.tool_call", extra={...})
-   comms_agent               │  logger.info("agent.message", extra={...})
-   inbound_agent             │  logger.info("agent.scoring_cycle", extra={...})
-   outbound_agent            │  logger.info("outbound.sent", extra={...})
+    main_orchestrator         │
+    sub_agent_runner          │  logger.info("agent.tool_call", extra={...})
+    mcp.client                │
+    inbound.processor         │  logger.info("inbound.processed", extra={...})
+    outbound sender           │  logger.info("outbound.sent", extra={...})
                              ▼
               ┌──────────────────────────────┐
               │  stdlib QueueHandler         │
@@ -112,7 +112,7 @@ Files at `system/logs/...` are **never** read by the cockpit. Admin / engineerin
 
 | Event type | Emitted from | When |
 |------------|--------------|------|
-| `agent.tool_call` *(NEW Phase B)* | All 5 agent files | TOOL_COMPLETED (success or fail) |
+| `agent.tool_call` *(NEW Phase B)* | `main_orchestrator`, `sub_agent_runner`, `mcp.client` | TOOL_COMPLETED (success or fail, per-attempt where retries apply) |
 | `agent.message` | LLM call sites | LLM message completes |
 | `agent.scoring_cycle` | scoring engine | each cycle finishes |
 | `outbound.sent` | outbound agent | message dispatched successfully |

@@ -58,6 +58,7 @@ from graphclaw.agent.catalog import AgentCatalog
 from graphclaw.agent.context import ContextManager
 from graphclaw.agent.knowledge import KnowledgeBase
 from graphclaw.agent.tool_registry import ToolSetRegistry
+from graphclaw.infra.logging.events import AgentToolCallEvent
 from graphclaw.models.nodes import TaskNode
 from graphclaw.models.scoring import ActionQueueEntry
 from graphclaw.scoring.engine import ScoringContext, ScoringEngine
@@ -1646,8 +1647,8 @@ class MainOrchestrator:
     ) -> dict[str, Any]:
         """Dispatch a tool call and return the result as a dict."""
         t0 = time.monotonic()
+        result: dict[str, Any] = {}
         try:
-            result: dict[str, Any]
             # --- Core tools (always active) ---
             if name == "list_tasks":
                 result = await self._tool_list_tasks(user_id, arguments)
@@ -1733,24 +1734,51 @@ class MainOrchestrator:
                 result = await self._tool_complete_onboarding(user_id, arguments)
             else:
                 result = {"error": f"Unknown tool: {name}"}
-
-            # Log successful tool execution
-            if "error" not in result:
-                logger.info(
-                    "agent.tool_call",
-                    extra={
-                        "event_type": "agent.tool_call",
-                        "session_id": self._current_session_id or "",
-                        "tool_name": name,
-                        "user_id": user_id,
-                        "latency_ms": int((time.monotonic() - t0) * 1000),
-                    },
-                )
-
-            return result
         except Exception as exc:  # noqa: BLE001
             logger.warning("AgentLoop: tool %s raised %s", name, exc)
-            return {"error": str(exc)}
+            result = {"error": str(exc)}
+
+        event = AgentToolCallEvent(
+            tool_name=name,
+            user_id=user_id,
+            latency_ms=int((time.monotonic() - t0) * 1000),
+            session_id=self._current_session_id or "",
+            task_id=self._extract_task_id(arguments),
+            success=self._is_tool_call_success(result),
+            attempt=self._coerce_attempt(arguments.get("attempt", 1)),
+        )
+        logger.info(
+            "agent.tool_call",
+            extra={"event_type": "agent.tool_call", **event.model_dump()},
+        )
+        return result
+
+    @staticmethod
+    def _is_tool_call_success(result: dict[str, Any]) -> bool:
+        """Return whether a tool result should be counted as success."""
+        if bool(result.get("error")):
+            return False
+        if "success" in result and result.get("success") is False:
+            return False
+        return True
+
+    @staticmethod
+    def _extract_task_id(arguments: dict[str, Any]) -> str | None:
+        """Best-effort extraction of task identifiers from tool args."""
+        for key in ("task_id", "id", "source_task_id", "target_task_id", "approval_task_id"):
+            value = arguments.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return None
+
+    @staticmethod
+    def _coerce_attempt(value: Any) -> int:
+        """Normalize attempt from tool args, defaulting to first attempt."""
+        try:
+            attempt = int(value)
+        except (TypeError, ValueError):
+            return 1
+        return attempt if attempt > 0 else 1
 
     async def _tool_load_tool_set(self, args: dict[str, Any]) -> dict[str, Any]:
         """Activate a named tool set for the current session."""

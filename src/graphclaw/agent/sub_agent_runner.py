@@ -56,6 +56,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, Field
 
 from graphclaw.infra.broker import AGENT_UPDATES, MessageBroker
+from graphclaw.infra.logging.events import AgentToolCallEvent
 from graphclaw.models.base import utcnow
 
 if TYPE_CHECKING:
@@ -657,11 +658,14 @@ class SubAgentRunner:
         if tool_name == "invoke_skill":
             skill_name = str(tool_input.get("skill_name", "")).strip()
             retry_allowed = skill_name in self._retryable_skills
+            task_id = str(tool_input.get("task_id", job.task_id)).strip() or job.task_id
             return await self._execute_tool_with_retries(
                 tool_name=tool_name,
                 op=lambda: self._tool_invoke_skill(tool_input, job),
                 retry_allowed=retry_allowed,
                 is_retryable_result=self._is_retryable_skill_result,
+                job=job,
+                task_id=task_id,
             )
 
         if tool_name == "call_mcp_tool":
@@ -676,12 +680,30 @@ class SubAgentRunner:
                 op=lambda: self._tool_call_mcp(tool_input),
                 retry_allowed=retry_allowed,
                 is_retryable_result=self._is_retryable_mcp_result,
+                job=job,
+                task_id=job.task_id,
             )
 
         if tool_name == "update_working_memory":
-            return await self._tool_update_working_memory(tool_input, job)
+            return await self._execute_tool_with_retries(
+                tool_name=tool_name,
+                op=lambda: self._tool_update_working_memory(tool_input, job),
+                retry_allowed=False,
+                is_retryable_result=lambda _result: False,
+                job=job,
+                task_id=job.task_id,
+            )
 
-        return {"error": f"Unknown tool: {tool_name}"}
+        result = {"error": f"Unknown tool: {tool_name}"}
+        self._log_tool_call_event(
+            tool_name=tool_name,
+            job=job,
+            result=result,
+            latency_ms=0,
+            attempt=1,
+            task_id=job.task_id,
+        )
+        return result
 
     async def _execute_tool_with_retries(
         self,
@@ -689,11 +711,14 @@ class SubAgentRunner:
         op: Any,
         retry_allowed: bool,
         is_retryable_result: Any,
+        job: AgentJobEvent,
+        task_id: str,
     ) -> dict[str, Any]:
         """Execute a tool op with bounded retries for transient failures."""
         max_attempts = 1 + (self._tool_max_retries if retry_allowed else 0)
 
         for attempt in range(1, max_attempts + 1):
+            attempt_t0 = time.monotonic()
             try:
                 result = await asyncio.wait_for(op(), timeout=self._tool_timeout_seconds)
             except asyncio.TimeoutError:
@@ -708,6 +733,15 @@ class SubAgentRunner:
                     exc,
                 )
                 result = {"error": f"Tool '{tool_name}' failed: {exc!s}"}
+
+            self._log_tool_call_event(
+                tool_name=tool_name,
+                job=job,
+                result=result,
+                latency_ms=int((time.monotonic() - attempt_t0) * 1000),
+                attempt=attempt,
+                task_id=task_id,
+            )
 
             should_retry = attempt < max_attempts and is_retryable_result(result)
             if not should_retry:
@@ -744,6 +778,31 @@ class SubAgentRunner:
             "unreachable",
         )
         return any(marker in error for marker in transient_markers)
+
+    def _log_tool_call_event(
+        self,
+        tool_name: str,
+        job: AgentJobEvent,
+        result: dict[str, Any],
+        latency_ms: int,
+        attempt: int,
+        task_id: str | None,
+    ) -> None:
+        """Emit a normalized ``agent.tool_call`` event for each tool attempt."""
+        success = not bool(result.get("error")) and result.get("success") is not False
+        event = AgentToolCallEvent(
+            tool_name=tool_name,
+            user_id=job.user_id,
+            latency_ms=latency_ms,
+            session_id=job.session_id,
+            task_id=task_id,
+            success=success,
+            attempt=attempt,
+        )
+        logger.info(
+            "agent.tool_call",
+            extra={"event_type": "agent.tool_call", **event.model_dump()},
+        )
 
     async def _tool_invoke_skill(self, args: dict[str, Any], job: AgentJobEvent) -> dict[str, Any]:
         """Invoke a skill via the dedicated sub-agent worker pool."""
