@@ -2,6 +2,7 @@
 
 | ID | Scenario (1 line) | File |
 |---|---|---|
+| GC-U-API-W50-001 | The API should return active delegation rows from in-memory sub-agent runner ... | [test_api/test_agents_delegations_route.py](test_api/test_agents_delegations_route.py) |
 | TODO | (no header) test_a2a_routes | [test_a2a/test_a2a_routes.py](test_a2a/test_a2a_routes.py) |
 | TODO | (no header) test_key_manager | [test_a2a/test_key_manager.py](test_a2a/test_key_manager.py) |
 | TODO | (no header) test_activity_formatter | [test_agent/test_activity_formatter.py](test_agent/test_activity_formatter.py) |
@@ -175,4 +176,4 @@
 | TODO | (no header) test_wave8_completion | [unit/test_wave8_completion.py](unit/test_wave8_completion.py) |
 | TODO | (no header) test_wave9_backend | [unit/test_wave9_backend.py](unit/test_wave9_backend.py) |
 
-_Last regenerated: 2026-05-04 by `scripts/regen_inventory.py`._
+_Last regenerated: 2026-05-05 by `scripts/regen_inventory.py`._

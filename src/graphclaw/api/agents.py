@@ -227,6 +227,32 @@ class WiringSummary(BaseModel):
     sub_agents: list[WiredSubAgentEntry] = []
 
 
+class AgentDelegationRow(BaseModel):
+    """Active sub-agent delegation row for cockpit agent monitor."""
+
+    agent_id: str
+    task_id: str
+    session_id: str
+    status: str
+    started_at: datetime | None = None
+    last_heartbeat: datetime | None = None
+    heartbeat_age_seconds: int | None = None
+    duration_seconds: int | None = None
+
+
+def _seconds_since(value: datetime | None) -> int | None:
+    if value is None:
+        return None
+    return max(0, int((utcnow() - value).total_seconds()))
+
+
+def _runner_status_value(state: Any) -> str:
+    value = getattr(state, "value", state)
+    if value is None:
+        return "UNKNOWN"
+    return str(value).upper()
+
+
 # ---------------------------------------------------------------------------
 # Storage helpers
 # ---------------------------------------------------------------------------
@@ -357,6 +383,63 @@ async def create_agent(
 
     logger.debug("agents: created agent_id=%s for user_id=%s", agent_id, user_id)
     return _dict_to_definition(data)
+
+
+@router.get(
+    "/delegations",
+    response_model=list[AgentDelegationRow],
+    status_code=status.HTTP_200_OK,
+    summary="List active sub-agent delegations",
+    description=(
+        "Return currently running sub-agent delegations from the in-memory "
+        "SubAgentPool runner snapshots. Returns [] when the pool is not initialised."
+    ),
+)
+async def list_agent_delegations(
+    user_id: CurrentUserDep,
+    request: Request,
+) -> list[AgentDelegationRow]:
+    """List active delegations for the agent monitor panel."""
+    sub_agent_pool = getattr(request.app.state, "sub_agent_pool", None)
+    if sub_agent_pool is None or not hasattr(sub_agent_pool, "get_runner_statuses"):
+        return []
+
+    now = utcnow()
+    rows: list[AgentDelegationRow] = []
+
+    for runner_status in sub_agent_pool.get_runner_statuses():
+        agent_id = getattr(runner_status, "agent_id", None)
+        task_id = getattr(runner_status, "task_id", None)
+        session_id = getattr(runner_status, "session_id", None)
+        if not agent_id or not task_id or not session_id:
+            continue
+
+        started_at = getattr(runner_status, "started_at", None)
+        last_heartbeat = getattr(runner_status, "last_heartbeat", None)
+        state = _runner_status_value(getattr(runner_status, "state", None))
+
+        rows.append(
+            AgentDelegationRow(
+                agent_id=str(agent_id),
+                task_id=str(task_id),
+                session_id=str(session_id),
+                status=state,
+                started_at=started_at,
+                last_heartbeat=last_heartbeat,
+                heartbeat_age_seconds=_seconds_since(last_heartbeat),
+                duration_seconds=(
+                    max(0, int((now - started_at).total_seconds()))
+                    if started_at is not None
+                    else None
+                ),
+            )
+        )
+
+    rows.sort(
+        key=lambda row: row.started_at.timestamp() if row.started_at is not None else -1,
+        reverse=True,
+    )
+    return rows
 
 
 @router.get(
