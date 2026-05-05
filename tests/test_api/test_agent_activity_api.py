@@ -1,3 +1,28 @@
+"""
+GC-U-API-W50-002 - validates historical activity and session summary APIs.
+
+Scenario: The activity API should return correctly filtered and paginated log
+events, and the sessions API should aggregate user-scoped session summaries from
+the same NDJSON log source.
+
+PRD: docs/cockpit-backend-api-prd.md
+Build wave: W50
+Layer: L1 Unit
+Owner: backend-team
+Last reviewed: 2026-05-05
+
+Cases covered:
+- agent activity returns newest-first records with opaque cursor pagination
+- agent activity filters failed/error events for type=errors
+- agent activity rejects ranges greater than seven days
+- agent activity enforces authentication
+- agent sessions aggregates counts and tokens per session
+- agent sessions supports offset-cursor pagination over session summaries
+
+Notes:
+- Uses FakeStorageClient with in-memory JSONL fixtures to avoid external services.
+"""
+
 from __future__ import annotations
 
 import json
@@ -154,3 +179,111 @@ def test_agent_activity_requires_auth() -> None:
         },
     )
     assert response.status_code in (401, 403)
+
+
+def test_agent_sessions_aggregates_by_session() -> None:
+    storage = FakeStorageClient()
+    key = f"{_TEST_USER}/logs/agent/2026-05-03/1500Z.jsonl"
+    _write_log_file(
+        storage,
+        key,
+        [
+            {
+                "timestamp": "2026-05-03T15:05:00Z",
+                "event_type": "agent.tool_call",
+                "session_id": "SES-a1",
+                "input_tokens": 100,
+                "output_tokens": 30,
+            },
+            {
+                "timestamp": "2026-05-03T15:06:00Z",
+                "event_type": "skill.completed",
+                "session_id": "SES-a1",
+                "status": "COMPLETED",
+                "input_tokens": 40,
+                "output_tokens": 10,
+            },
+            {
+                "timestamp": "2026-05-03T15:07:00Z",
+                "event_type": "outbound.sent",
+                "session_id": "SES-a1",
+            },
+        ],
+    )
+
+    client = TestClient(_make_app(storage))
+    response = client.get(
+        "/app/v1/agent/sessions",
+        params={
+            "from": "2026-05-03T15:00:00Z",
+            "to": "2026-05-03T16:00:00Z",
+            "limit": 10,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["nextCursor"] is None
+    assert len(payload["items"]) == 1
+    row = payload["items"][0]
+    assert row["sessionId"] == "SES-a1"
+    assert row["toolCallCount"] == 1
+    assert row["skillCount"] == 1
+    assert row["messagesSent"] == 1
+    assert row["messagesReceived"] == 0
+    assert row["inputTokens"] == 140
+    assert row["outputTokens"] == 40
+    assert row["status"] == "completed"
+
+
+def test_agent_sessions_supports_offset_cursor_pagination() -> None:
+    storage = FakeStorageClient()
+    key = f"{_TEST_USER}/logs/agent/2026-05-03/1600Z.jsonl"
+    _write_log_file(
+        storage,
+        key,
+        [
+            {
+                "timestamp": "2026-05-03T16:30:00Z",
+                "event_type": "agent.tool_call",
+                "session_id": "SES-new",
+            },
+            {
+                "timestamp": "2026-05-03T16:10:00Z",
+                "event_type": "skill.completed",
+                "session_id": "SES-old",
+            },
+        ],
+    )
+
+    client = TestClient(_make_app(storage))
+
+    first = client.get(
+        "/app/v1/agent/sessions",
+        params={
+            "from": "2026-05-03T16:00:00Z",
+            "to": "2026-05-03T17:00:00Z",
+            "limit": 1,
+            "cursor": 0,
+        },
+    )
+    assert first.status_code == 200
+    first_payload = first.json()
+    assert len(first_payload["items"]) == 1
+    assert first_payload["items"][0]["sessionId"] == "SES-new"
+    assert first_payload["nextCursor"] == 1
+
+    second = client.get(
+        "/app/v1/agent/sessions",
+        params={
+            "from": "2026-05-03T16:00:00Z",
+            "to": "2026-05-03T17:00:00Z",
+            "limit": 1,
+            "cursor": first_payload["nextCursor"],
+        },
+    )
+    assert second.status_code == 200
+    second_payload = second.json()
+    assert len(second_payload["items"]) == 1
+    assert second_payload["items"][0]["sessionId"] == "SES-old"
+    assert second_payload["nextCursor"] is None

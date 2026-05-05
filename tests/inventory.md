@@ -3,6 +3,7 @@
 | ID | Scenario (1 line) | File |
 |---|---|---|
 | GC-U-API-W50-001 | The API should return active delegation rows from in-memory sub-agent runner ... | [test_api/test_agents_delegations_route.py](test_api/test_agents_delegations_route.py) |
+| GC-U-API-W50-002 | The activity API should return correctly filtered and paginated log events, a... | [test_api/test_agent_activity_api.py](test_api/test_agent_activity_api.py) |
 | TODO | (no header) test_a2a_routes | [test_a2a/test_a2a_routes.py](test_a2a/test_a2a_routes.py) |
 | TODO | (no header) test_key_manager | [test_a2a/test_key_manager.py](test_a2a/test_key_manager.py) |
 | TODO | (no header) test_activity_formatter | [test_agent/test_activity_formatter.py](test_agent/test_activity_formatter.py) |
@@ -29,7 +30,6 @@
 | TODO | (no header) test_tool_registry | [test_agent/test_tool_registry.py](test_agent/test_tool_registry.py) |
 | TODO | (no header) test_wave4_comms | [test_agent/test_wave4_comms.py](test_agent/test_wave4_comms.py) |
 | TODO | (no header) test_admin_routes | [test_api/test_admin/test_admin_routes.py](test_api/test_admin/test_admin_routes.py) |
-| TODO | (no header) test_agent_activity_api | [test_api/test_agent_activity_api.py](test_api/test_agent_activity_api.py) |
 | TODO | (no header) test_agent_routes | [test_api/test_agent_routes.py](test_api/test_agent_routes.py) |
 | TODO | (no header) test_agents_routes | [test_api/test_agents_routes.py](test_api/test_agents_routes.py) |
 | TODO | (no header) test_approval_routes | [test_api/test_approval_routes.py](test_api/test_approval_routes.py) |
