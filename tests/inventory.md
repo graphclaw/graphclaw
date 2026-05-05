@@ -5,6 +5,7 @@
 | GC-U-API-W50-001 | The API should return active delegation rows from in-memory sub-agent runner ... | [test_api/test_agents_delegations_route.py](test_api/test_agents_delegations_route.py) |
 | GC-U-API-W50-002 | The activity API should return correctly filtered and paginated log events, a... | [test_api/test_agent_activity_api.py](test_api/test_agent_activity_api.py) |
 | GC-U-API-W50-003 | The comms summary endpoint should aggregate inbound/outbound counters for one... | [test_api/test_comms_summary_api.py](test_api/test_comms_summary_api.py) |
+| GC-U-API-W50-004 | Tasks comms log routes should return paginated user-scoped inbound and outbou... | [test_api/test_tasks_logs_api.py](test_api/test_tasks_logs_api.py) |
 | TODO | (no header) test_a2a_routes | [test_a2a/test_a2a_routes.py](test_a2a/test_a2a_routes.py) |
 | TODO | (no header) test_key_manager | [test_a2a/test_key_manager.py](test_a2a/test_key_manager.py) |
 | TODO | (no header) test_activity_formatter | [test_agent/test_activity_formatter.py](test_agent/test_activity_formatter.py) |

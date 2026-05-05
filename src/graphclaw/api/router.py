@@ -72,6 +72,7 @@ from graphclaw.api.secrets import router as secrets_router
 from graphclaw.api.settings import router as settings_router
 from graphclaw.api.skill_registry import router as skill_registry_router
 from graphclaw.api.state import router as state_router
+from graphclaw.api.tasks import router as tasks_router
 
 app_router = APIRouter(prefix="/app/v1", tags=["app-api"])
 
@@ -87,6 +88,7 @@ app_router.include_router(compliance_router)
 app_router.include_router(graph_router)
 app_router.include_router(scoring_router)
 app_router.include_router(state_router)
+app_router.include_router(tasks_router)
 app_router.include_router(events_router)
 
 # Wave 3
