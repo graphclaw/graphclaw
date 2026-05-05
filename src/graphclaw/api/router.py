@@ -56,6 +56,7 @@ from graphclaw.api.canvas import router as canvas_router
 # ── Wave 3: Chat, config, secrets ─────────────────────────────────────────────
 from graphclaw.api.chat import router as chat_router
 from graphclaw.api.compliance import router as compliance_router
+from graphclaw.api.comms import router as comms_router
 from graphclaw.api.config import router as config_router
 
 # ── Wave 1: Core cockpit canvas ───────────────────────────────────────────────
@@ -96,6 +97,7 @@ app_router.include_router(secrets_router)
 # Wave 4
 app_router.include_router(agent_router)
 app_router.include_router(agent_activity_router)
+app_router.include_router(comms_router)
 
 # Wave 5
 app_router.include_router(agents_router)
