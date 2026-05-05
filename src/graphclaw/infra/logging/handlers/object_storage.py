@@ -10,8 +10,10 @@ elapsed since last flush. Final flush on close() for graceful shutdown.
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
+import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
@@ -56,6 +58,9 @@ class ObjectStorageHandler(logging.Handler):
         self._lock = threading.Lock()
         self._last_flush: float = time.monotonic()
         self._boto3_client: Any = None
+        # Include a process-local suffix in each hourly file name to avoid
+        # cross-process read-modify-write collisions on the same object key.
+        self._path_suffix = f"{os.getpid()}-{uuid.uuid4().hex[:6]}"
 
     def _get_client(self) -> Any:
         if self._boto3_client is None:
@@ -120,11 +125,12 @@ class ObjectStorageHandler(logging.Handler):
     def _compute_path(self, record: logging.LogRecord) -> str:
         ts = datetime.fromtimestamp(record.created, tz=timezone.utc)
         hour_key = ts.strftime("%Y-%m-%d/%H00Z")
+        file_name = f"{hour_key}-{self._path_suffix}.jsonl"
         service = str(getattr(record, "service", "platform"))
         user_id = str(getattr(record, "user_id", "") or "").strip()
         if user_id and user_id not in {"-", "SYSTEM", ""}:
-            return f"{user_id}/logs/{service}/{hour_key}.jsonl"
-        return f"system/logs/{service}/{hour_key}.jsonl"
+            return f"{user_id}/logs/{service}/{file_name}"
+        return f"system/logs/{service}/{file_name}"
 
     def close(self) -> None:
         self._flush()

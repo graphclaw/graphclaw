@@ -1,8 +1,26 @@
-"""Tests for ObjectStorageHandler batching and path computation."""
+"""
+GC-U-INF-W50-001 - validates object storage log handler path partitioning and batching.
+
+Scenario: ObjectStorageHandler should batch writes correctly and generate
+race-safe per-process object keys for hourly NDJSON partitions.
+
+PRD: docs/graphclaw-requirements.md
+Build wave: W50
+Layer: L1 Unit
+Owner: backend-team
+Last reviewed: 2026-05-05
+
+Cases covered:
+- user and system log paths include the expected logs prefix and extension
+- generated path includes per-process suffix to avoid key collisions
+- handler batch and close flow call flush as expected
+- append merge behavior preserves existing NDJSON lines
+"""
 
 from __future__ import annotations
 
 import logging
+import re
 from unittest.mock import MagicMock, patch
 
 from graphclaw.infra.logging.formatter import JsonFormatter
@@ -75,10 +93,20 @@ class TestObjectStorageHandler:
         h = self._make_handler()
         record = _make_record(user_id="u1", service="gw")
         path = h._compute_path(record)
-        # Format: u1/logs/gw/YYYY-MM-DD/HH00Z.jsonl
+        # Format: u1/logs/gw/YYYY-MM-DD/HH00Z-{pid}-{suffix}.jsonl
         parts = path.split("/")
         assert len(parts) == 5
-        assert parts[4].endswith("00Z.jsonl")
+        assert re.match(r"^\d{2}00Z-\d+-[0-9a-f]{6}\.jsonl$", parts[4])
+
+    def test_path_suffix_is_stable_per_handler_instance(self):
+        h = self._make_handler()
+        record_a = _make_record(user_id="u1", service="gw")
+        record_b = _make_record(user_id="u1", service="gw")
+
+        path_a = h._compute_path(record_a)
+        path_b = h._compute_path(record_b)
+
+        assert path_a == path_b
 
     def test_append_to_s3_merges_existing(self):
         h = self._make_handler()
