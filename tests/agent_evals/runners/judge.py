@@ -39,8 +39,8 @@ class JudgeVerdict:
 
 
 async def judge_session(
-    transcript: list["TurnResult"],
-    rubric_config: "RubricConfig",
+    transcript: list[TurnResult],
+    rubric_config: RubricConfig,
     anthropic_client: object | None = None,
 ) -> JudgeVerdict:
     """
@@ -56,6 +56,7 @@ async def judge_session(
         JudgeVerdict with score (0-1) and feedback text.
     """
     import json
+
     import anthropic
 
     # Load rubric text

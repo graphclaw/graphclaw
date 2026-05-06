@@ -31,8 +31,8 @@ from pathlib import Path
 
 import pytest
 
-from tests.agent_evals.runners.chat_session import load_scenario
 from tests.agent_evals.runners.assertions import run_turn_assertions
+from tests.agent_evals.runners.chat_session import load_scenario
 from tests.agent_evals.runners.judge import judge_session
 
 PROMPTS_DIR = Path(__file__).parent / "prompts" / "orchestrator"

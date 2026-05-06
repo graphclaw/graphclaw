@@ -6,13 +6,11 @@ capturing tool calls and response text for assertion.
 """
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import yaml
-
 
 # ── Scenario schema ───────────────────────────────────────────────────────────
 

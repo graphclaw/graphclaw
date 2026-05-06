@@ -7,7 +7,6 @@ assertion. Failures include human-readable messages so test output is self-expla
 from __future__ import annotations
 
 import re
-from typing import Any
 
 from .chat_session import TurnAssert, TurnResult
 

@@ -6,12 +6,10 @@ Provides: llm_client, session_factory, eval_reporter fixtures.
 """
 import json
 import os
-from dataclasses import asdict
+from collections.abc import Generator
 from pathlib import Path
-from typing import Generator
 
 import pytest
-
 
 # ── --run-evals flag ──────────────────────────────────────────────────────────
 

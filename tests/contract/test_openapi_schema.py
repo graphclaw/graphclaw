@@ -25,14 +25,13 @@ Notes:
 - Run standalone: pytest tests/contract/ -v
 - schemathesis v4 API: schemathesis.pytest.from_fixture + schema.parametrize()
 """
+import httpx
 import pytest
 import schemathesis
 import schemathesis.pytest as st_pytest
-import httpx
 from hypothesis import HealthCheck, settings
 
 from graphclaw.gateway.app import create_app
-
 
 # ── Stateless schema conformance ─────────────────────────────────────────────
 # schemathesis v4: resolve schema from fixture at test runtime.
