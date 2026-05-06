@@ -37,16 +37,38 @@ Result:
 - 12 issues auto-fixed
 - Follow-up check for Batch 1 scope passed cleanly
 
-## Next Batches
+## Batch 2 (Completed)
 
-1. Batch 2: src datetime import style cleanup
-   - Convert one-line timezone alias statements to Ruff-compliant imports
-   - Target files currently raising E702 + I001 in src/graphclaw/*
-2. Batch 3: remaining import ordering in src routes/apis
-3. Batch 4: run full repo check and finalize
+Scope:
+
+- src/graphclaw/* modules with E702 + I001 violations
+- src/graphclaw/api/router.py import ordering
+
+Commands:
+
+- .venv\Scripts\python.exe -m ruff check src
+- .venv\Scripts\python.exe -m ruff check --fix src/graphclaw/api/router.py
+- .venv\Scripts\python.exe -m ruff check src
+- .venv\Scripts\python.exe -m ruff check src tests
+
+Result:
+
+- Replaced one-line timezone alias import pattern with `from datetime import UTC, ...` across affected source files
+- Router import ordering normalized
+- `ruff check src` passes
+- `ruff check src tests` passes
+
+## Remaining Batches
+
+- None currently required for this remediation pass.
 
 ## Completion Criteria
 
 - .venv\Scripts\python.exe -m ruff check src tests returns zero violations
 - No behavior changes, lint-only diffs
 - Each batch lands in a separate commit for easy review
+
+## Completion Status
+
+- Completed on 2026-05-06
+- Current status: `ruff check src tests` clean

@@ -38,8 +38,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime
-from datetime import timezone as _tz; UTC = _tz.utc
+from datetime import UTC, datetime
 
 from pydantic import BaseModel
 

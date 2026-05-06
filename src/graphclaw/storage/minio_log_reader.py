@@ -7,8 +7,7 @@ import json
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timedelta
-from datetime import timezone as _tz; UTC = _tz.utc
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from graphclaw.infra.storage import StorageClient
