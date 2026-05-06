@@ -70,6 +70,11 @@ class FakeTriggerScheduler:
     def register(self, config: TriggerConfig) -> None:
         self._triggers[config.trigger_id] = config
 
+    def _compute_next_cron(self, _cron_expr: str, now):
+        from datetime import timedelta
+
+        return now + timedelta(minutes=5)
+
 
 class FakeTriggerEngine:
     """Minimal TriggerEngine with a real-enough scheduler and fire_on_demand."""
@@ -335,3 +340,55 @@ def test_fire_trigger_dispatches_event() -> None:
     assert fake_engine is not None
     assert len(fake_engine._fired) == 1
     assert fake_engine._fired[0].user_id == _TEST_USER
+
+
+# ---------------------------------------------------------------------------
+# POST /app/v1/agent/triggers/{id}/snooze
+# ---------------------------------------------------------------------------
+
+
+def test_snooze_trigger_no_engine_returns_503() -> None:
+    """POST /agent/triggers/{id}/snooze returns 503 when trigger engine is absent."""
+    app, _, _ = _make_app(with_trigger_engine=False)
+    client = TestClient(app)
+
+    response = client.post("/app/v1/agent/triggers/TRIG-abc/snooze")
+    assert response.status_code == 503
+
+
+def test_snooze_trigger_sets_enabled_false() -> None:
+    """POST /agent/triggers/{id}/snooze disables the trigger."""
+    cfg = _make_trigger_config("TRIG-snooze")
+    app, _, _ = _make_app(with_trigger_engine=True, trigger_configs=[cfg])
+    client = TestClient(app)
+
+    response = client.post("/app/v1/agent/triggers/TRIG-snooze/snooze")
+    assert response.status_code == 200
+    assert response.json()["enabled"] is False
+
+
+# ---------------------------------------------------------------------------
+# POST /app/v1/agent/triggers/{id}/resume
+# ---------------------------------------------------------------------------
+
+
+def test_resume_trigger_not_found_returns_404() -> None:
+    """POST /agent/triggers/{id}/resume returns 404 for unknown trigger IDs."""
+    app, _, _ = _make_app(with_trigger_engine=True)
+    client = TestClient(app)
+
+    response = client.post("/app/v1/agent/triggers/TRIG-missing/resume")
+    assert response.status_code == 404
+
+
+def test_resume_trigger_reenables_trigger_and_sets_next_fire() -> None:
+    """POST /agent/triggers/{id}/resume reenables trigger and computes next fire."""
+    cfg = _make_trigger_config("TRIG-resume").model_copy(update={"enabled": False, "next_fire_at": None})
+    app, _, _ = _make_app(with_trigger_engine=True, trigger_configs=[cfg])
+    client = TestClient(app)
+
+    response = client.post("/app/v1/agent/triggers/TRIG-resume/resume")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["enabled"] is True
+    assert data["next_fire_at"] is not None

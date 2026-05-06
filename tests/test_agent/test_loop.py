@@ -6,9 +6,10 @@ All database calls are mocked via AsyncMock so no live DB is required.
 from __future__ import annotations
 
 import logging
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -82,6 +83,7 @@ def _make_queue_entry(task: TaskNode, rank: int = 1, score: float = 0.75) -> Act
 
 def _make_loop(mock_repo=None, mock_engine=None) -> tuple[AgentLoop, Any, Any]:
     repo = mock_repo or AsyncMock()
+    repo._pool = None
     engine = mock_engine or MagicMock(spec=ScoringEngine)
     sm = StateMachine()
     loop = AgentLoop(graph_repo=repo, scoring_engine=engine, state_machine=sm)
@@ -132,6 +134,36 @@ class TestRunCycle:
         assert len(queue) == 2
         assert queue[0].rank == 1
         assert queue[0].final_score > queue[1].final_score
+
+    @pytest.mark.asyncio
+    async def test_run_cycle_writes_session_log_rows(self):
+        task = _make_task(title="Scored")
+        entry = _make_queue_entry(task, rank=1, score=0.9)
+
+        loop, repo, engine = _make_loop()
+        repo._pool = object()  # type: ignore[attr-defined]
+
+        loop._fetch_active_tasks = AsyncMock(return_value=[task])  # type: ignore[method-assign]
+        loop.build_scoring_context = AsyncMock(return_value=MagicMock())  # type: ignore[method-assign]
+        engine.score_all = AsyncMock(return_value=[entry])
+
+        mock_conn = AsyncMock()
+
+        @asynccontextmanager
+        async def _fake_get_connection(_pool):
+            yield mock_conn
+
+        with patch("graphclaw.db.age.connection.get_connection", _fake_get_connection):
+            queue = await loop.run_cycle(user_id="USER-123", trigger_source="on_demand")
+
+        assert len(queue) == 1
+        assert mock_conn.execute.await_count == 2
+
+        insert_sql = str(mock_conn.execute.await_args_list[0].args[0])
+        update_sql = str(mock_conn.execute.await_args_list[1].args[0])
+
+        assert "INSERT INTO agent_session_log" in insert_sql
+        assert "UPDATE agent_session_log" in update_sql
 
     @pytest.mark.asyncio
     async def test_run_cycle_filters_terminal_states(self):

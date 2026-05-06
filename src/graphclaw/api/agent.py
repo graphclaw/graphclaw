@@ -13,6 +13,8 @@ GET  /app/v1/agent/briefing          — 5-section daily briefing from graph sta
 GET  /app/v1/agent/triggers/schedule — list all configured triggers
 GET  /app/v1/agent/triggers/{id}     — single trigger detail
 POST /app/v1/agent/triggers/{id}/fire — fire an on-demand trigger
+POST /app/v1/agent/triggers/{id}/snooze — temporarily disable a trigger
+POST /app/v1/agent/triggers/{id}/resume — re-enable a snoozed trigger
 
 Design Patterns
 ---------------
@@ -38,13 +40,14 @@ Dependencies
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel
 
 from graphclaw.api.deps import CurrentUserDep, GraphStoreDep, ScoringEngineDep
+from graphclaw.triggers.models import TriggerType
 
 logger = logging.getLogger(__name__)
 
@@ -141,13 +144,19 @@ def _cfg_to_response(cfg: Any) -> TriggerConfigResponse:
 
 def _get_trigger_registry(request: Request) -> dict[str, Any]:
     """Return the scheduler's _triggers dict, or empty dict when absent."""
-    engine = getattr(request.app.state, "trigger_engine", None)
-    if engine is None:
-        return {}
-    scheduler = getattr(engine, "_scheduler", None)
+    scheduler = _get_trigger_scheduler(request)
     if scheduler is None:
         return {}
     return getattr(scheduler, "_triggers", {})
+
+
+def _get_trigger_scheduler(request: Request) -> Any | None:
+    """Return the trigger scheduler object when trigger engine is initialised."""
+    engine = getattr(request.app.state, "trigger_engine", None)
+    if engine is None:
+        return None
+    scheduler = getattr(engine, "_scheduler", None)
+    return scheduler
 
 
 # ---------------------------------------------------------------------------
@@ -373,3 +382,80 @@ async def fire_trigger(
         user_id=event.user_id,
         fired_at=event.created_at,
     )
+
+
+@router.post(
+    "/triggers/{trigger_id}/snooze",
+    response_model=TriggerConfigResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Snooze trigger",
+    description="Disable an existing trigger until it is resumed.",
+)
+async def snooze_trigger(
+    trigger_id: str,
+    user_id: CurrentUserDep,
+    request: Request,
+) -> TriggerConfigResponse:
+    """Disable a trigger in the in-memory scheduler registry."""
+    scheduler = _get_trigger_scheduler(request)
+    if scheduler is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Trigger engine is not initialised",
+        )
+
+    triggers = _get_trigger_registry(request)
+    cfg = triggers.get(trigger_id)
+    if cfg is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Trigger '{trigger_id}' not found",
+        )
+
+    updated = cfg.model_copy(update={"enabled": False})
+    triggers[trigger_id] = updated
+    return _cfg_to_response(updated)
+
+
+@router.post(
+    "/triggers/{trigger_id}/resume",
+    response_model=TriggerConfigResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Resume trigger",
+    description="Re-enable a snoozed trigger and recompute its next fire time.",
+)
+async def resume_trigger(
+    trigger_id: str,
+    user_id: CurrentUserDep,
+    request: Request,
+) -> TriggerConfigResponse:
+    """Re-enable a trigger and recompute schedule when required."""
+    scheduler = _get_trigger_scheduler(request)
+    if scheduler is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Trigger engine is not initialised",
+        )
+
+    triggers = _get_trigger_registry(request)
+    cfg = triggers.get(trigger_id)
+    if cfg is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Trigger '{trigger_id}' not found",
+        )
+
+    next_fire_at = cfg.next_fire_at
+    if cfg.trigger_type == TriggerType.TIME_BASED and cfg.cron_expression:
+        compute_next = getattr(scheduler, "_compute_next_cron", None)
+        if callable(compute_next):
+            next_fire_at = compute_next(cfg.cron_expression, datetime.now(timezone.utc))
+
+    updated = cfg.model_copy(
+        update={
+            "enabled": True,
+            "next_fire_at": next_fire_at,
+        }
+    )
+    triggers[trigger_id] = updated
+    return _cfg_to_response(updated)

@@ -687,4 +687,43 @@ MIGRATIONS: list[Migration] = [
             END $$;
         """,
     ),
+    Migration(
+        version="0023",
+        name="wave11_agent_session_log",
+        description=(
+            "Wave 11 (B-2): Create agent_session_log table for fast session history "
+            "reads and lifecycle metrics from orchestrator runs."
+        ),
+        sql_up="""
+            CREATE TABLE IF NOT EXISTS agent_session_log (
+                session_id          TEXT        PRIMARY KEY,
+                user_id             TEXT        NOT NULL,
+                started_at          TIMESTAMPTZ NOT NULL,
+                completed_at        TIMESTAMPTZ,
+                trigger_type        TEXT,
+                tool_call_count     INT         NOT NULL DEFAULT 0,
+                skill_count         INT         NOT NULL DEFAULT 0,
+                messages_sent       INT         NOT NULL DEFAULT 0,
+                messages_received   INT         NOT NULL DEFAULT 0,
+                input_tokens        INT         NOT NULL DEFAULT 0,
+                output_tokens       INT         NOT NULL DEFAULT 0,
+                status              TEXT        NOT NULL DEFAULT 'running'
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_agent_session_log_user_started
+                ON agent_session_log (user_id, started_at DESC);
+
+            DO $$ BEGIN
+              IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'agent_principal') THEN
+                GRANT SELECT, INSERT, UPDATE ON agent_session_log TO agent_principal;
+              END IF;
+            END $$;
+
+            DO $$ BEGIN
+              IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'admin_principal') THEN
+                GRANT SELECT, INSERT, UPDATE, DELETE ON agent_session_log TO admin_principal;
+              END IF;
+            END $$;
+        """,
+    ),
 ]

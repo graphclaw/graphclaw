@@ -52,12 +52,14 @@ import json
 import logging
 import time
 import uuid
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from graphclaw.agent.catalog import AgentCatalog
 from graphclaw.agent.context import ContextManager
 from graphclaw.agent.knowledge import KnowledgeBase
 from graphclaw.agent.tool_registry import ToolSetRegistry
+from graphclaw.infra.logging.context import generate_session_id, get_session_id, set_session_id
 from graphclaw.infra.logging.events import AgentToolCallEvent
 from graphclaw.models.nodes import TaskNode
 from graphclaw.models.scoring import ActionQueueEntry
@@ -342,6 +344,104 @@ class MainOrchestrator:
         if affected_ids:
             self._dirty_task_ids.update(affected_ids)
 
+    def _resolve_cycle_session_id(self) -> str:
+        """Resolve a session id for scoring cycles, preserving ambient context."""
+        existing = get_session_id().strip()
+        if existing:
+            return existing
+        generated = generate_session_id()
+        set_session_id(generated)
+        return generated
+
+    async def _write_session_log_start(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        trigger_type: str,
+    ) -> None:
+        """Insert the initial session log row when a run starts."""
+        pool = getattr(self._repo, "_pool", None)
+        if pool is None:
+            return
+
+        try:
+            from graphclaw.db.age.connection import get_connection  # noqa: PLC0415
+
+            async with get_connection(pool) as conn:
+                await conn.execute(
+                    """
+                    INSERT INTO agent_session_log (
+                        session_id,
+                        user_id,
+                        started_at,
+                        trigger_type,
+                        status
+                    )
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT (session_id) DO NOTHING;
+                    """,
+                    (
+                        session_id,
+                        user_id,
+                        datetime.now(timezone.utc),
+                        trigger_type,
+                        "running",
+                    ),
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("AgentLoop: session log start write skipped: %s", exc)
+
+    async def _write_session_log_complete(
+        self,
+        *,
+        session_id: str,
+        status: str,
+        tool_call_count: int = 0,
+        skill_count: int = 0,
+        messages_sent: int = 0,
+        messages_received: int = 0,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+    ) -> None:
+        """Update a session log row with completion metadata."""
+        pool = getattr(self._repo, "_pool", None)
+        if pool is None:
+            return
+
+        try:
+            from graphclaw.db.age.connection import get_connection  # noqa: PLC0415
+
+            async with get_connection(pool) as conn:
+                await conn.execute(
+                    """
+                    UPDATE agent_session_log
+                    SET
+                        completed_at = %s,
+                        status = %s,
+                        tool_call_count = %s,
+                        skill_count = %s,
+                        messages_sent = %s,
+                        messages_received = %s,
+                        input_tokens = %s,
+                        output_tokens = %s
+                    WHERE session_id = %s;
+                    """,
+                    (
+                        datetime.now(timezone.utc),
+                        status,
+                        max(0, int(tool_call_count)),
+                        max(0, int(skill_count)),
+                        max(0, int(messages_sent)),
+                        max(0, int(messages_received)),
+                        max(0, int(input_tokens)),
+                        max(0, int(output_tokens)),
+                        session_id,
+                    ),
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("AgentLoop: session log completion write skipped: %s", exc)
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -368,6 +468,9 @@ class MainOrchestrator:
         """
         scope = user_id or "all"
         scope_key = user_id or "__all__"
+        session_user_id = user_id or "system"
+        cycle_session_id = self._resolve_cycle_session_id()
+        self._current_session_id = cycle_session_id
         logger.info(
             "AgentLoop: starting scoring cycle (scope=%s, trigger_source=%s)",
             scope,
@@ -385,37 +488,60 @@ class MainOrchestrator:
                 )
                 return cached_queue
 
-        # 1. Fetch active tasks.
-        tasks = await self._fetch_active_tasks(user_id=user_id)
-        logger.info("AgentLoop: fetched %d active tasks", len(tasks))
-
-        if not tasks:
-            return []
-
-        # 2. Build scoring context.
-        context = await self.build_scoring_context(tasks)
-
-        # 3. Score all tasks and return.
-        queue = await self._engine.score_all(tasks, context)
-        self._last_queue = queue
-        self._last_queue_by_scope[scope_key] = queue
-        self._score_cache_dirty = False
-        self._dirty_task_ids.clear()
-        logger.info("AgentLoop: scoring cycle complete — %d items in queue", len(queue))
-
-        logger.info(
-            "agent.scoring_cycle",
-            extra={
-                "event_type": "agent.scoring_cycle",
-                "user_id": user_id or "system",
-                "tasks_scored": len(tasks),
-                "top_task_id": queue[0].node_id if queue else None,
-                "queue_depth": len(queue),
-                "trigger_source": trigger_source,
-            },
+        await self._write_session_log_start(
+            session_id=cycle_session_id,
+            user_id=session_user_id,
+            trigger_type=trigger_source,
         )
 
-        return queue
+        session_status = "completed"
+
+        try:
+            # 1. Fetch active tasks.
+            tasks = await self._fetch_active_tasks(user_id=user_id)
+            logger.info("AgentLoop: fetched %d active tasks", len(tasks))
+
+            if not tasks:
+                return []
+
+            # 2. Build scoring context.
+            context = await self.build_scoring_context(tasks)
+
+            # 3. Score all tasks and return.
+            queue = await self._engine.score_all(tasks, context)
+            self._last_queue = queue
+            self._last_queue_by_scope[scope_key] = queue
+            self._score_cache_dirty = False
+            self._dirty_task_ids.clear()
+            logger.info("AgentLoop: scoring cycle complete — %d items in queue", len(queue))
+
+            logger.info(
+                "agent.scoring_cycle",
+                extra={
+                    "event_type": "agent.scoring_cycle",
+                    "user_id": session_user_id,
+                    "tasks_scored": len(tasks),
+                    "top_task_id": queue[0].node_id if queue else None,
+                    "queue_depth": len(queue),
+                    "trigger_source": trigger_source,
+                },
+            )
+
+            return queue
+        except Exception:  # noqa: BLE001
+            session_status = "failed"
+            raise
+        finally:
+            await self._write_session_log_complete(
+                session_id=cycle_session_id,
+                status=session_status,
+                messages_received=0,
+                messages_sent=0,
+                tool_call_count=0,
+                skill_count=0,
+                input_tokens=0,
+                output_tokens=0,
+            )
 
     async def build_scoring_context(self, tasks: list[TaskNode]) -> ScoringContext:
         """Build a ScoringContext for the given task list.

@@ -157,11 +157,11 @@
 
 ---
 
-### Phase 4 — Agent Interop, MCP Integration, Connectors & Skill Registry (Weeks 29-36) 🔄 IN PROGRESS
+### Phase 4 — Agent Interop, MCP Integration, Connectors & Skill Registry (Weeks 29-36) ✅ COMPLETE
 
 > **Note:** Web UI is a separate project (`graphclaw-cockpit`) — see `docs/ui-requirements.md`
 
-**Status:** Core modules implemented (logic layer complete). `/app/v1/` API router exists but 21 endpoints are stubs. Next action: implement stub endpoints and cockpit backend API modules. See `docs/cockpit-backend-api-prd.md` for the full endpoint backlog.
+**Status:** Delivered for planned Phase 4 scope. Core modules and cockpit backend API waves are implemented; `/app/v1/` stub backlog referenced in earlier drafts has been resolved by Waves 1-6. Active program execution has moved to Phase 5.
 
 **Goal:** A2A protocol, MCP server integration, calendar and import connectors, expanded skill registry, application API layer.
 
@@ -174,7 +174,7 @@
 | WS-P4-C | Skill Registry v2 | ✅ Complete | `skills/registry.py`, `skills/registry_models.py` |
 | WS-P4-D | MCP Server Registry + Client Runtime | ✅ Complete | `mcp/registry.py`, `mcp/client.py`, `mcp/official_registry.py` |
 | WS-P4-E | Pre-built MCP Adapters + GATED approval workflow | ✅ Complete | `mcp/adapters/` (GitHub, Google Calendar, Slack), `mcp/approval.py` |
-| WS-P4-F | Application API layer (/app/v1/ router) | ⚠️ Partial | `api/router.py` exists; 21 stubs need real implementations |
+| WS-P4-F | Application API layer (/app/v1/ router) | ✅ Complete | `api/router.py` + wave-delivered route modules |
 | WS-P4-G | Cockpit backend API modules (new) | ✅ Complete — all 6 waves delivered | `api/deps.py`, `api/graph.py`, `api/scoring.py`, `api/state.py`, `api/events.py`, `api/chat.py`, `api/config.py`, `api/secrets.py`, `api/agent.py`, `api/agents.py`, `api/settings.py` (+11), `api/skill_registry.py` (+4), `api/mcp_registry.py` (+2), `api/admin/` (9 modules) |
 | WS-P4-H | Phase 4 test suite | ✅ Partial | Tests exist for a2a, mcp, connectors, api, auth |
 
@@ -189,7 +189,7 @@
 | **Wave 5** ✅ | `api/skill_registry.py` (+4), `api/mcp_registry.py` (+2), `api/agents.py` (7) | 13 | Skill marketplace, MCP scope view, canvas editor backend |
 | **Wave 6** ✅ | `api/admin/` (9 files: members, features, llm, judge, guardrails, sso, audit, infra, connectors) | 45 | Full admin panel |
 
-**Total remaining:** 118 endpoints across 22 files (18 new + 4 extended + `router.py`). See `docs/cockpit-backend-api-prd.md` for full endpoint backlog.
+**Phase 4 remaining:** No open items in the original WS-P4-F/WS-P4-G endpoint backlog after Wave 1-6 delivery. New development continues under Phase 5 and later phases.
 
 **Dependencies:** Phase 3 APIs stable
 
