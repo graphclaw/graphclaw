@@ -2,9 +2,9 @@
 
 ## Project Context
 Graph-based task orchestration system where an AI agent manages tasks for humans and other agents via a property graph.
-- PRD: `docs/graphclaw-requirements.md` (v1.1, 8500+ lines)
+- PRD: `docs/graphclaw-requirements.md` (v1.3, 8500+ lines)
 - Review notes: `docs/graphclaw-review-notes.md` (28 issues across 6 categories)
-- Build plan: `build-plan.md` (6 phases, 48 weeks)
+- Build plan: `docs/planning/build-plan.md` (6 phases, 48 weeks)
 - Domain: graphclaw.ai
 - GitHub: https://github.com/abhishekgupta-myrepo/graphclaw
 - License: Apache 2.0
@@ -33,15 +33,15 @@ This project is built entirely using Claude Code multi-agent system.
 Follow these phases in order for every development task, without skipping steps.
 
 ### Phase 1 — Orient
-1. Read CLAUDE.md, build-plan.md, and the relevant PRD section(s) before touching code.
+1. Read CLAUDE.md, docs/planning/build-plan.md, and the relevant PRD section(s) before touching code.
 2. Read existing code in the area you will modify — understand what is already there.
 3. For UI work (via cockpit): review the relevant wireframe in wireframes-v2/pages/ before designing.
 
 ### Phase 2 — Requirements & Planning
-4. Document requirements in a .md file; cross-reference existing PRDs and build-plan.md.
+4. Document requirements in a .md file; cross-reference existing PRDs and docs/planning/build-plan.md.
 5. Validate completeness: identify edge cases, stress scenarios, and failure modes.
 6. Identify gaps and ambiguities — clarify key decisions with the user before proceeding. Do not assume.
-7. Update build-plan.md with the planned wave/task before writing any code.
+7. Update docs/planning/build-plan.md with the planned wave/task before writing any code.
 
 ### Phase 3 — Implementation
 8. Write code sequentially — do not spawn parallel sub-agents (risk of system instability).
@@ -60,7 +60,7 @@ Follow these phases in order for every development task, without skipping steps.
 
 ### Phase 5 — Commit & Close
 19. Run the full quality gate: `ruff check --fix src/ tests/ && ruff format src/ tests/ && pytest tests/` — all must pass.
-20. Update build-plan.md and relevant docs to mark the wave/requirement complete.
+20. Update docs/planning/build-plan.md and relevant docs to mark the wave/requirement complete.
 21. Git commit per requirement and per wave using the format: `feat(wave-N): description`.
 
 ## Sub-Agent Orchestration Layer (Phase 5)
@@ -121,13 +121,13 @@ To add a new backend: implement the ABC, drop it in the subfolder, register in t
 - CI enforces both; failing either blocks the build
 - Local dev: `docker compose up` (SECRETS_BACKEND=env_file)
 
-## PRD Coverage (v1.1)
+## PRD Coverage (v1.3)
 - Sections 1-30: Core system (graph model, agents, channels, skills, multi-user)
 - Section 31: Security, Identity & Secrets (OAuth, IAM roles, attack surface assessment)
 - Section 32: Observability & Operations (structured logging, tracing, cost monitoring, alerting, backups, rolling deployments, schema migration)
 - Section 33: 58 Design Principles (14 new in v1.1: security, observability, deployment)
 
 ## Current Phase
-Phases 0–4 complete. Phase 4.5 (Intelligence Layer) complete (1451 tests passing). Phase 5 (Sub-Agent Parallel Orchestration) is active.
+Phases 0–4 complete. Phase 4.5 (Intelligence Layer) complete. Phase 5 (Sub-Agent Parallel Orchestration) is active.
 
-**Phase 5 (active):** Sub-agent parallel orchestration. New files: `agent/sub_agent_runner.py`, `agent/sub_agent_pool.py`, `agent/dispatch_planner.py`, `agent/health_monitor.py`. Modified: `agent/loop.py` (`_tool_delegate_to_agent`), `agent/event_consumer.py` (third background task), `infra/broker.py` (new queues), `infra/config.py` (new env vars), `gateway/app.py` (lifespan wiring). See `build-plan.md` Phase 5 section.
+**Phase 5 (active):** Sub-agent parallel orchestration. New files: `agent/sub_agent_runner.py`, `agent/sub_agent_pool.py`, `agent/dispatch_planner.py`, `agent/health_monitor.py`. Modified: `agent/main_orchestrator.py` (`_tool_delegate_to_agent`), `agent/event_consumer.py` (third background task), `infra/broker.py` (new queues), `infra/config.py` (new env vars), `gateway/app.py` (lifespan wiring). See `docs/planning/build-plan.md` Phase 5 section.

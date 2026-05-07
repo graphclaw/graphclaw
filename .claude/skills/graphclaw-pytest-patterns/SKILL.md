@@ -129,7 +129,7 @@ After writing the file header and tests:
 
 1. Add row to the relevant `tests/<category>/inventory.md`:
    ```
-   | GC-I-API-W11-007 | Task create persists to graph and audit | [test_task_lifecycle.py](test_task_lifecycle.py) |
+    | GC-I-API-W11-007 | Task create persists to graph and audit | `test_task_lifecycle.py` |
    ```
 2. Or regenerate automatically: `python scripts/regen_inventory.py`
 

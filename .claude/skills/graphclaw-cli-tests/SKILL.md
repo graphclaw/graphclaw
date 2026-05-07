@@ -98,5 +98,5 @@ def test_agent_chat_invokes_orchestrator():
 
 Add to `tests/test_cli/inventory.md`:
 ```
-| GC-U-CLI-W08-014 | `task create` prints new task ID | [test_task_commands.py](test_task_commands.py) |
+| GC-U-CLI-W08-014 | `task create` prints new task ID | `test_task_commands.py` |
 ```

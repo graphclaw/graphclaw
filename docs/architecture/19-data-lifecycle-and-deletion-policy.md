@@ -296,7 +296,7 @@ NFR-005 — anti-delete probe MUST run on every deploy and on every nightly sche
 | FR-DEL-003 | [src/graphclaw/models/nodes.py](../../src/graphclaw/models/nodes.py) | TombstoneNode |
 | FR-DEL-003 | new `src/graphclaw/db/age/redirects.py` | resolve_canonical primitive |
 | FR-DEL-003 | new migration `0XX_tombstone_node.py` | TombstoneNode schema |
-| FR-DEL-004 | [src/graphclaw/api/auth.py](../../src/graphclaw/api/auth.py) | Login returns 423 on pending purge |
+| FR-DEL-004 | [src/graphclaw/auth/routes.py](../../src/graphclaw/auth/routes.py) | Login returns 423 on pending purge |
 | FR-DEL-004 | new `src/graphclaw/api/admin/lifecycle.py` | cancel-purge / confirm-purge endpoints |
 | FR-DEL-004 | `cockpit/src/features/auth/PendingPurgeGate.tsx` | Blocking screen |
 | FR-DEL-005 | new `src/graphclaw/workers/purge_worker.py` | Worker impl |

@@ -84,7 +84,7 @@ FACTOR_FUNCTIONS = {
     "dependency": compute_dependency,
     "blocker": compute_blocker,
 }
-score = FACTOR_FUNCTIONS[factor](ctx)
+score = FACTOR_FUNCTIONS.get(factor)(ctx)
 ```
 
 ### 4. Simplify Data Transformations

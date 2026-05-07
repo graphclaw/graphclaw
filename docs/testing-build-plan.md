@@ -25,7 +25,7 @@
 - React 19 + TS + Vite 6 SPA, shadcn/ui (Radix + Tailwind 4), Cytoscape.js + React Flow, openapi-fetch + TanStack Query v5 + Zustand v5, Monaco, Recharts, React Hook Form + Zod, React Router v7
 - Consumes backend at `../graphclaw` via `/app/v1/` REST + SSE + WebSocket
 - Three test stacks coexist today:
-  1. **Vitest unit** — 47 co-located `*.test.tsx` files, MSW 2.x mocks at [src/test/handlers.ts](c:/Users/abhis/Projects/graphclaw-cockpit/src/test/handlers.ts) (467 LOC), `renderWithProviders` at [src/test/utils.tsx](c:/Users/abhis/Projects/graphclaw-cockpit/src/test/utils.tsx), MSW node server at `src/test/server.ts`. **No coverage thresholds.**
+  1. **Vitest unit** — 47 co-located `*.test.tsx` files, MSW 2.x mocks at [src/test/handlers.ts](../../graphclaw-cockpit/src/test/handlers.ts) (467 LOC), `renderWithProviders` at [src/test/utils.tsx](../../graphclaw-cockpit/src/test/utils.tsx), MSW node server at `src/test/server.ts`. **No coverage thresholds.**
   2. **Playwright E2E** — 18 `.spec.ts` files in `e2e/` organized by feature (admin, agent, canvas, chat, global, graph, intelligence, marketplace, settings). Single `e2e/fixtures/auth.fixture.ts`, no page objects. Config at `playwright.config.ts` (1 worker, 30s timeout). Docker profile `test`.
   3. **Puppeteer + Jest E2E** — 29 spec files in `e2e-puppeteer/` with rich helpers (`api.helper.ts`, `auth.helper.ts`, `browser.helper.ts`, `db.helper.ts`, `minio.helper.ts`, `TestContext` base, `seed-all.ts` / `teardown-all.ts` producing `.seed-manifest.json`). Sequential exec via custom sequencer (backend rate-limit at 300 req/min/user). Docker profile `test-puppeteer`. **Covers `a2a/`, `mcp/`, `skills/` which Playwright does not.**
 - **No GitHub Actions workflow.** All test gating is local-only.
@@ -370,11 +370,11 @@ Notes:
 
 | ID | Scenario (1 line) | File |
 |---|---|---|
-| GC-I-API-W11-007 | Task create persists to graph and audit | [test_task_lifecycle.py](test_task_lifecycle.py) |
-| GC-I-API-W11-008 | Task delete cascades to children | [test_task_lifecycle.py](test_task_lifecycle.py) |
-| GC-I-INB-W14-002 | Inbound email matches existing task by thread-id | [test_inbound_resolution.py](test_inbound_resolution.py) |
-| GC-I-INB-W14-003 | Inbound email creates new task when no match | [test_inbound_resolution.py](test_inbound_resolution.py) |
-| GC-I-JNY-W15-001 | New user signs up, creates first goal, completes task | [test_journeys/test_first_user.py](test_journeys/test_first_user.py) |
+| GC-I-API-W11-007 | Task create persists to graph and audit | `test_task_lifecycle.py` |
+| GC-I-API-W11-008 | Task delete cascades to children | `test_task_lifecycle.py` |
+| GC-I-INB-W14-002 | Inbound email matches existing task by thread-id | `test_inbound_resolution.py` |
+| GC-I-INB-W14-003 | Inbound email creates new task when no match | `test_inbound_resolution.py` |
+| GC-I-JNY-W15-001 | New user signs up, creates first goal, completes task | `test_journeys/test_first_user.py` |
 
 _Last regenerated: 2026-05-04 by `scripts/regen_inventory.py`._
 ```

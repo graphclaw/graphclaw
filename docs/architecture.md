@@ -101,7 +101,7 @@ All five channels are fully implemented. WhatsApp and Telegram are webhook-based
 | ABC | File | Backends |
 |-----|------|----------|
 | `StorageClient` | `storage.py` | `S3StorageClient` — serves both MinIO (local dev) and AWS S3 (production) via `endpoint_url`; use `StorageConfig.from_env()` to construct transparently |
-| `MessageBroker` | `broker.py` | `RedisMessageBroker` — single implementation used in both local and production (ElastiCache); `SQSBroker` is planned for the scale phase, see [`docs/future-phases.md`](../future-phases.md) |
+| `MessageBroker` | `broker.py` | `RedisMessageBroker` — single implementation used in both local and production (ElastiCache); `SQSBroker` is planned for the scale phase, see [`docs/future-phases.md`](future-phases.md) |
 | `SecretsClient` | `secrets.py` | `EnvFileClient` (local dev), `AWSSecretsClient` (production), `HashiCorpVaultClient` (enterprise) — all three fully implemented |
 
 **Path registry:** `StoragePaths` in `storage.py` — static class that is the single source of truth for all `{user_id}/` prefixed object paths. No code may construct storage path strings by hand; always call `StoragePaths.<method>()`. See [`docs/architecture/08-object-storage-model.md`](architecture/08-object-storage-model.md).

@@ -24,11 +24,11 @@ The single most important question was: **does the main orchestrator distill use
 
 | Your statement | Verdict | Notes |
 |---|---|---|
-| Main orchestrator is a system-defined agent with a system header + per-user `{user-id}` profile | **Refined** | There is a system header ([system_header.md](../../../Projects/graphclaw/src/graphclaw/gateway/prompts/system_header.md)) AND a per-user profile, but the orchestrator is not a single global "system agent that takes a user-id parameter." Per [agent-subagent-design-requirements.md §2.3](../../../Projects/graphclaw/docs/agent-subagent-design-requirements.md), **each user has their own primary agent with `agent_id == user_id`** (e.g., `USER-dev-001`). The system header is the same for everyone; the profile at `{user_id}/agents/{user_id}/profile.md` is per-user. |
-| Job: communicate with user, plan/reason, give updates, take inputs, confirm plans, delegate to sub-agents / tools / skills / A2A | **Confirmed** | Implemented in [main_orchestrator.py:616](../../../Projects/graphclaw/src/graphclaw/agent/main_orchestrator.py#L616) (`process_chat_message`). Tool registry exposes graph tools, `delegate_to_agent`, `create_agent`, `invoke_skill`, `call_mcp_tool`, `send_email`, `post_slack_message`. |
-| Inbound communication agent processes email/WhatsApp/Telegram, updates task graph + stores context in nodes | **Confirmed in design, partial in code** | [InboundIntelligenceAgent](../../../Projects/graphclaw/src/graphclaw/inbound/intelligence_agent.py) implements the resolver waterfall (reply chain → TaskID regex → vector search) and writes both `node.intelligence` and `working/context.md`. Email + Slack + Teams are wired; **WhatsApp + Telegram have adapter stubs but inbound polling is not wired into the gateway loop**. |
-| **Main orchestrator stores task-level intelligence into nodes and distills chats into a timeline in working memory** | **❌ NOT IMPLEMENTED for chat path** | Design (`intelligence-layer.md` §2) calls for this dual-tier write on every message — including web chat. But [process_chat_message](../../../Projects/graphclaw/src/graphclaw/agent/main_orchestrator.py#L616) only: builds system prompt → calls LLM → executes tools → returns reply. It never invokes `InboundIntelligenceAgent`, never appends to `node.intelligence`, never appends to `working/context.md`. Chat history goes to a flat `{user_id}/chat/history.json` (last 200 msgs) via the REST endpoint instead. |
-| Outbound communication agent invoked by orchestrator, channel chosen from user-node preferences | **Partial** | [OutboundDispatcher](../../../Projects/graphclaw/src/graphclaw/agent/outbound.py) dispatches to email/Telegram/Slack and logs to `node.intelligence` + creates `CheckinNode`. **However, channel selection is hardcoded at the call-site by the LLM/tool args.** It does NOT consult `UserNode.preferences` or `ResourceNode.communication_preferences` to auto-route. |
+| Main orchestrator is a system-defined agent with a system header + per-user `{user-id}` profile | **Refined** | There is a system header ([system_header.md](../../src/graphclaw/gateway/prompts/system_header.md)) AND a per-user profile, but the orchestrator is not a single global "system agent that takes a user-id parameter." Per [agent-subagent-design-requirements.md §2.3](../../docs/agent-subagent-design-requirements.md), **each user has their own primary agent with `agent_id == user_id`** (e.g., `USER-dev-001`). The system header is the same for everyone; the profile at `{user_id}/agents/{user_id}/profile.md` is per-user. |
+| Job: communicate with user, plan/reason, give updates, take inputs, confirm plans, delegate to sub-agents / tools / skills / A2A | **Confirmed** | Implemented in [main_orchestrator.py:616](../../src/graphclaw/agent/main_orchestrator.py#L616) (`process_chat_message`). Tool registry exposes graph tools, `delegate_to_agent`, `create_agent`, `invoke_skill`, `call_mcp_tool`, `send_email`, `post_slack_message`. |
+| Inbound communication agent processes email/WhatsApp/Telegram, updates task graph + stores context in nodes | **Confirmed in design, partial in code** | [InboundIntelligenceAgent](../../src/graphclaw/inbound/intelligence_agent.py) implements the resolver waterfall (reply chain → TaskID regex → vector search) and writes both `node.intelligence` and `working/context.md`. Email + Slack + Teams are wired; **WhatsApp + Telegram have adapter stubs but inbound polling is not wired into the gateway loop**. |
+| **Main orchestrator stores task-level intelligence into nodes and distills chats into a timeline in working memory** | **❌ NOT IMPLEMENTED for chat path** | Design (`intelligence-layer.md` §2) calls for this dual-tier write on every message — including web chat. But [process_chat_message](../../src/graphclaw/agent/main_orchestrator.py#L616) only: builds system prompt → calls LLM → executes tools → returns reply. It never invokes `InboundIntelligenceAgent`, never appends to `node.intelligence`, never appends to `working/context.md`. Chat history goes to a flat `{user_id}/chat/history.json` (last 200 msgs) via the REST endpoint instead. |
+| Outbound communication agent invoked by orchestrator, channel chosen from user-node preferences | **Partial** | [OutboundDispatcher](../../src/graphclaw/agent/outbound.py) dispatches to email/Telegram/Slack and logs to `node.intelligence` + creates `CheckinNode`. **However, channel selection is hardcoded at the call-site by the LLM/tool args.** It does NOT consult `UserNode.preferences` or `ResourceNode.communication_preferences` to auto-route. |
 
 ---
 
@@ -36,9 +36,9 @@ The single most important question was: **does the main orchestrator distill use
 
 These are the authoritative documents (in the **graphclaw** repo, not cockpit):
 
-- [docs/architecture/10-agent-loop-orchestration.md](../../../Projects/graphclaw/docs/architecture/10-agent-loop-orchestration.md) — orchestrator turn loop, system-prompt assembly
-- [docs/architecture/intelligence-layer.md](../../../Projects/graphclaw/docs/architecture/intelligence-layer.md) — **the dual-tier (node intelligence + agent working memory) design**, resolver waterfall, distillation post-processing
-- [docs/agent-subagent-design-requirements.md](../../../Projects/graphclaw/docs/agent-subagent-design-requirements.md) — primary-agent identity, profile/memory layout
+- [docs/architecture/10-agent-loop-orchestration.md](../../docs/architecture/10-agent-loop-orchestration.md) — orchestrator turn loop, system-prompt assembly
+- [docs/architecture/intelligence-layer.md](../../docs/architecture/intelligence-layer.md) — **the dual-tier (node intelligence + agent working memory) design**, resolver waterfall, distillation post-processing
+- [docs/agent-subagent-design-requirements.md](../../docs/agent-subagent-design-requirements.md) — primary-agent identity, profile/memory layout
 
 ---
 
@@ -46,16 +46,16 @@ These are the authoritative documents (in the **graphclaw** repo, not cockpit):
 
 | Concern | File | State |
 |---|---|---|
-| Orchestrator turn loop | [main_orchestrator.py:616](../../../Projects/graphclaw/src/graphclaw/agent/main_orchestrator.py#L616) | ✅ |
-| Profile loading | [main_orchestrator.py:1101](../../../Projects/graphclaw/src/graphclaw/agent/main_orchestrator.py#L1101) | ✅ Redis-cached 15min |
-| Inbound intelligence distillation | [inbound/intelligence_agent.py](../../../Projects/graphclaw/src/graphclaw/inbound/intelligence_agent.py) | ✅ |
-| `node.intelligence` write | [db/age/repository.py:504](../../../Projects/graphclaw/src/graphclaw/db/age/repository.py#L504) | ✅ |
-| `working/context.md` append | [inbound/intelligence_agent.py:514](../../../Projects/graphclaw/src/graphclaw/inbound/intelligence_agent.py#L514) | ✅ |
-| Chat persistence | [api/chat.py](../../../Projects/graphclaw/src/graphclaw/api/chat.py) → `{user_id}/chat/history.json` | ⚠️ flat log, not distilled |
-| Outbound dispatcher | [agent/outbound.py](../../../Projects/graphclaw/src/graphclaw/agent/outbound.py) | ⚠️ no preference-driven routing |
-| Email channel | [gateway/channels/email/](../../../Projects/graphclaw/src/graphclaw/gateway/channels/email/) | ✅ |
-| Slack/Teams channels | [gateway/channels/{slack,teams}/](../../../Projects/graphclaw/src/graphclaw/gateway/channels/) | ✅ |
-| WhatsApp/Telegram channels | [gateway/channels/{whatsapp,telegram}/](../../../Projects/graphclaw/src/graphclaw/gateway/channels/) | ❌ stubs, inbound poller not wired |
+| Orchestrator turn loop | [main_orchestrator.py:616](../../src/graphclaw/agent/main_orchestrator.py#L616) | ✅ |
+| Profile loading | [main_orchestrator.py:1101](../../src/graphclaw/agent/main_orchestrator.py#L1101) | ✅ Redis-cached 15min |
+| Inbound intelligence distillation | [inbound/intelligence_agent.py](../../src/graphclaw/inbound/intelligence_agent.py) | ✅ |
+| `node.intelligence` write | [db/age/repository.py:504](../../src/graphclaw/db/age/repository.py#L504) | ✅ |
+| `working/context.md` append | [inbound/intelligence_agent.py:514](../../src/graphclaw/inbound/intelligence_agent.py#L514) | ✅ |
+| Chat persistence | [api/chat.py](../../src/graphclaw/api/chat.py) → `{user_id}/chat/history.json` | ⚠️ flat log, not distilled |
+| Outbound dispatcher | [agent/outbound.py](../../src/graphclaw/agent/outbound.py) | ⚠️ no preference-driven routing |
+| Email channel | [gateway/channels/email/](../../src/graphclaw/gateway/channels/email/) | ✅ |
+| Slack/Teams channels | [gateway/channels/{slack,teams}/](../../src/graphclaw/gateway/channels/) | ✅ |
+| WhatsApp/Telegram channels | [gateway/channels/{whatsapp,telegram}/](../../src/graphclaw/gateway/channels/) | ❌ stubs, inbound poller not wired |
 
 ---
 
@@ -70,10 +70,10 @@ Two viable shapes:
 1. **Inline post-processing** in `process_chat_message` after the agentic loop returns its final reply.
 2. **Reuse `InboundIntelligenceAgent`** by routing web-chat through `POST /inbound/messages` with `channel="web"` (PRD 13 already implies this — "Maps to existing `InboundMessage`"). This is the cleaner path.
 
-Files to touch: [main_orchestrator.py:616](../../../Projects/graphclaw/src/graphclaw/agent/main_orchestrator.py#L616), [api/chat.py](../../../Projects/graphclaw/src/graphclaw/api/chat.py), or [inbound/processor.py](../../../Projects/graphclaw/src/graphclaw/inbound/processor.py).
+Files to touch: [main_orchestrator.py:616](../../src/graphclaw/agent/main_orchestrator.py#L616), [api/chat.py](../../src/graphclaw/api/chat.py), or [inbound/processor.py](../../src/graphclaw/inbound/processor.py).
 
 ### Gap B — Outbound dispatcher ignores user/resource channel preferences
-Add a resolver in [agent/outbound.py:180](../../../Projects/graphclaw/src/graphclaw/agent/outbound.py#L180): when `channel` is unspecified or `auto`, look up the recipient's `UserNode.preferences` or `ResourceNode.communication_preferences.preferred_channel` from the graph and route accordingly. Honour `batch_messages` / `batch_window_hours`.
+Add a resolver in [agent/outbound.py:180](../../src/graphclaw/agent/outbound.py#L180): when `channel` is unspecified or `auto`, look up the recipient's `UserNode.preferences` or `ResourceNode.communication_preferences.preferred_channel` from the graph and route accordingly. Honour `batch_messages` / `batch_window_hours`.
 
 ### Gap C — WhatsApp / Telegram inbound polling not wired
 Adapters exist; gateway does not start their pollers. Wire into the gateway lifespan startup alongside the email IMAP poller.
@@ -92,12 +92,12 @@ When the orchestrator sends an outbound message *as a result of a chat decision*
 
 | Doc | Update needed |
 |---|---|
-| [graphclaw/docs/architecture/10-agent-loop-orchestration.md](../../../Projects/graphclaw/docs/architecture/10-agent-loop-orchestration.md) | Add an explicit "post-turn distillation" step to the orchestrator loop, mirroring §4.4 of intelligence-layer.md. |
-| [graphclaw/docs/architecture/intelligence-layer.md](../../../Projects/graphclaw/docs/architecture/intelligence-layer.md) | Clarify that distillation applies to **all message sources including web chat**, not only inbound channels. Add an "Outbound preference resolution" subsection. |
-| [cockpit/docs/prd/13-chat-interface.md](docs/prd/13-chat-interface.md) | Already says web chat maps to `InboundMessage`; add a paragraph stating the chat is processed by `InboundIntelligenceAgent` with the same dual-tier write semantics, so the front-end correctly conveys what gets persisted where. |
-| [cockpit/docs/prd/15-intelligence-hub.md](docs/prd/15-intelligence-hub.md) | Currently describes the Hub as read/edit access to memory & profile; add note that **chat-driven distillation is the primary write path** so users understand what populates Working/Episodic memory. |
-| [cockpit/docs/prd/03-agent-monitor.md](docs/prd/03-agent-monitor.md) | Add observability surface for "distillation events" (task_entry written / memory_note written), not just tool calls. |
-| [graphclaw/docs/agent-subagent-design-requirements.md](../../../Projects/graphclaw/docs/agent-subagent-design-requirements.md) | Reaffirm that the primary agent is responsible for distillation regardless of channel; add an outbound-preference contract with the User/Resource node schema. |
+| [graphclaw/docs/architecture/10-agent-loop-orchestration.md](../../docs/architecture/10-agent-loop-orchestration.md) | Add an explicit "post-turn distillation" step to the orchestrator loop, mirroring §4.4 of intelligence-layer.md. |
+| [graphclaw/docs/architecture/intelligence-layer.md](../../docs/architecture/intelligence-layer.md) | Clarify that distillation applies to **all message sources including web chat**, not only inbound channels. Add an "Outbound preference resolution" subsection. |
+| [cockpit/docs/prd/13-chat-interface.md](../../../graphclaw-cockpit/docs/prd/13-chat-interface.md) | Already says web chat maps to `InboundMessage`; add a paragraph stating the chat is processed by `InboundIntelligenceAgent` with the same dual-tier write semantics, so the front-end correctly conveys what gets persisted where. |
+| [cockpit/docs/prd/15-intelligence-hub.md](../../../graphclaw-cockpit/docs/prd/15-intelligence-hub.md) | Currently describes the Hub as read/edit access to memory & profile; add note that **chat-driven distillation is the primary write path** so users understand what populates Working/Episodic memory. |
+| [cockpit/docs/prd/03-agent-monitor.md](../../../graphclaw-cockpit/docs/prd/03-agent-monitor.md) | Add observability surface for "distillation events" (task_entry written / memory_note written), not just tool calls. |
+| [graphclaw/docs/agent-subagent-design-requirements.md](../../docs/agent-subagent-design-requirements.md) | Reaffirm that the primary agent is responsible for distillation regardless of channel; add an outbound-preference contract with the User/Resource node schema. |
 | New doc (or section) — **Outbound Communication Agent contract** | There is no single doc tying together OutboundDispatcher behaviour, user/resource preference resolution, batch windows, CheckinNode creation, and intelligence logging. Worth writing one. |
 
 ---
@@ -113,17 +113,17 @@ When the orchestrator sends an outbound message *as a result of a chat decision*
 
 ## 7. Critical files (reference)
 
-- [src/graphclaw/agent/main_orchestrator.py](../../../Projects/graphclaw/src/graphclaw/agent/main_orchestrator.py) — orchestrator entry points
-- [src/graphclaw/inbound/intelligence_agent.py](../../../Projects/graphclaw/src/graphclaw/inbound/intelligence_agent.py) — distillation reference implementation to be reused
-- [src/graphclaw/inbound/processor.py](../../../Projects/graphclaw/src/graphclaw/inbound/processor.py) — inbound pipeline that web chat should route through
-- [src/graphclaw/api/chat.py](../../../Projects/graphclaw/src/graphclaw/api/chat.py) — current chat persistence to be unified
-- [src/graphclaw/agent/outbound.py](../../../Projects/graphclaw/src/graphclaw/agent/outbound.py) — preference-aware routing
-- [src/graphclaw/models/nodes.py](../../../Projects/graphclaw/src/graphclaw/models/nodes.py) — `UserNode.preferences`, `ResourceNode.communication_preferences`, `TaskNode.intelligence`
-- [src/graphclaw/db/age/repository.py:504](../../../Projects/graphclaw/src/graphclaw/db/age/repository.py#L504) — `update_node_intelligence`
-- [src/graphclaw/infra/storage.py](../../../Projects/graphclaw/src/graphclaw/infra/storage.py) — `StoragePaths` for memory/profile/archive
-- [src/graphclaw/triggers/briefing.py](../../../Projects/graphclaw/src/graphclaw/triggers/briefing.py) — existing trigger/cadence scaffolding to extend for follow-ups
-- [src/graphclaw/agent/briefing.py](../../../Projects/graphclaw/src/graphclaw/agent/briefing.py) — existing daily-briefing path; closest precedent for scheduled comms-agent invocation
-- [src/graphclaw/agent/event_consumer.py](../../../Projects/graphclaw/src/graphclaw/agent/event_consumer.py) — already updates node intelligence on trigger events; reuse pattern
+- [src/graphclaw/agent/main_orchestrator.py](../../src/graphclaw/agent/main_orchestrator.py) — orchestrator entry points
+- [src/graphclaw/inbound/intelligence_agent.py](../../src/graphclaw/inbound/intelligence_agent.py) — distillation reference implementation to be reused
+- [src/graphclaw/inbound/processor.py](../../src/graphclaw/inbound/processor.py) — inbound pipeline that web chat should route through
+- [src/graphclaw/api/chat.py](../../src/graphclaw/api/chat.py) — current chat persistence to be unified
+- [src/graphclaw/agent/outbound.py](../../src/graphclaw/agent/outbound.py) — preference-aware routing
+- [src/graphclaw/models/nodes.py](../../src/graphclaw/models/nodes.py) — `UserNode.preferences`, `ResourceNode.communication_preferences`, `TaskNode.intelligence`
+- [src/graphclaw/db/age/repository.py:504](../../src/graphclaw/db/age/repository.py#L504) — `update_node_intelligence`
+- [src/graphclaw/infra/storage.py](../../src/graphclaw/infra/storage.py) — `StoragePaths` for memory/profile/archive
+- [src/graphclaw/triggers/briefing.py](../../src/graphclaw/triggers/briefing.py) — existing trigger/cadence scaffolding to extend for follow-ups
+- [src/graphclaw/agent/briefing.py](../../src/graphclaw/agent/briefing.py) — existing daily-briefing path; closest precedent for scheduled comms-agent invocation
+- [src/graphclaw/agent/event_consumer.py](../../src/graphclaw/agent/event_consumer.py) — already updates node intelligence on trigger events; reuse pattern
 
 ---
 
@@ -154,7 +154,7 @@ This makes the comms agent's `send_message` tool a thin handoff: it builds an `O
 
 ### 8.3 Scheduler / cadence-driven follow-ups
 
-There is already a trigger scaffold in [triggers/briefing.py](../../../Projects/graphclaw/src/graphclaw/triggers/briefing.py) and [agent/briefing.py](../../../Projects/graphclaw/src/graphclaw/agent/briefing.py) — extend it rather than build a parallel scheduler. Add a `FollowUpTrigger`:
+There is already a trigger scaffold in [triggers/briefing.py](../../src/graphclaw/triggers/briefing.py) and [agent/briefing.py](../../src/graphclaw/agent/briefing.py) — extend it rather than build a parallel scheduler. Add a `FollowUpTrigger`:
 
 1. **Cron tick** (e.g., every 15 min, configurable per user via `UserNode.preferences.briefing_time` analogue).
 2. **Candidate selection** (graph query): tasks where `state ∈ {WAITING, IN_PROGRESS}` AND `now - last_outbound_at >= follow_up_days` AND `state != BLOCKED_BY_USER`. Use existing `default_follow_up_days` and `interrupt_threshold` on `UserNode.preferences`.
@@ -224,10 +224,10 @@ Concretely:
 
 - **New doc** — `graphclaw/docs/architecture/agent-triad.md`: the inbound/comms/outbound triad, shared substrate, message-flow diagrams (incl. §8.5 diagram).
 - **New doc** — `graphclaw/docs/architecture/follow-up-cadence.md`: scheduler design, candidate-selection query, interrupt-threshold semantics, integration with triggers.
-- Update [agent-subagent-design-requirements.md](../../../Projects/graphclaw/docs/agent-subagent-design-requirements.md): treat outbound as a peer agent, not a tool.
-- Update [intelligence-layer.md](../../../Projects/graphclaw/docs/architecture/intelligence-layer.md): add the sender-classification router and explicit "all three agents write to the same substrate" guarantee.
-- Update [cockpit/docs/prd/13-chat-interface.md](docs/prd/13-chat-interface.md): web chat is one channel; document that the comms agent maintains unified context across cockpit, WhatsApp, Telegram, email, and that replies flow back on the originating channel.
-- Update [cockpit/docs/prd/15-intelligence-hub.md](docs/prd/15-intelligence-hub.md): show that working memory accumulates from all three agents and all channels.
+- Update [agent-subagent-design-requirements.md](../../docs/agent-subagent-design-requirements.md): treat outbound as a peer agent, not a tool.
+- Update [intelligence-layer.md](../../docs/architecture/intelligence-layer.md): add the sender-classification router and explicit "all three agents write to the same substrate" guarantee.
+- Update [cockpit/docs/prd/13-chat-interface.md](../../../graphclaw-cockpit/docs/prd/13-chat-interface.md): web chat is one channel; document that the comms agent maintains unified context across cockpit, WhatsApp, Telegram, email, and that replies flow back on the originating channel.
+- Update [cockpit/docs/prd/15-intelligence-hub.md](../../../graphclaw-cockpit/docs/prd/15-intelligence-hub.md): show that working memory accumulates from all three agents and all channels.
 
 ### 8.8 Verification additions (append to §6)
 
@@ -341,7 +341,7 @@ All per-user policy guidance follows the **same MinIO/markdown pattern as `profi
 
 Important distinction:
 
-- **System-level knowledge** (graph rules, scoring rules, edge-creation rules) — ships in code under [`src/graphclaw/gateway/prompts/knowledge/*.md`](../../../Projects/graphclaw/src/graphclaw/gateway/prompts/knowledge/), loaded via the existing `read_knowledge` tool. **Same as today.**
+- **System-level knowledge** (graph rules, scoring rules, edge-creation rules) — ships in code under [`src/graphclaw/gateway/prompts/knowledge/*.md`](../../src/graphclaw/gateway/prompts/knowledge/), loaded via the existing `read_knowledge` tool. **Same as today.**
 - **Per-user policies** (delegation, counterparty etiquette, escalation, reply tone) — live in MinIO under `{user_id}/agents/{agent_id}/policies/*.md`. Loaded into the agent's system prompt at turn time, Redis-cached 15min (same TTL as profile.md). Editable via Intelligence Hub.
 
 **New `StoragePaths` entries:**
@@ -385,7 +385,7 @@ the deadline without confirming with me first — Bob tends to under-estimate.
 - Both are user-authored via Intelligence Hub — same edit flow as `profile.md`.
 
 **Loading:**
-- Reuses the existing `_build_system_prompt` path in [main_orchestrator.py:1101](../../../Projects/graphclaw/src/graphclaw/agent/main_orchestrator.py#L1101) — add a `policies` block injection when mode is `counterparty_conversation`.
+- Reuses the existing `_build_system_prompt` path in [main_orchestrator.py:1101](../../src/graphclaw/agent/main_orchestrator.py#L1101) — add a `policies` block injection when mode is `counterparty_conversation`.
 - Frontmatter parsed by the policy-evaluator (a tiny new module — pyyaml + Pydantic schema), cached in Redis alongside the prompt.
 - No new tool needed for read; can reuse `read_knowledge` semantics if exposed to the agent for self-inspection ("what are my current policies for Bob?").
 
@@ -412,8 +412,8 @@ This is a separate concern from the comms triad — it's about *which UserNode/R
 
 | Piece | File | Purpose |
 |---|---|---|
-| `UserProvisioningService` | [auth/provisioning.py](../../../Projects/graphclaw/src/graphclaw/auth/provisioning.py) | On first OAuth login, atomically creates `UserNode` + S3 prefix + `WorkspaceNode` + JWTs. Idempotent by `oauth_subject`/email. |
-| `AliasResolver` (channel-identity) | [gateway/alias_resolver.py](../../../Projects/graphclaw/src/graphclaw/gateway/alias_resolver.py) | Redis-backed `(channel, sender_id) → user_id` mapping. **Solves Gap M for inbound routing**, but is **not** a name-alias resolver. |
+| `UserProvisioningService` | [auth/provisioning.py](../../src/graphclaw/auth/provisioning.py) | On first OAuth login, atomically creates `UserNode` + S3 prefix + `WorkspaceNode` + JWTs. Idempotent by `oauth_subject`/email. |
+| `AliasResolver` (channel-identity) | [gateway/alias_resolver.py](../../src/graphclaw/gateway/alias_resolver.py) | Redis-backed `(channel, sender_id) → user_id` mapping. **Solves Gap M for inbound routing**, but is **not** a name-alias resolver. |
 | `WorkspaceNode` | inferred from provisioning.py | Org/tenancy boundary candidate — natural home for an org-scoped user directory. |
 
 ### 9.8.2 What's missing — and why each matters
@@ -448,9 +448,9 @@ Why Postgres and not a shared org-graph in AGE: cheaper, simpler, no cross-tenan
 
 #### 9.8.2.5 OrganizationNode / WorkspaceNode — the original intent (already correct)
 
-You asked whether `WorkspaceNode` is the right boundary or whether to add `OrgNode`. **Both exist already** in [models/nodes.py](../../../Projects/graphclaw/src/graphclaw/models/nodes.py) and the design is correctly two-tier:
+You asked whether `WorkspaceNode` is the right boundary or whether to add `OrgNode`. **Both exist already** in [models/nodes.py](../../src/graphclaw/models/nodes.py) and the design is correctly two-tier:
 
-**OrganizationNode** (`ORG-{uuid}`, [nodes.py:588](../../../Projects/graphclaw/src/graphclaw/models/nodes.py#L588)) — the **tenant / sphere boundary**:
+**OrganizationNode** (`ORG-{uuid}`, [nodes.py:588](../../src/graphclaw/models/nodes.py#L588)) — the **tenant / sphere boundary**:
 ```
 name, domain (e.g. "acme.com" for SSO matching),
 owner_id (founding user), members: list[OrgMember],
@@ -458,7 +458,7 @@ settings: OrgSettings
 ```
 Docstring: *"multi-user organization workspace boundary. Organizations own one or more Workspaces and hold the membership list that determines who can see and act on tasks within those workspaces."*
 
-**WorkspaceNode** (`WS-{uuid}`, [nodes.py:614](../../../Projects/graphclaw/src/graphclaw/models/nodes.py#L614)) — a **project-grouping inside an org**:
+**WorkspaceNode** (`WS-{uuid}`, [nodes.py:614](../../src/graphclaw/models/nodes.py#L614)) — a **project-grouping inside an org**:
 ```
 org_id (parent), name, description, visibility,
 task_prefix, member_ids (subset of org members), is_default
@@ -466,9 +466,9 @@ task_prefix, member_ids (subset of org members), is_default
 Docstring: *"scoped collection of tasks and goals... All tasks/goals that are SCOPED_TO_WS this node are only visible to workspace members."*
 
 Confirmed by adjacent code:
-- [api/admin/members.py](../../../Projects/graphclaw/src/graphclaw/api/admin/members.py) — admin member management is **org-scoped**: *"Member records are stored on the OrganizationNode in the graph store"*.
-- [cockpit/docs/prd/02-graph-cockpit.md:151](docs/prd/02-graph-cockpit.md) — *"Top-level selector in the header to switch between organization workspaces (Personal, Work, Side Project, etc.)"* — multiple workspaces per org.
-- [cockpit/docs/prd/05-settings-panel.md](docs/prd/05-settings-panel.md) — `/settings/organizations` API surface for org CRUD.
+- [api/admin/members.py](../../src/graphclaw/api/admin/members.py) — admin member management is **org-scoped**: *"Member records are stored on the OrganizationNode in the graph store"*.
+- [cockpit/docs/prd/02-graph-cockpit.md:151](../../../graphclaw-cockpit/docs/prd/02-graph-cockpit.md) — *"Top-level selector in the header to switch between organization workspaces (Personal, Work, Side Project, etc.)"* — multiple workspaces per org.
+- [cockpit/docs/prd/05-settings-panel.md](../../../graphclaw-cockpit/docs/prd/05-settings-panel.md) — `/settings/organizations` API surface for org CRUD.
 
 **This maps cleanly to both deployment models:**
 
@@ -580,7 +580,7 @@ The current implementation already commits to:
 - Per-user agent identity (`agent_id == user_id`).
 - Channel-identity resolution via Redis (`AliasResolver`).
 - Atomic provisioning with rollback (`UserProvisioningService`).
-- **Two-tier tenancy**: `OrganizationNode` (sphere/tenant boundary, members + SSO domain + settings) and `WorkspaceNode` (project-grouping inside an org). Already in [models/nodes.py](../../../Projects/graphclaw/src/graphclaw/models/nodes.py) — see §9.8.2.5.
+- **Two-tier tenancy**: `OrganizationNode` (sphere/tenant boundary, members + SSO domain + settings) and `WorkspaceNode` (project-grouping inside an org). Already in [models/nodes.py](../../src/graphclaw/models/nodes.py) — see §9.8.2.5.
 
 The §9.8 design **stays inside this philosophy**:
 - Onboarding writes to the same `profile.md` the Intelligence Hub already governs — no new memory tier.
@@ -1129,17 +1129,17 @@ Plus a real new requirement: **GDPR/lifecycle UX surface (Wave 0.5)** — the pr
 
 ### 9.8.21 Existing-doc updates (append to §11)
 
-- [graphclaw/docs/architecture/intelligence-layer.md](../../../Projects/graphclaw/docs/architecture/intelligence-layer.md) — add alias resolution + directory lookup to inbound/comms agent flows.
-- [graphclaw/docs/agent-subagent-design-requirements.md](../../../Projects/graphclaw/docs/agent-subagent-design-requirements.md) — add onboarding FSM as a first-class orchestrator behaviour; document `linked_user_id` shadow pattern.
-- [cockpit/docs/prd/05-settings-panel.md](docs/prd/05-settings-panel.md) — add `OrganizationNode.settings.directory_visibility` controls and identity management UI; SaaS multi-org switcher.
-- [cockpit/docs/prd/09-admin-panel.md](docs/prd/09-admin-panel.md) — admin controls for org membership, directory visibility, and SSO domain — already org-scoped, extend with directory-policy UI.
-- [cockpit/docs/prd/15-intelligence-hub.md](docs/prd/15-intelligence-hub.md) — show onboarding-completion state on the Profile editor; surface aliases.
-- [cockpit/docs/prd/02-graph-cockpit.md](docs/prd/02-graph-cockpit.md) — workspace switcher (already designed); add a parent **org switcher** for SaaS multi-org users; surface external-assignments section in task views.
-- [cockpit/docs/prd/12-task-views.md](docs/prd/12-task-views.md) — assignee-side view: distinguish locally-owned tasks vs `list_external_assignments_for_me` projections; "request access" flow for full detail.
-- **NEW** [graphclaw/docs/architecture/user-identity-and-onboarding.md](../../../Projects/graphclaw/docs/architecture/user-identity-and-onboarding.md) — full spec of identity model (UserNode/ResourceNode/aliases/identities/linked_user_id), onboarding FSM, resolution algorithm, org directory schema, privacy/consent policy.
-- **NEW** [graphclaw/docs/architecture/cross-tenant-task-projection.md](../../../Projects/graphclaw/docs/architecture/cross-tenant-task-projection.md) — Gap AA approach A.1: org task index schema, indexer event flow, read APIs, cross-tenant ACL, briefing-side integration, A.2 fallback for regulated tenants.
-- **NEW** [graphclaw/docs/architecture/tenancy-model.md](../../../Projects/graphclaw/docs/architecture/tenancy-model.md) — formal write-up of OrganizationNode / WorkspaceNode roles, on-prem-per-org vs SaaS multi-org deployment models, membership and visibility semantics, scoping rules for resolution and indexing.
-- **NEW** [graphclaw/docs/architecture/data-lifecycle-and-deletion-policy.md](../../../Projects/graphclaw/docs/architecture/data-lifecycle-and-deletion-policy.md) — **first-class architecture principle**: No-Delete by agents (§9.8.16.5). Service-principal model (`agent_principal` SELECT/INSERT/UPDATE only; `admin_principal` for purge worker only); archive primitives (`archived_at`, `purge_after`, `archive_reason`); tombstone redirects; user-initiated 24h-delayed full-purge; GDPR audit trail; testing hook (anti-delete probes). Add a top-of-document principle banner to [agent-subagent-design-requirements.md](../../../Projects/graphclaw/docs/agent-subagent-design-requirements.md) too.
+- [graphclaw/docs/architecture/intelligence-layer.md](../../docs/architecture/intelligence-layer.md) — add alias resolution + directory lookup to inbound/comms agent flows.
+- [graphclaw/docs/agent-subagent-design-requirements.md](../../docs/agent-subagent-design-requirements.md) — add onboarding FSM as a first-class orchestrator behaviour; document `linked_user_id` shadow pattern.
+- [cockpit/docs/prd/05-settings-panel.md](../../../graphclaw-cockpit/docs/prd/05-settings-panel.md) — add `OrganizationNode.settings.directory_visibility` controls and identity management UI; SaaS multi-org switcher.
+- [cockpit/docs/prd/09-admin-panel.md](../../../graphclaw-cockpit/docs/prd/09-admin-panel.md) — admin controls for org membership, directory visibility, and SSO domain — already org-scoped, extend with directory-policy UI.
+- [cockpit/docs/prd/15-intelligence-hub.md](../../../graphclaw-cockpit/docs/prd/15-intelligence-hub.md) — show onboarding-completion state on the Profile editor; surface aliases.
+- [cockpit/docs/prd/02-graph-cockpit.md](../../../graphclaw-cockpit/docs/prd/02-graph-cockpit.md) — workspace switcher (already designed); add a parent **org switcher** for SaaS multi-org users; surface external-assignments section in task views.
+- [cockpit/docs/prd/12-task-views.md](../../../graphclaw-cockpit/docs/prd/12-task-views.md) — assignee-side view: distinguish locally-owned tasks vs `list_external_assignments_for_me` projections; "request access" flow for full detail.
+| **NEW** [graphclaw/docs/architecture/user-identity-and-onboarding.md](../../docs/architecture/15-user-identity-and-onboarding.md) — full spec of identity model (UserNode/ResourceNode/aliases/identities/linked_user_id), onboarding FSM, resolution algorithm, org directory schema, privacy/consent policy.
+| **NEW** [graphclaw/docs/architecture/cross-tenant-task-projection.md](../../docs/architecture/17-cross-tenant-task-projection.md) — Gap AA approach A.1: org task index schema, indexer event flow, read APIs, cross-tenant ACL, briefing-side integration, A.2 fallback for regulated tenants.
+| **NEW** [graphclaw/docs/architecture/tenancy-model.md](../../docs/architecture/13-tenancy-model.md) — formal write-up of OrganizationNode / WorkspaceNode roles, on-prem-per-org vs SaaS multi-org deployment models, membership and visibility semantics, scoping rules for resolution and indexing.
+| **NEW** [graphclaw/docs/architecture/data-lifecycle-and-deletion-policy.md](../../docs/architecture/19-data-lifecycle-and-deletion-policy.md) — **first-class architecture principle**: No-Delete by agents (§9.8.16.5). Service-principal model (`agent_principal` SELECT/INSERT/UPDATE only; `admin_principal` for purge worker only); archive primitives (`archived_at`, `purge_after`, `archive_reason`); tombstone redirects; user-initiated 24h-delayed full-purge; GDPR audit trail; testing hook (anti-delete probes). Add a top-of-document principle banner to [agent-subagent-design-requirements.md](../../docs/agent-subagent-design-requirements.md) too.
 
 ---
 
@@ -1286,17 +1286,17 @@ Dependencies: FR-GRAPH-002, FR-OUT-001
 
 | Doc | What to add/change |
 |---|---|
-| [graphclaw/docs/architecture/10-agent-loop-orchestration.md](../../../Projects/graphclaw/docs/architecture/10-agent-loop-orchestration.md) | Post-turn distillation step; channel-agnostic chat handler signature `(user_id, text, channel, thread_id, session_id)`; `counterparty_conversation` mode |
-| [graphclaw/docs/architecture/intelligence-layer.md](../../../Projects/graphclaw/docs/architecture/intelligence-layer.md) | Distillation applies to all sources incl. web chat; sender classification matrix; outbound preference resolution; counterparty memory tagging |
-| [graphclaw/docs/agent-subagent-design-requirements.md](../../../Projects/graphclaw/docs/agent-subagent-design-requirements.md) | Outbound is a peer agent; agent-channel-identity registry; delegation policy on UserNode.preferences |
-| **NEW** [graphclaw/docs/architecture/agent-triad.md](../../../Projects/graphclaw/docs/architecture/agent-triad.md) | The comms/inbound/outbound triad, shared substrate, message flow diagrams (§8.5), routing decision matrix (§9.3) |
-| **NEW** [graphclaw/docs/architecture/follow-up-cadence.md](../../../Projects/graphclaw/docs/architecture/follow-up-cadence.md) | FollowUpTrigger design, candidate selection query, interrupt-threshold semantics |
-| **NEW** [graphclaw/docs/architecture/cross-user-conversations.md](../../../Projects/graphclaw/docs/architecture/cross-user-conversations.md) | Counterparty-scoped storage layout (§9.2), reply-key linking, autonomy policy |
-| **NEW** [graphclaw/docs/requirements/agent-triad-and-comms-substrate.md](../../../Projects/graphclaw/docs/requirements/agent-triad-and-comms-substrate.md) | The tracked requirements doc per §10 |
-| [cockpit/docs/prd/13-chat-interface.md](docs/prd/13-chat-interface.md) | Web chat is one channel of many; comms agent maintains unified context across channels; replies flow back on originating channel; counterparty conversations are visible but separate from owner-self chat |
-| [cockpit/docs/prd/15-intelligence-hub.md](docs/prd/15-intelligence-hub.md) | Working memory accumulates from all three agents and all channels; show counterparty-tagged notes; **add Policies section** (delegation / counterparty etiquette / escalation / reply tone) with form-on-frontmatter + markdown-body editor |
-| [cockpit/docs/prd/03-agent-monitor.md](docs/prd/03-agent-monitor.md) | Surface distillation events; show outbound agent activity; show scheduler-driven runs |
-| [cockpit/docs/prd/05-settings-panel.md](docs/prd/05-settings-panel.md) | Add `AgentChannelIdentity` admin (per-user channel accounts); add `delegation_policy` controls |
-| [cockpit/docs/prd/12-task-views.md](docs/prd/12-task-views.md) | Task detail must surface counterparty conversations linked via CheckinNode, separate from owner discussion |
-| [cockpit/docs/prd/11-api-contract.md](docs/prd/11-api-contract.md) | New endpoints: `GET /conversations/{counterparty_id}`, `POST /agent-channels`, scheduler/trigger admin endpoints |
-| [graphclaw/docs/prd/](../../../Projects/graphclaw/docs/) (or equivalent) | Schema additions: UserNode.identities, ResourceNode.identities, UserNode.preferences.delegation_policy, CheckinNode.{recipient_id, channel, thread_id, direction} |
+| [graphclaw/docs/architecture/10-agent-loop-orchestration.md](../../docs/architecture/10-agent-loop-orchestration.md) | Post-turn distillation step; channel-agnostic chat handler signature `(user_id, text, channel, thread_id, session_id)`; `counterparty_conversation` mode |
+| [graphclaw/docs/architecture/intelligence-layer.md](../../docs/architecture/intelligence-layer.md) | Distillation applies to all sources incl. web chat; sender classification matrix; outbound preference resolution; counterparty memory tagging |
+| [graphclaw/docs/agent-subagent-design-requirements.md](../../docs/agent-subagent-design-requirements.md) | Outbound is a peer agent; agent-channel-identity registry; delegation policy on UserNode.preferences |
+| **NEW** [graphclaw/docs/architecture/agent-triad.md](../../docs/architecture/14-agent-triad.md) | The comms/inbound/outbound triad, shared substrate, message flow diagrams (§8.5), routing decision matrix (§9.3) |
+| **NEW** [graphclaw/docs/architecture/follow-up-cadence.md](../../docs/architecture/18-follow-up-cadence.md) | FollowUpTrigger design, candidate selection query, interrupt-threshold semantics |
+| **NEW** [graphclaw/docs/architecture/cross-user-conversations.md](../../docs/architecture/16-cross-user-conversations.md) | Counterparty-scoped storage layout (§9.2), reply-key linking, autonomy policy |
+| **NEW** [graphclaw/docs/requirements/agent-triad-and-comms-substrate.md](../../docs/requirements/agent-triad-and-comms-substrate.md) | The tracked requirements doc per §10 |
+| [cockpit/docs/prd/13-chat-interface.md](../../../graphclaw-cockpit/docs/prd/13-chat-interface.md) | Web chat is one channel of many; comms agent maintains unified context across channels; replies flow back on originating channel; counterparty conversations are visible but separate from owner-self chat |
+| [cockpit/docs/prd/15-intelligence-hub.md](../../../graphclaw-cockpit/docs/prd/15-intelligence-hub.md) | Working memory accumulates from all three agents and all channels; show counterparty-tagged notes; **add Policies section** (delegation / counterparty etiquette / escalation / reply tone) with form-on-frontmatter + markdown-body editor |
+| [cockpit/docs/prd/03-agent-monitor.md](../../../graphclaw-cockpit/docs/prd/03-agent-monitor.md) | Surface distillation events; show outbound agent activity; show scheduler-driven runs |
+| [cockpit/docs/prd/05-settings-panel.md](../../../graphclaw-cockpit/docs/prd/05-settings-panel.md) | Add `AgentChannelIdentity` admin (per-user channel accounts); add `delegation_policy` controls |
+| [cockpit/docs/prd/12-task-views.md](../../../graphclaw-cockpit/docs/prd/12-task-views.md) | Task detail must surface counterparty conversations linked via CheckinNode, separate from owner discussion |
+| [cockpit/docs/prd/11-api-contract.md](../../../graphclaw-cockpit/docs/prd/11-api-contract.md) | New endpoints: `GET /conversations/{counterparty_id}`, `POST /agent-channels`, scheduler/trigger admin endpoints |
+| [graphclaw/docs/prd/](../../docs/) (or equivalent) | Schema additions: UserNode.identities, ResourceNode.identities, UserNode.preferences.delegation_policy, CheckinNode.{recipient_id, channel, thread_id, direction} |

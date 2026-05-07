@@ -1,7 +1,7 @@
 # GraphClaw — Phased Build Plan
 
 **Project:** Graph-based Task Orchestration System (OpenClaw / GraphClaw)
-**PRD:** task-graph-requirements.md (v1.1 — Observability, Operations & Deployment)
+**PRD:** docs/graphclaw-requirements.md (v1.3 — Observability, Operations & Deployment)
 **Domain:** graphclaw.ai
 **Created:** 2026-03-17
 
@@ -18,6 +18,24 @@
 | Quick Tasks | Claude Haiku | Lookups, formatting, simple edits, schema generation |
 
 **Workflow:** Each phase is implemented as a series of Claude Code sessions. Subagents handle parallel implementation tasks. Custom skills will be created for repeatable patterns (schema generation, agent scaffolding, test generation).
+
+---
+
+## Documentation Reorganization Program (2026-05) 🔄 IN PROGRESS
+
+**Goal:** Consolidate and normalize backend documentation so implementation state, architecture contracts, and testing policy remain synchronized and discoverable.
+
+**Scope:**
+- Resolve canonical-path and version mismatches across `CLAUDE.md`, PRD, and build plan metadata.
+- Introduce mirrored documentation taxonomy with shared governance model.
+- Establish `docs/archive/build-timeline.md` and `docs/redirects.md` as required migration artifacts.
+- Prepare archive-first consolidation for completed phase reports and one-off requirement notes.
+
+**Tracking files:**
+- `docs/README.md`
+- `docs/governance/documentation-governance.md`
+- `docs/archive/build-timeline.md`
+- `docs/redirects.md`
 
 ---
 
@@ -216,7 +234,7 @@
 | WS-P45-C | Node Intelligence Field | `ws-b-models` + `ws-a-database` | `models/nodes.py`, `db/age/repository.py` | Parallel with A+B |
 | WS-P45-D | InboundIntelligenceAgent | `ws-j-inbound-protocol` | `inbound/intelligence_agent.py` (new) | After A+C |
 | WS-P45-E | Event Consumer wiring + direct INBOUND consumer | `ws-e-cli-agent` | `agent/event_consumer.py`, `gateway/app.py` | After D |
-| WS-P45-F | AgentLoop: logger + graph summary + check_inbox tool | `ws-e-cli-agent` | `agent/loop.py` | After B+C |
+| WS-P45-F | AgentLoop: logger + graph summary + check_inbox tool | `ws-e-cli-agent` | `agent/main_orchestrator.py` | After B+C |
 | WS-P45-G | Outbound intelligence logging + CheckinNode wiring | `ws-e-cli-agent` | `agent/event_consumer.py`, `db/age/repository.py` | After D+E |
 | WS-P45-H | Inbox summarize-and-archive + storage paths | `ws-i-storage-logging` | `infra/storage.py`, `agent/event_consumer.py` | After E |
 
@@ -317,7 +335,7 @@ Wave 3 (parallel): WS-P45-E (event consumer wiring), WS-P45-G (outbound logging)
 | WS-P5-C | Audit log events + AGENT_UPDATES consumer | 🔄 Active | `infra/logger.py`, `agent/event_consumer.py`, `agent/result_collector.py` |
 | WS-P5-D | AgentDispatchPlanner + BatchCoordinator | 🔄 Active | `agent/dispatch_planner.py` (new) |
 | WS-P5-E | AgentHealthMonitor + heartbeat escalation | 🔄 Active | `agent/health_monitor.py` (new), `skills/heartbeat.py` |
-| WS-P5-F | AgentLoop: delegate_to_agent publishes + planner integration | 🔄 Active | `agent/loop.py` lines 1849–1920, lines 474–524 |
+| WS-P5-F | AgentLoop: delegate_to_agent publishes + planner integration | 🔄 Active | `agent/main_orchestrator.py` (`_tool_delegate_to_agent`, delegation pre-plan flow) |
 | WS-P5-G | Gateway wiring (lifespan startup/shutdown) | 🔄 Active | `gateway/app.py` |
 | WS-P5-H | Test suite (unit + integration) | 🔄 Active | `tests/test_agent/test_sub_agent_*.py`, `tests/test_agent/test_dispatch_planner.py` |
 

@@ -177,7 +177,7 @@ For future regulated tenants prohibiting cross-tenant queries: a lightweight `Mi
 | FR-XT-002 | new `src/graphclaw/agent/tools/external_assignments.py` | Tool impls |
 | FR-XT-003 | new `src/graphclaw/cross_tenant/repo.py` | Query builder with mandatory ACL |
 | FR-XT-003 | new `src/graphclaw/cross_tenant/acl.py` | ACL helpers + tests |
-| FR-XT-005 | [src/graphclaw/agent/tools/task_management.py](../../src/graphclaw/agent/tools/task_management.py) | Validate assignee org-membership |
+| FR-XT-005 | [src/graphclaw/agent/tools/external_assignments.py](../../src/graphclaw/agent/tools/external_assignments.py) | Validate assignee org-membership |
 | FR-XT-005 | [src/graphclaw/state/machine.py](../../src/graphclaw/state/machine.py) | Validate on state transitions |
 | FR-XT-004 | [src/graphclaw/agent/briefing.py](../../src/graphclaw/agent/briefing.py) | Union local + external |
 | FR-XT-004 | `cockpit/src/features/briefing/BriefingView.tsx` | Render external section |

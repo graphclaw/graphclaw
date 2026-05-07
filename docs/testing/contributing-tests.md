@@ -60,7 +60,7 @@ Use fakes, not mocks, for `GraphStore`, `StorageClient`, `SecretsClient`. See [A
 Add one row to the `inventory.md` at the test root (e.g., `tests/integration/inventory.md`):
 
 ```
-| GC-I-INB-W14-004 | Inbound Slack message matches task by subject keyword | [test_inbound_resolution.py](test_inbound_resolution.py) |
+| GC-I-INB-W14-004 | Inbound Slack message matches task by subject keyword | `test_inbound_resolution.py` |
 ```
 
 Or run `python scripts/regen_inventory.py` which auto-generates from headers (the header must be written first).

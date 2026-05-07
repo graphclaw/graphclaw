@@ -1,6 +1,6 @@
 # Testing — graphclaw
 
-Quick reference for running tests. For the full strategy, pyramid, and conventions see [docs/testing/master-strategy.md](docs/testing/master-strategy.md).
+Quick reference for running tests. For the full strategy, pyramid, and conventions see [master-strategy.md](master-strategy.md).
 
 ## Commands
 
@@ -35,7 +35,7 @@ Manual smoke     scripts/api_smoke.py NEVER in CI
 
 ## Adding a test
 
-See [docs/testing/contributing-tests.md](docs/testing/contributing-tests.md) for the decision tree (which layer → where the file goes → how to allocate a test ID → what the file header must contain).
+See [contributing-tests.md](contributing-tests.md) for the decision tree (which layer → where the file goes → how to allocate a test ID → what the file header must contain).
 
 ## Coverage
 

@@ -1,6 +1,6 @@
 # GraphClaw — Graph-Based Task Orchestration System
 
-[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/)
 [![Tests](https://img.shields.io/badge/tests-485%2B%20passing-green)]()
 
@@ -44,7 +44,7 @@ GraphClaw is designed as a **pluggable 4-layer system**. Every infrastructure co
 | **LLM** | `LLMClient` | Implement ABC, place in `src/graphclaw/llm/<name>/` |
 | **Infra** | `StorageClient`, `MessageBroker`, `SecretsClient` | Implement ABC, register in factory |
 
-See [`docs/architecture.md`](docs/architecture.md) for the full design.
+See [`docs/architecture.md`](../architecture.md) for the full design.
 
 ## Tech Stack
 
@@ -157,9 +157,9 @@ graphclaw/
 ├── docker/                 # Docker Compose local dev stack
 ├── scripts/                # DB init + seed scripts
 ├── .claude/                # Claude Code configuration + skills
-├── build-plan.md           # 6-phase implementation plan
-├── CHANGELOG.md
-├── CONTRIBUTING.md
+├── docs/planning/build-plan.md           # 6-phase implementation plan
+├── docs/release-notes/CHANGELOG.md
+├── docs/governance/documentation-governance.md
 └── LICENSE                 # Apache 2.0
 ```
 
@@ -204,13 +204,13 @@ PENDING → ACTIVE → IN_PROGRESS → COMPLETE (terminal)
 | Phase 4 | 29–36 | Planned | Visual Interface + Advanced Skills (React UI, calendar, import) |
 | Phase 5 | 37–48 | Planned | Enterprise + Observability (Slack, Teams, GDPR, SOC 2) |
 
-See [`docs/skills-and-agents-roadmap.md`](docs/skills-and-agents-roadmap.md) for the full skills/agents/channels roadmap.
+See [`docs/skills-and-agents-roadmap.md`](../skills-and-agents-roadmap.md) for the full skills/agents/channels roadmap.
 
 ## Contributing
 
-Contributions are welcome! Please read [`CONTRIBUTING.md`](CONTRIBUTING.md) and follow the code style conventions.
+Contributions are welcome! Please read [`CONTRIBUTING.md`](../governance/documentation-governance.md) and follow the code style conventions.
 
-- **License:** [Apache 2.0](LICENSE)
+- **License:** [Apache 2.0](https://www.apache.org/licenses/LICENSE-2.0)
 - **Issues:** Use GitHub Issues for bugs and feature requests
 - **PRs:** Target the `main` branch; include tests; ensure `pytest tests/` passes
 
@@ -247,4 +247,4 @@ user id: graphclaw/ graphclaw_dev
 
 ## License
 
-[Apache License 2.0](LICENSE) — See [LICENSE](LICENSE) file for details.
+[Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0)

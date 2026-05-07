@@ -155,7 +155,7 @@ pytest tests/agent_evals/test_orchestrator_evals.py::test_orchestrator_scenario[
 
 After adding a scenario YAML, add to `tests/agent_evals/inventory.md`:
 ```
-| GC-A-ORC-W12-002 | Orchestrator delegates email-drafting to email skill | [prompts/orchestrator/002_delegate_to_skill.yaml](prompts/orchestrator/002_delegate_to_skill.yaml) |
+| GC-A-ORC-W12-002 | Orchestrator delegates email-drafting to email skill | [tests/agent_evals/prompts/orchestrator/002_delegate_to_skill.yaml](../../../tests/agent_evals/prompts/orchestrator/002_delegate_to_skill.yaml) |
 ```
 
 Or regenerate: `python scripts/regen_inventory.py`

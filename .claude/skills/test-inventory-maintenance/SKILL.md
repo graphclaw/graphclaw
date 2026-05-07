@@ -80,8 +80,8 @@ GC-<L>-<DOM>-<W>-<NNN>
 
 | ID | Scenario (1 line) | File |
 |---|---|---|
-| GC-I-API-W11-007 | Task create persists to graph and audit | [test_task_lifecycle.py](test_task_lifecycle.py) |
-| GC-E-INT-W16-004 | Save to MinIO persists content | [specs/intelligence/intelligence.spec.ts](specs/intelligence/intelligence.spec.ts) |
+| GC-I-API-W11-007 | Task create persists to graph and audit | `test_task_lifecycle.py` |
+| GC-E-INT-W16-004 | Save to MinIO persists content | `specs/intelligence/intelligence.spec.ts` |
 
 _Last regenerated: YYYY-MM-DD by `scripts/regen_inventory.py` / `scripts/regen-inventory.mjs`._
 ```

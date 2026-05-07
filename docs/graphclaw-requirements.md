@@ -1,13 +1,13 @@
 # Task Graph Management System — Product Requirements Document
 
 **Version:** 1.3 — Implementation in Progress  
-**Status:** Active build — Phases 0–4 complete, Phase 5 delivered  
+**Status:** Active build — Phases 0–4 complete, Phase 5 in progress  
 **Purpose:** Comprehensive reference document for UX, architecture, and implementation discussions
 
 **Implementation status (2026-04-13):**
 - Phases 0–3 delivered: graph schema, scoring engine, state machine, CLI, gateway, channels, auth, BYOK, compliance, MCP, connectors, skill registry, A2A
 - Phase 4 complete: cockpit backend API all 6 waves delivered (graph, scoring, state, events, sessions, skills, MCP, intelligence)
-- **Phase 5 delivered (2026-04-13):** Sub-agent parallel orchestration — `SubAgentRunner`, `SubAgentPool`, `AgentDispatchPlanner`, `AgentHealthMonitor`, broker integration
+- **Phase 5 in progress:** Sub-agent parallel orchestration — `SubAgentRunner`, `SubAgentPool`, `AgentDispatchPlanner`, `AgentHealthMonitor`, broker integration
 - Cockpit frontend: separate project at `graphclaw-cockpit/` (HTML wireframes + React target)
 - API backlog: `docs/cockpit-backend-api-prd.md` (104 new endpoints, 6-wave build plan)
 - Test baseline: 1575 passing unit tests, 15 DB integration tests (require live Postgres+AGE)
