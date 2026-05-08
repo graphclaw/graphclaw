@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.scoring.factors.dependencies — Factor 2: Dependency Weight (W2=0.20).
 
 Description

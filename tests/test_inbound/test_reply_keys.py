@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """tests.test_inbound.test_reply_keys — FR-OUT-004 / FR-RES-002 unit tests.
 
 Tests ReplyKeyStore dual-write behavior:

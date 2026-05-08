@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.storage.minio_log_reader — MinIO NDJSON activity log reader."""
 
 from __future__ import annotations

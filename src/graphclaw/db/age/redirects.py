@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.db.age.redirects — TombstoneNode resolver primitive (FR-DEL-003).
 
 Description

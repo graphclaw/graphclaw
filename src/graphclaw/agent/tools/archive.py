@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.agent.tools.archive — Archive tool handlers (FR-DEL-002).
 
 Description

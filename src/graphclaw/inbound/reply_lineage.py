@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.inbound.reply_lineage — Reply thread lineage tracker (FR-RES-002).
 
 Description

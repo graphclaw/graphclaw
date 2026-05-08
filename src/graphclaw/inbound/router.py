@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.inbound.router — Inbound message routing classification (FR-IN-001).
 
 Description

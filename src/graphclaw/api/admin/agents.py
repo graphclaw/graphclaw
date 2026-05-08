@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.api.admin.agents — Multi-agent admin REST endpoints (FR-AM-001).
 
 Routes

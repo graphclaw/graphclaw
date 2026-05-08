@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.workers.heartbeat — Worker heartbeat utility (FR-DEL-005).
 
 Tracks liveness of long-running workers by writing a heartbeat key to Redis

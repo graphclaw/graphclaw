@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """Tests for draft->approval->execution plan lifecycle in MainOrchestrator."""
 
 from __future__ import annotations

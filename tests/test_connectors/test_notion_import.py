@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """tests.test_connectors.test_notion_import — Tests for NotionImportConnector.
 
 Description

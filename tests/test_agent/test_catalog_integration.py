@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """Integration tests for AgentCatalog — requires live MinIO.
 
 Connects to the MinIO instance started by docker-compose.

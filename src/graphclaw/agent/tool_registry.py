@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.agent.tool_registry — ToolSetRegistry: lazy two-tier tool loading.
 
 Description

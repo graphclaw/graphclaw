@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """End-to-end integration test for email inbound processing (DB + broker + storage)."""
 
 from __future__ import annotations

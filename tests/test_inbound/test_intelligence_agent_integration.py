@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """Integration tests for InboundIntelligenceAgent with real AGE + MinIO.
 
 Validates that intelligence extraction persists task intelligence to the graph

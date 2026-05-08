@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """tests.test_db.test_tombstone_resolver — FR-DEL-003 acceptance tests.
 
 Verifies resolve_canonical():

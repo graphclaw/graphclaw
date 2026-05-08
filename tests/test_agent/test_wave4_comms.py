@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """Tests for Wave 4: FR-CA-001, FR-CA-002, FR-CA-003.
 
 FR-CA-001: Channel-agnostic chat handler signature.

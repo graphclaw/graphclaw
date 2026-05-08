@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """Global pytest configuration for GraphClaw tests.
 
 Configures the asyncio event loop policy for Windows compatibility

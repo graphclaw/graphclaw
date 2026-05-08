@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.infra.logging.formatter — JsonFormatter for structured JSONL output.
 
 Serializes every LogRecord to a single JSONL line. All extra={} keys passed to

@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """tests.test_llm.test_openai — Unit tests for OpenAILLMClient.
 
 Uses sys.modules patching to stub the openai SDK so no real API calls

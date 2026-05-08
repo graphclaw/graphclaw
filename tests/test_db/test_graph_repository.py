@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """Integration tests for GraphRepository and dependency queries.
 
 These tests require a running Postgres + Apache AGE instance.

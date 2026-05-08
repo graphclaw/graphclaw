@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.workers — Background worker package.
 
 Workers are long-running async tasks that run via admin_principal and are

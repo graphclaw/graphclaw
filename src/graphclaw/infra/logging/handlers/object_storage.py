@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.infra.logging.handlers.object_storage — ObjectStorageHandler.
 
 Writes batched log records to S3/MinIO using synchronous boto3 called directly

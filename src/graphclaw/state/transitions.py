@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.state.transitions — Allowed task state transitions and InvalidTransitionError.
 
 Description

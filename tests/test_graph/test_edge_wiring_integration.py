@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """Integration tests for O-DB-02: OWNED_BY and ASSIGNED_TO edges are created.
 
 Verifies that after creating a task via:

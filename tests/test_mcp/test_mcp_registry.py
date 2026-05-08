@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """tests.test_mcp.test_mcp_registry — Unit tests for MCPRegistry.
 
 Description

@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """Unit tests for AgentCatalog two-tier caching behaviour.
 
 Tier 1 — in-process TTL for system manifests:

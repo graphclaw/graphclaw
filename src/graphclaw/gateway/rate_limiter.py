@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.gateway.rate_limiter — Token-bucket rate limiting middleware.
 
 Description

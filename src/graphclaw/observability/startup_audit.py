@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.observability.startup_audit — Wave 0 infrastructure config audit (FR-DEL-008).
 
 Description

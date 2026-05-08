@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """
 GC-U-API-W50-002 - validates historical activity and session summary APIs.
 

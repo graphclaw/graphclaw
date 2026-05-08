@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """Unit tests for file-driven gateway seeding behavior."""
 
 from __future__ import annotations

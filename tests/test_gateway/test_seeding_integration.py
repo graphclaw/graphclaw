@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """Integration tests for gateway seeding — requires live MinIO.
 
 Verifies that seed_system_content() correctly seeds all required objects

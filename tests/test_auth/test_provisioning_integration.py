@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """Integration tests for O-AUTH-01: UserProvisioningService wiring in auth callback.
 
 Tests verify that:

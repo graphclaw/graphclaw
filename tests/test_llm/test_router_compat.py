@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """tests.test_llm.test_router_compat — Tests for LLMRouter backward compatibility.
 
 Verifies that LLMRouter continues to return the same dict-based response

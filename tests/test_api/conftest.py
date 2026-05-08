@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """tests.test_api.conftest — Shared fakes and fixtures for API route tests.
 
 Provides in-memory ``FakeGraphStore`` and ``FakeStorageClient`` implementations

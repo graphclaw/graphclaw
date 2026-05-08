@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.scoring.factors.constraint — Factor 7: Constraint Pressure (W7=0.05).
 
 Description

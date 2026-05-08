@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """Integration tests for O-SM-04: autonomy guard in StateMachine.
 
 Verifies that AGENT-initiated state transitions are blocked when

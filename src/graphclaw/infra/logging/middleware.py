@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.infra.logging.middleware — HTTP request/response logging middleware.
 
 Sets session_id in ContextVar at request entry so all downstream loggers in

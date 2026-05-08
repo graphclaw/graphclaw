@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """tests/unit/test_wave5_sched.py — Wave 5 (FR-SCHED-001, FR-SCHED-002) tests.
 
 Covers:

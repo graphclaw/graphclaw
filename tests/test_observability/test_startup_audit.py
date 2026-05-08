@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """tests.test_observability.test_startup_audit — FR-DEL-008 acceptance tests.
 
 Verifies:

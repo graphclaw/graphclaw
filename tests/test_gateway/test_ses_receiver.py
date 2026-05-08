@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """Tests for graphclaw.gateway.channels.email.ses_receiver — SESEmailReceiver.
 
 Description

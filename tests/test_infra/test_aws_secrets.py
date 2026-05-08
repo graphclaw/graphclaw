@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """tests.test_infra.test_aws_secrets — Unit tests for AWSSecretsClient.
 
 Tests the AWS Secrets Manager client using a mock boto3 client so no real

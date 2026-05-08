@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """Tests for Wave 9 backend: FR-AM-001 multi-agent admin + FR-AE-001 reconciler.
 
 Covers:

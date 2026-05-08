@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """tests.test_models.test_node_aliases — FR-GRAPH-002 acceptance tests.
 
 Verifies:

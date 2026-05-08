@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.gateway.channels.telegram.normalizer — Telegram Update → InboundMessage.
 
 Translates Telegram Bot API Update objects (JSON dicts) into the

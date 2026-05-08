@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.agent.briefing — Human-readable briefing formatter for the agent action queue.
 
 Description

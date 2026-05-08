@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.mcp.adapters.base — Abstract base class for pre-built MCP adapters.
 
 Description

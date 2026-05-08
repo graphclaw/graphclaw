@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """GraphClaw agent package.
 
 Exports MainOrchestrator (and backward-compatible AgentLoop alias).

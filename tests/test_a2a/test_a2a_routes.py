@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """tests.test_a2a.test_a2a_routes — FastAPI route tests for A2A endpoints.
 
 Description

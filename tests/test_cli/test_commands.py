@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """Tests for GraphClaw CLI commands.
 
 Uses Typer's CliRunner to invoke commands with a mocked database layer.

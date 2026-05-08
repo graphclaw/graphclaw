@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.cli.agent_commands — Agent reasoning loop CLI sub-commands.
 
 Description

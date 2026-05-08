@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """Integration tests for O-SCR-02: ScoreExplanation persisted to AGE.
 
 Verifies that after score_task() and score_all():

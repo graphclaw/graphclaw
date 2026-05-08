@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.inbound.reply_keys — Dual-write reply-key substrate.
 
 Description

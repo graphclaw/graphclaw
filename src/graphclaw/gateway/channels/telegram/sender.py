@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.gateway.channels.telegram.sender — Telegram outbound message delivery.
 
 Sends text messages via the Telegram Bot API ``sendMessage`` method

@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.infra.logging.context — session_id ContextVar and SessionFilter.
 
 session_id is set once per request/task entry point via set_session_id() and

@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
 """Tests for graphclaw.gateway.rate_limiter — rate limiting middleware.

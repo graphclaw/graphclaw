@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.a2a.middleware — FastAPI dependency injection for A2A authentication.
 
 Description

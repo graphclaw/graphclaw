@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """tests.test_skills.test_parser — Unit tests for graphclaw.skills.parser.SkillParser.
 
 Description

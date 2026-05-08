@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.gateway.channels.whatsapp.normalizer — WhatsApp → InboundMessage.
 
 Translates the WhatsApp Cloud API webhook payload (a nested JSON dict) into

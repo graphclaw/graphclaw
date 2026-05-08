@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """tests.test_llm.test_base — Unit tests for graphclaw.llm.base data models and ABC.
 
 Verifies that all frozen dataclasses instantiate correctly, that field

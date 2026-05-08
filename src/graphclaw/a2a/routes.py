@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.a2a.routes — FastAPI routers for A2A key management and task updates.
 
 Description

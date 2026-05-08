@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.audit.immutable_log — Append-only audit log (FR-DEL-006/007).
 
 Every lifecycle-sensitive action — purge request, cancel, legal-hold set/release,

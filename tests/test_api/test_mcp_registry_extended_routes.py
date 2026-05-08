@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """tests.test_api.test_mcp_registry_extended_routes — Wave 5 MCP registry tests.
 
 Covers:

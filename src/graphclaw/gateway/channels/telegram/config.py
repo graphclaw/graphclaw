@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.gateway.channels.telegram.config — Telegram Bot API configuration.
 
 Reads Telegram Bot credentials from environment variables.

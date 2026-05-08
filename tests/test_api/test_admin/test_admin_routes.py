@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """tests.test_api.test_admin.test_admin_routes — Admin panel endpoint tests.
 
 Covers all 9 admin modules:

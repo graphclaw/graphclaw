@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """Tests for the ScoringEngine — full pipeline and weight application.
 
 These tests exercise score_task() with known inputs and verify the

@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.agent.policies.loader — Load and Redis-cache per-user policy files.
 
 Description

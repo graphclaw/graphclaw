@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """Tests for graphclaw.gateway.channels.email — EmailPoller and send_email.
 
 All IMAP and SMTP interactions are mocked so no real network connections

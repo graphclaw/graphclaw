@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.workers.distillation_worker — Distillation outbox worker (FR-RES-001).
 
 Description

@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """Shared fixtures for admin API tests."""
 
 from __future__ import annotations

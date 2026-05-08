@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """Integration tests for O-SM-03: state_history persisted and retrievable.
 
 Verifies that after POST /tasks/{id}/transition:

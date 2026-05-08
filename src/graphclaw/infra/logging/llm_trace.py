@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.infra.logging.llm_trace — Isolated LLM prompt/completion trace logger.
 
 The "graphclaw.llm.trace" logger is completely isolated from the main logging

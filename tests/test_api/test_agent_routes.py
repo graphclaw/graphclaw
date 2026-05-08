@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """tests.test_api.test_agent_routes — Tests for /app/v1/agent/* endpoints.
 
 Description

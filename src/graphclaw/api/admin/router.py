@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.api.admin.router — Aggregated admin sub-router.
 
 Collects all admin API sub-routers and exposes a single ``admin_router``

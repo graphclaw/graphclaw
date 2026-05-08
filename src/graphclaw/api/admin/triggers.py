@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.api.admin.triggers — Admin endpoints for trigger tuning (FR-SCHED-001).
 
 Description

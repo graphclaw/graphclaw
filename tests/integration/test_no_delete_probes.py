@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """tests.integration.test_no_delete_probes — Wave 0 anti-delete CI probes.
 
 These integration tests run against the live Docker stack (requires

@@ -1,6 +1,6 @@
 # GraphClaw — Graph-Based Task Orchestration System
 
-[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/)
 [![Tests](https://img.shields.io/badge/tests-485%2B%20passing-green)]()
 
@@ -192,6 +192,10 @@ PENDING → ACTIVE → IN_PROGRESS → COMPLETE (terminal)
         → SNOOZED → ACTIVE
         → INACTIVE_PENDING → ACTIVE (on predecessor completion)
 ```
+
+## License
+
+Copyright 2026 Abhishek Gupta. Licensed under the [Apache License 2.0](LICENSE).
 
 ## Build Phases
 

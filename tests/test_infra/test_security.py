@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
 """Tests for infra.security — WAF, encryption, and security stack config (WS-5-J).

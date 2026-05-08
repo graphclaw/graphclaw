@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.cascade.detachment — Counterparty detachment cascade (FR-AD-001).
 
 Description

@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.triggers.follow_up — FollowUpTrigger service (FR-SCHED-001).
 
 Description

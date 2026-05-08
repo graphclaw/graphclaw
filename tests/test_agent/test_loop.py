@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """Tests for AgentLoop — scoring cycle, scoring context, and briefing.
 
 All database calls are mocked via AsyncMock so no live DB is required.

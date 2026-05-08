@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """
 GC-U-INF-W50-001 - validates object storage log handler path partitioning and batching.
 

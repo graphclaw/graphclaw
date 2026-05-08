@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """tests.test_api.test_settings_extended_routes — Tests for extended /settings/* endpoints.
 
 Description

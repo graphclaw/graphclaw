@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.scoring.factors.critical_path — Factor 3: Critical Path Score (W3=0.20).
 
 Description

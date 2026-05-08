@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """tests.test_gateway.test_whatsapp — Unit tests for WhatsApp channel adapter.
 
 Tests the normalizer, config, sender, and adapter independently using mocks

@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """tests.test_auth.test_principals — FR-DEL-001 unit acceptance tests.
 
 Verifies Principal enum, DSN resolution, AgeGraphStore principal tracking,

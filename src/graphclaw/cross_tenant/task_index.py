@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.cross_tenant.task_index — Org task index read/write API (FR-XT-001).
 
 Description

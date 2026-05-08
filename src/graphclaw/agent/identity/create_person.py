@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.agent.identity.create_person — Create-person-via-dialog FSM (FR-ID-003).
 
 Description

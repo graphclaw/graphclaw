@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """tests.test_models.test_user_preferences — FR-GRAPH-005 acceptance tests.
 
 Verifies:

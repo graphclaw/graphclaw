@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.gateway.seeding — Idempotent system content seeder.
 
 Seeds the following objects into MinIO on gateway startup if they don't already exist:

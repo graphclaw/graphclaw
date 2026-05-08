@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """tests.test_agent.test_archive_tools — W0-PR6 acceptance tests (FR-DEL-002).
 
 Verifies:

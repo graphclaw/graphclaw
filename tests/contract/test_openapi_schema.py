@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """
 GC-K-API-W12-001 — OpenAPI schema conformance via schemathesis
 

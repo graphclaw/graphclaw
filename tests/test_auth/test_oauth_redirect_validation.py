@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """tests.test_auth.test_oauth_redirect_validation — OAuth redirect URI hardening tests."""
 
 from __future__ import annotations

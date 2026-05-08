@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.llm.logging_mixin — LLMTraceMixin for tracing LLM calls.
 
 Mixin class for AnthropicLLMClient and OpenAILLMClient. Records every

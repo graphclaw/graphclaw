@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.state.cascade — Composite completion cascade and shared transition helpers.
 
 Description

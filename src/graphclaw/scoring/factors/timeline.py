@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.scoring.factors.timeline — Factor 1: Timeline Urgency (W1=0.25).
 
 Description

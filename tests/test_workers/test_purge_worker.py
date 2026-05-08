@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """tests.test_workers — Unit tests for purge worker + heartbeat.
 
 Tests cover:

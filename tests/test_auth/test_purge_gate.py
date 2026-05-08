@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """tests.test_auth.test_purge_gate — Unit tests for pending-purge gate (FR-DEL-004).
 
 Tests cover:

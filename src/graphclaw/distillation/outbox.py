@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.distillation.outbox — Idempotent distillation outbox (FR-RES-001).
 
 Description

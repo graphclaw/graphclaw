@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """Edge-case guard tests for scoring factors and briefing formatting."""
 
 from __future__ import annotations

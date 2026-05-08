@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """Tests for graphclaw.inbound.models — Domain model instantiation and defaults.
 
 Description

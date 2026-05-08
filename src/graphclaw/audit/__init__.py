@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.audit — Immutable audit-log package.
 
 Provides an append-only, tamper-evident audit log (FR-DEL-006/007/003).

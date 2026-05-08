@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """Integration tests for POST /app/v1/chat/messages/stream.
 
 Tests the streaming route against a real FastAPI TestClient with a real

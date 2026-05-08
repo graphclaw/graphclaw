@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.agent.distillation — Shared post-turn distillation helper (FR-CA-002).
 
 Description

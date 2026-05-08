@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """Integration tests for UserEventPublisher implementations.
 
 Tests ``RedisUserEventPublisher`` against a live Redis instance and

@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """tests.test_models.test_org_directory_visibility — FR-GRAPH-006 acceptance tests.
 
 Verifies:

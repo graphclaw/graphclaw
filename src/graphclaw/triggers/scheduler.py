@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.triggers.scheduler — In-memory cron-like scheduled trigger checker.
 
 Description

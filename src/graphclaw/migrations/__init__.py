@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.migrations — Forward-only schema migration system.
 
 Re-exports the public API from the sub-modules so callers can import directly

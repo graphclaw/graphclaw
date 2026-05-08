@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """Integration tests for AgentLoop.process_chat_message_stream.
 
 Tests use real PostgreSQL+AGE and MinIO backends.  No stubs or mocks for

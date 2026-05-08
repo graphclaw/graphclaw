@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """Integration tests for AgentLoop new tool handlers.
 
 Tests load_tool_set, read_knowledge, list_available_agents, list_tasks

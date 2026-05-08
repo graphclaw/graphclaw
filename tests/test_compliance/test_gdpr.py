@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """Tests for graphclaw.compliance.gdpr — GDPRService."""
 # Copyright 2024 GraphClaw Contributors
 #

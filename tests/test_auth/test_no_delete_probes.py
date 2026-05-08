@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """tests.test_auth.test_no_delete_probes — FR-DEL-001 / NFR-005 probe tests.
 
 Unit tests verifying the startup_assert_no_delete probe behaviour:

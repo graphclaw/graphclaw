@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.cross_tenant.reconciler — Org-task-index reconciliation (FR-AE-001).
 
 Description

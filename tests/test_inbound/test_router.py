@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """Tests for FR-IN-001: InboundRouter message classification.
 
 FR-IN-001: Classify inbound messages into route decisions.

@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.api.admin.judge — LLM-as-a-Judge configuration and results endpoints.
 
 Routes

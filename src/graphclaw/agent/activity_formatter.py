@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.agent.activity_formatter — Plain-language activity event formatter.
 
 Converts structured log records into short human-readable messages for

@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.api.admin.org_lifecycle — Organization archive endpoints (FR-DEL-009).
 
 Routes

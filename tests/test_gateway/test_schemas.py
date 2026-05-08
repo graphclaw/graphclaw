@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """Tests for graphclaw.gateway.schemas — InboundMessage and OutboundMessage models."""
 
 from __future__ import annotations

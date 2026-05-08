@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """tests.integration.test_principals — FR-DEL-001 acceptance tests.
 
 Verifies that the Principal enum resolves correctly, that the AgeGraphStore

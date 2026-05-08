@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """tests.test_gateway.test_context_cache — Unit tests for ConversationContextCache.
 
 Tests the Redis-backed context cache using a mock Redis client so no real

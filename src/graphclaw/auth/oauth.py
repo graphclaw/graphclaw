@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.auth.oauth — OAuth 2.0 + PKCE helpers for Google, GitHub, and Microsoft.
 
 Description

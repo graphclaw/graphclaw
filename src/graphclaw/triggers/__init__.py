@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.triggers — Trigger engine for time-based, event-based, inbound, and on-demand triggers.
 
 Description

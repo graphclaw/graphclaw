@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """tests.test_api.test_policy_routes — FR-STORE-002 / FR-POL-001 API tests.
 
 Verifies GET and PUT /app/v1/agents/{agent_id}/policies/{policy_name}:

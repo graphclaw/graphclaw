@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """tests.test_models.test_org_models — Unit tests for Phase 2 org/workspace models.
 
 Tests OrganizationNode, WorkspaceNode, OrgMember, OrgSettings, and the new

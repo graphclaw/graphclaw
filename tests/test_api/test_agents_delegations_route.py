@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """
 GC-U-API-W50-001 - exposes active sub-agent delegations for the cockpit agents panel.
 

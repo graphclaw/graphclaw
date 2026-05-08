@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.agent.onboarding — Onboarding FSM for first-run experience (FR-ID-001).
 
 Description

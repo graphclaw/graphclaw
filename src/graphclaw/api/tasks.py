@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.api.tasks — Inbound/outbound communication log endpoints."""
 
 from __future__ import annotations

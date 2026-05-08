@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.gateway.channels.whatsapp.sender — WhatsApp outbound message delivery.
 
 Sends text messages via the WhatsApp Cloud API using ``httpx`` async HTTP.

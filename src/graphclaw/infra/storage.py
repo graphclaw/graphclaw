@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.infra.storage — StorageClient ABC, S3StorageClient, and StoragePaths.
 
 Description

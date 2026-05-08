@@ -1,3 +1,5 @@
+﻿# Copyright 2026 Abhishek Gupta
+# SPDX-License-Identifier: Apache-2.0
 """graphclaw.workers.purge_worker — Scheduled purge worker (FR-DEL-005).
 
 Runs under admin_principal.  On each tick, queries for nodes that are:
