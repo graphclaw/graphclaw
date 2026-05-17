@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """graphclaw.agent.sub_agent_runner — SubAgentRunner: executes delegated tasks autonomously.
 
@@ -365,6 +365,7 @@ class SubAgentRunner:
 
         system_prompt = await self._build_system_prompt(job)
         messages: list[LLMMessage] = [
+            LLMMessage(role="system", content=system_prompt),
             LLMMessage(
                 role="user",
                 content=(
@@ -374,20 +375,19 @@ class SubAgentRunner:
                     f"Use the available tools to complete this task. "
                     f"Report your findings and actions clearly."
                 ),
-            )
+            ),
         ]
         tools = self._build_tools()
 
         for iteration in range(_MAX_ITERATIONS):
             response = await self._llm.complete(
                 messages=messages,
-                system=system_prompt,
                 tools=tools,
                 max_tokens=4096,
             )
 
             # Emit progress on each iteration
-            content_text = response.get("content", "")
+            content_text = response.content
             if content_text:
                 await self._emit(
                     AgentUpdateEventType.PROGRESS,
@@ -396,7 +396,7 @@ class SubAgentRunner:
                 )
                 self._audit_progress(job, message=content_text[:200], iteration=iteration)
 
-            tool_calls = response.get("tool_use", [])
+            tool_calls = response.tool_calls
             if not tool_calls:
                 # No more tool calls — done
                 break
@@ -404,23 +404,21 @@ class SubAgentRunner:
             # Execute each tool call and append results
             tool_results = []
             for tool_call in tool_calls:
-                tool_name = tool_call.get("name", "")
-                tool_input = tool_call.get("input", {})
-                tool_id = tool_call.get("id", f"tool-{uuid.uuid4().hex[:8]}")
+                tool_name = tool_call.name
+                tool_input = tool_call.arguments
+                tool_id = tool_call.id
                 result = await self._dispatch_tool(tool_name, tool_input, job)
                 tool_results.append(
                     LLMMessage(
                         role="tool",
                         content=json.dumps(result),
-                        tool_use_id=tool_id,
+                        tool_call_id=tool_id,
                     )
                 )
 
             # Append assistant turn + tool results to conversation
             messages.append(
-                LLMMessage(
-                    role="assistant", content=response.get("content", ""), tool_use=tool_calls
-                )
+                LLMMessage(role="assistant", content=response.content, tool_calls=tool_calls)
             )
             messages.extend(tool_results)
 
@@ -518,31 +516,41 @@ class SubAgentRunner:
                     except Exception as exc:
                         logger.debug("SubAgentRunner: could not load episodic memory: %s", exc)
 
-                    # Load semantic memory (knowledge.md first, then alphabetical)
-                    semantic_prefix = StoragePaths.agent_memory_semantic_prefix(
-                        user_id, job.agent_id
-                    )
+                    # Load semantic memory index (topics loaded on demand via read_memory tool)
                     try:
-                        semantic_keys = await self._storage.list_objects(semantic_prefix)
-                        md_keys = [k for k in semantic_keys if k.endswith(".md")]
-                        md_keys.sort(key=lambda k: (0 if k.endswith("/knowledge.md") else 1, k))
-                        semantic_sections: list[str] = []
-                        for key in md_keys:
-                            try:
-                                sem_bytes = await self._storage.read(key)
-                                sem_text = sem_bytes.decode(errors="replace")
-                                topic = key.split("/")[-1].removesuffix(".md")
-                                section = f"\n### {topic}\n{sem_text}\n"
-                                if (used_chars + len(section)) / chars_per_token > token_budget:
-                                    break
-                                semantic_sections.append(section)
-                                used_chars += len(section)
-                            except FileNotFoundError:
-                                continue
-                        if semantic_sections:
-                            base += "\n## Semantic Knowledge\n" + "".join(semantic_sections)
+                        from graphclaw.api.intelligence import SemanticMemoryIndex
+
+                        index_path = StoragePaths.agent_memory_semantic_index(user_id, job.agent_id)
+                        index_bytes = await self._storage.read(index_path)
+                        index = SemanticMemoryIndex.model_validate_json(index_bytes)
+                        if index.topics:
+                            topic_names = [t.name for t in index.topics]
+                            lines = [f"- **{t.name}**: {t.description}" for t in index.topics]
+                            base += (
+                                "\n## Semantic Memory\n"
+                                "The following knowledge topics are available. "
+                                "Use the `read_memory` tool to load any topic before using it.\n\n"
+                                + "\n".join(lines)
+                                + "\n"
+                            )
+                            logger.info(
+                                "agent.semantic_memory_index_loaded",
+                                extra={
+                                    "event_type": "agent.semantic_memory_index_loaded",
+                                    "user_id": user_id,
+                                    "agent_id": job.agent_id,
+                                    "task_id": job.task_id,
+                                    "session_id": job.session_id,
+                                    "topic_names": topic_names,
+                                    "section": "Semantic Memory",
+                                },
+                            )
+                    except FileNotFoundError:
+                        pass  # No index yet — no semantic memory section
                     except Exception as exc:
-                        logger.debug("SubAgentRunner: could not load semantic memory: %s", exc)
+                        logger.debug(
+                            "SubAgentRunner: could not load semantic memory index: %s", exc
+                        )
 
             except Exception as exc:
                 logger.debug("SubAgentRunner: could not load profile/context: %s", exc)
@@ -588,16 +596,19 @@ class SubAgentRunner:
         except Exception as exc:  # noqa: BLE001
             logger.debug("SubAgentRunner: could not write context note: %s", exc)
 
-    def _build_tools(self) -> list[dict[str, Any]]:
+    def _build_tools(self) -> list[Any]:
         """Return the tool definitions available to sub-agents.
 
-        Sub-agents can only invoke skills and MCP tools (no delegation).
+        Sub-agents can invoke skills, MCP tools, and read semantic memory.
+        Delegation is excluded (flat delegation only).
         """
+        from graphclaw.llm.base import ToolDefinition as _TD  # local import
+
         return [
-            {
-                "name": "invoke_skill",
-                "description": "Invoke a skill by name to perform a specific task.",
-                "input_schema": {
+            _TD(
+                name="invoke_skill",
+                description="Invoke a skill by name to perform a specific task.",
+                parameters={
                     "type": "object",
                     "properties": {
                         "skill_name": {
@@ -615,11 +626,11 @@ class SubAgentRunner:
                     },
                     "required": ["skill_name", "task_id"],
                 },
-            },
-            {
-                "name": "call_mcp_tool",
-                "description": "Call an external MCP tool (GitHub, Calendar, Slack, etc.).",
-                "input_schema": {
+            ),
+            _TD(
+                name="call_mcp_tool",
+                description="Call an external MCP tool (GitHub, Calendar, Slack, etc.).",
+                parameters={
                     "type": "object",
                     "properties": {
                         "server_id": {"type": "string", "description": "MCP server ID."},
@@ -631,16 +642,16 @@ class SubAgentRunner:
                     },
                     "required": ["server_id", "tool_name"],
                 },
-            },
-            {
-                "name": "update_working_memory",
-                "description": (
+            ),
+            _TD(
+                name="update_working_memory",
+                description=(
                     "Append a concise, factual note to your working memory context.md. "
                     "Call this after each significant finding, decision, or completed action "
                     "so your activity is visible in the Intelligence Hub timeline. "
                     "Notes must be one sentence, factual, and free of PII."
                 ),
-                "input_schema": {
+                parameters={
                     "type": "object",
                     "properties": {
                         "note": {
@@ -650,7 +661,24 @@ class SubAgentRunner:
                     },
                     "required": ["note"],
                 },
-            },
+            ),
+            _TD(
+                name="read_memory",
+                description=(
+                    "Load a specific semantic memory topic into context. "
+                    "Call this when you need knowledge from a topic listed in the Semantic Memory index."
+                ),
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "topic": {
+                            "type": "string",
+                            "description": "The topic name exactly as shown in the Semantic Memory index.",
+                        },
+                    },
+                    "required": ["topic"],
+                },
+            ),
         ]
 
     async def _dispatch_tool(
@@ -690,6 +718,16 @@ class SubAgentRunner:
             return await self._execute_tool_with_retries(
                 tool_name=tool_name,
                 op=lambda: self._tool_update_working_memory(tool_input, job),
+                retry_allowed=False,
+                is_retryable_result=lambda _result: False,
+                job=job,
+                task_id=job.task_id,
+            )
+
+        if tool_name == "read_memory":
+            return await self._execute_tool_with_retries(
+                tool_name=tool_name,
+                op=lambda: self._tool_read_memory(tool_input, job),
                 retry_allowed=False,
                 is_retryable_result=lambda _result: False,
                 job=job,
@@ -891,6 +929,36 @@ class SubAgentRunner:
             logger.warning("SubAgentRunner: update_working_memory failed: %s", exc)
             return {"error": str(exc)}
 
+    async def _tool_read_memory(self, args: dict[str, Any], job: AgentJobEvent) -> dict[str, Any]:
+        """Load a semantic memory topic file into context."""
+        topic = str(args.get("topic", "")).strip()
+        if not topic:
+            return {"error": "topic must be a non-empty string"}
+        if self._storage is None:
+            return {"error": "Storage not available."}
+        try:
+            from graphclaw.infra.storage import StoragePaths  # noqa: PLC0415
+
+            path = StoragePaths.agent_memory_semantic_topic(job.user_id, job.agent_id, topic)
+            content = (await self._storage.read(path)).decode(errors="replace")
+            logger.info(
+                "agent.read_memory",
+                extra={
+                    "event_type": "agent.read_memory",
+                    "user_id": job.user_id,
+                    "agent_id": job.agent_id,
+                    "task_id": job.task_id,
+                    "session_id": job.session_id,
+                    "topic": topic,
+                },
+            )
+            return {"topic": topic, "content": content}
+        except FileNotFoundError:
+            return {"error": f"Semantic memory topic '{topic}' not found."}
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("SubAgentRunner: read_memory failed topic=%s: %s", topic, exc)
+            return {"error": str(exc)}
+
     async def _tool_call_mcp(self, args: dict[str, Any]) -> dict[str, Any]:
         """Call an MCP tool via the MCP registry."""
         if self._mcp_registry is None:
@@ -984,7 +1052,7 @@ class SubAgentRunner:
                 "agent_id": job.agent_id,
                 "task_id": job.task_id,
                 "session_id": job.session_id,
-                "message": message,
+                "progress_message": message,
                 "iteration": iteration,
             },
         )
