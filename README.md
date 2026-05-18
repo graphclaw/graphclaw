@@ -77,6 +77,9 @@ cp docker/.env.example docker/.env
 docker compose -f docker/docker-compose.yml up -d
 ```
 
+Note: this Docker workflow reads environment variables from `docker/.env`.
+For non-Docker local runs (for example CLI or direct Python execution), use the repository root `.env`.
+
 This starts Postgres+AGE+pgvector, MinIO, Redis, and the gateway service.
 
 ### 2. Install the project

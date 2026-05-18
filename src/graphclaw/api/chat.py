@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """graphclaw.api.chat — Conversational agent chat endpoints.
 
@@ -68,6 +68,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 _HISTORY_MAX = 200  # keep only the last N messages
+_LLM_NOT_CONFIGURED_MESSAGE = (
+    "LLM is not configured for this environment. "
+    "Set ANTHROPIC_API_KEY or OPENAI_API_KEY (or configure cloud secrets) and restart the service."
+)
 
 # ---------------------------------------------------------------------------
 # Storage helpers
@@ -82,7 +86,8 @@ async def _load_history(user_id: str, storage_client) -> list[dict[str, Any]]:
     try:
         raw = await storage_client.read(_history_path(user_id))
         return json.loads(raw.decode())
-    except Exception:  # noqa: BLE001 — treat any storage failure as empty history
+    except Exception as exc:  # noqa: BLE001 — treat any storage failure as empty history
+        logger.warning("chat: failed to load history for user_id=%s: %s", user_id, exc)
         return []
 
 
@@ -125,9 +130,67 @@ class ChatResponse(BaseModel):
     agent_message: ChatMessage
 
 
+class ChatRuntimeResponse(BaseModel):
+    """Runtime LLM metadata used by the chat orchestrator."""
+
+    provider: str = "unknown"
+    model: str = "unknown"
+    connected: bool = False
+
+
+def _provider_from_llm_client(llm_client: Any | None) -> str:
+    """Infer provider name from the configured LLM client instance."""
+    if llm_client is None:
+        return "unavailable"
+
+    class_name = llm_client.__class__.__name__.lower()
+    if "anthropic" in class_name:
+        return "anthropic"
+    if "openai" in class_name:
+        return "openai"
+    if "litellm" in class_name:
+        return "litellm"
+
+    normalized = class_name.removesuffix("llmclient")
+    return normalized or "unknown"
+
+
+def _model_from_llm_client(llm_client: Any | None) -> str:
+    """Best-effort model extraction from known LLM client implementations."""
+    if llm_client is None:
+        return "unknown"
+
+    value = getattr(llm_client, "_default_model", None)
+    if isinstance(value, str) and value.strip():
+        return value
+    return "unknown"
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/runtime",
+    response_model=ChatRuntimeResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get chat runtime LLM metadata",
+    description=(
+        "Return the active LLM provider/model currently bound to the chat "
+        "orchestrator in this process."
+    ),
+)
+async def get_chat_runtime(request: Request) -> ChatRuntimeResponse:
+    """Return runtime LLM metadata for the chat orchestrator."""
+    agent_loop = getattr(request.app.state, "agent_loop", None)
+    llm_client = getattr(agent_loop, "llm_client", None) if agent_loop is not None else None
+
+    return ChatRuntimeResponse(
+        provider=_provider_from_llm_client(llm_client),
+        model=_model_from_llm_client(llm_client),
+        connected=llm_client is not None,
+    )
 
 
 @router.get(
@@ -148,12 +211,18 @@ async def get_chat_history(
 ) -> ChatHistoryResponse:
     """Return paginated chat history for the authenticated user."""
     history = await _load_history(user_id, storage_client)
-    start = int(cursor) if cursor and cursor.isdigit() else 0
+    # Without a cursor, return the most recent `limit` messages.
+    # With a cursor (integer offset from the start), return from that offset — used
+    # to page backwards through older messages.
+    if cursor and cursor.isdigit():
+        start = int(cursor)
+    else:
+        start = max(0, len(history) - limit)
     page = history[start : start + limit]
-    next_cursor = str(start + limit) if start + limit < len(history) else None
+    prev_cursor = str(max(0, start - limit)) if start > 0 else None
     return ChatHistoryResponse(
         messages=[ChatMessage(**m) for m in page],
-        next_cursor=next_cursor,
+        next_cursor=prev_cursor,
     )
 
 
@@ -238,12 +307,18 @@ async def _generate_agent_response(
     """Try to get an AI response from AgentLoop; fall back to a placeholder."""
     agent_loop = getattr(request.app.state, "agent_loop", None)
     if agent_loop is not None and hasattr(agent_loop, "process_chat_message"):
+        if getattr(agent_loop, "llm_client", None) is None:
+            return _LLM_NOT_CONFIGURED_MESSAGE
         try:
+            org_id: str = getattr(request.state, "org_id", None) or request.headers.get(
+                "X-Org-Id", "default"
+            )
             return await agent_loop.process_chat_message(
                 user_id,
                 user_text,
                 conversation_history=history,
                 session_id=session_id,
+                org_id=org_id,
             )
         except Exception as exc:
             logger.warning("chat: agent_loop.process_chat_message failed: %s", exc)
@@ -302,8 +377,32 @@ async def send_chat_message_stream(
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
+    if getattr(agent_loop, "llm_client", None) is None:
+        import json as _json  # noqa: PLC0415
+
+        payload = _json.dumps(
+            {
+                "event_type": "run.failed",
+                "payload": {
+                    "schema_version": "1.0",
+                    "error_class": "LLMNotConfigured",
+                    "error_message": _LLM_NOT_CONFIGURED_MESSAGE,
+                    "duration_ms": 0,
+                },
+            }
+        )
+        fallback = f"event: run.failed\ndata: {payload}\n\n"
+        return StreamingResponse(
+            iter([fallback]),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
     from graphclaw.api.chat_streaming import stream_chat_run  # noqa: PLC0415
 
+    org_id_stream: str = getattr(request.state, "org_id", None) or request.headers.get(
+        "X-Org-Id", "default"
+    )
     generator = stream_chat_run(
         agent_loop=agent_loop,
         storage_client=storage_client,
@@ -311,6 +410,7 @@ async def send_chat_message_stream(
         text=body.content,
         history=history,
         session_id=session_id,
+        org_id=org_id_stream,
     )
     return StreamingResponse(
         generator,

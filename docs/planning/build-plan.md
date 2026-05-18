@@ -37,6 +37,52 @@
 - `docs/archive/build-timeline.md`
 - `docs/redirects.md`
 
+## Active Implementation Task (2026-05-17) 🔄 IN PROGRESS
+
+**Task:** P0 observability and notifications hardening (cross-repo backend/cockpit).
+
+**Scope started:**
+- SSE contract alignment between backend event publishers and cockpit consumers.
+- Cockpit SSE lifecycle wiring on authenticated session start/stop.
+- Logging framework hardening follow-up for DEBUG prompt/completion trace coverage.
+- Structured broker/worker lifecycle logging for queue and skill execution visibility.
+
+**Execution order:**
+1. Fix backend/cockpit SSE payload + event-name mismatch.
+2. Wire live SSE connection lifecycle in cockpit auth provider.
+3. Validate notification badge/panel live updates for `notification.new`.
+4. Continue with provider parity and logging coverage improvements.
+5. Add regression tests for SSE payload contract and structured logging emit points.
+
+**Task:** Scoring weights runtime wiring (backend-first).
+
+**Scope started:**
+- Load persisted per-user W1-W7 scoring weights into orchestrator scoring cycles.
+- Ensure next scoring cycle re-evaluates existing active tasks after weights update.
+- Preserve current in-place scoring block overwrite behavior (no immutable score-history store in this wave).
+- Keep Settings persistence/rehydration contract and add regression coverage.
+
+**Execution order:**
+1. Wire per-user weight loading into `run_cycle` before `score_all`.
+2. Invalidate scoring cache/queue scope after `PATCH /settings/scoring-weights`.
+3. Verify existing + future tasks score with updated weights on next cycle.
+4. Add/extend unit + integration + API tests for runtime effect and user isolation.
+
+**Task:** Simple key-driven LLM provider selection (local + cloud).
+
+**Scope started:**
+- Replace static Anthropic startup binding with key-availability-based provider selection.
+- Keep local deployment behavior on env-file-backed secrets; use the same selection policy on cloud secret backends.
+- Add `GRAPHCLAW_DEFAULT_LLM_PROVIDER` for the both-keys-present case (default: anthropic; option: openai).
+- Keep app startup healthy when no key exists and surface explicit "LLM not configured" messaging in chat.
+
+**Execution order:**
+1. Add startup selector for Anthropic/OpenAI key availability.
+2. Wire selected provider into `create_llm_client(provider, api_key=...)`.
+3. Skip LLM-dependent worker/subagent pools when no key is configured.
+4. Return explicit not-configured feedback from sync and stream chat endpoints.
+5. Add regression tests for provider selection and no-key chat behavior.
+
 ---
 
 ## Phased Implementation Plan

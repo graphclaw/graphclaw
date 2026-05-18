@@ -113,6 +113,8 @@ services:
       PYTHONPATH: /app
       ENVIRONMENT: development
       DATABASE_URL: postgresql://graphclaw:${DB_PASSWORD:-graphclaw_dev}@db:5432/graphclaw
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_SINKS: ${LOG_SINKS:-stdout,object_storage}
       # Wave 0: No-Delete principle — flag on after W0-PR1-PR9 all green
       GRAPHCLAW_NO_DELETE_ENFORCEMENT: ${GRAPHCLAW_NO_DELETE_ENFORCEMENT:-true}
       AGENT_PRINCIPAL_DSN: postgresql://agent_principal:${AGENT_PRINCIPAL_SECRET:-agent_secret_change_me}@db:5432/graphclaw
@@ -120,6 +122,8 @@ services:
       MIGRATION_PRINCIPAL_DSN: postgresql://migration_principal:${MIGRATION_PRINCIPAL_SECRET:-migration_secret_change_me}@db:5432/graphclaw
       SECRETS_BACKEND: env_file
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GRAPHCLAW_DEFAULT_LLM_PROVIDER: ${GRAPHCLAW_DEFAULT_LLM_PROVIDER:-anthropic}
       REDIS_URL: redis://redis:6379
       STORAGE_ENDPOINT_URL: http://minio:9000
       STORAGE_BUCKET: graphclaw
@@ -189,6 +193,8 @@ services:
       DATABASE_URL: postgresql://graphclaw:${DB_PASSWORD:-graphclaw_dev}@db:5432/graphclaw
       SECRETS_BACKEND: env_file
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GRAPHCLAW_DEFAULT_LLM_PROVIDER: ${GRAPHCLAW_DEFAULT_LLM_PROVIDER:-anthropic}
       REDIS_URL: redis://redis:6379
       STORAGE_ENDPOINT_URL: http://minio:9000
       STORAGE_BUCKET: graphclaw

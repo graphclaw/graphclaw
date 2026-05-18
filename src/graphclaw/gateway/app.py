@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """graphclaw.gateway.app — FastAPI application factory for the channel gateway.
 
@@ -75,6 +75,12 @@ from graphclaw.infra.broker import INBOUND_MESSAGES, MessageBroker
 logger = logging.getLogger(__name__)
 
 _CRITICAL_DEPENDENCIES = ("broker", "database", "storage")
+_DEFAULT_LLM_PROVIDER = "anthropic"
+_DEFAULT_LLM_PROVIDER_ENV = "GRAPHCLAW_DEFAULT_LLM_PROVIDER"
+_LLM_PROVIDER_SECRET_CANDIDATES: dict[str, tuple[str, ...]] = {
+    "anthropic": ("ANTHROPIC_API_KEY", "graphclaw/org/llm/anthropic"),
+    "openai": ("OPENAI_API_KEY", "graphclaw/org/llm/openai"),
+}
 
 
 def _build_dependency_status(ok: bool, reason: str = "", critical: bool = True) -> dict[str, Any]:
@@ -106,6 +112,67 @@ def _compute_readiness(app: FastAPI) -> tuple[bool, dict[str, dict[str, Any]]]:
                 is_ready = False
                 break
     return is_ready, dependencies
+
+
+def _normalize_default_provider(raw: str | None) -> str:
+    """Normalize and validate the default LLM provider env value."""
+    candidate = (raw or _DEFAULT_LLM_PROVIDER).strip().lower()
+    if candidate in _LLM_PROVIDER_SECRET_CANDIDATES:
+        return candidate
+    logger.warning(
+        "GraphClaw: invalid %s=%s; defaulting to %s",
+        _DEFAULT_LLM_PROVIDER_ENV,
+        raw,
+        _DEFAULT_LLM_PROVIDER,
+    )
+    return _DEFAULT_LLM_PROVIDER
+
+
+async def _read_first_available_secret(secrets_client: Any, keys: tuple[str, ...]) -> str | None:
+    """Return the first non-empty secret value available from candidate keys."""
+    for key in keys:
+        try:
+            value = await secrets_client.get_secret(key)
+        except KeyError:
+            continue
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("GraphClaw: failed reading secret '%s': %s", key, exc)
+            continue
+
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+async def _select_startup_llm_provider_and_key(secrets_client: Any) -> tuple[str | None, str | None]:
+    """Select startup LLM provider and API key using key-availability policy.
+
+    Policy:
+    - if only one provider key exists, select that provider
+    - if both exist, select by GRAPHCLAW_DEFAULT_LLM_PROVIDER
+    - if none exist, return (None, None)
+    """
+    anthropic_key = await _read_first_available_secret(
+        secrets_client,
+        _LLM_PROVIDER_SECRET_CANDIDATES["anthropic"],
+    )
+    openai_key = await _read_first_available_secret(
+        secrets_client,
+        _LLM_PROVIDER_SECRET_CANDIDATES["openai"],
+    )
+
+    if anthropic_key and openai_key:
+        default_provider = _normalize_default_provider(os.getenv(_DEFAULT_LLM_PROVIDER_ENV))
+        if default_provider == "openai":
+            return "openai", openai_key
+        return "anthropic", anthropic_key
+
+    if anthropic_key:
+        return "anthropic", anthropic_key
+    if openai_key:
+        return "openai", openai_key
+
+    return None, None
 
 
 def create_app(broker: MessageBroker | None = None) -> FastAPI:
@@ -172,6 +239,7 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
             database_url = os.environ.get("DATABASE_URL", "")
             if database_url:
                 _db_pool = await create_pgbouncer_pool()
+                app.state.pool = _db_pool  # exposed for NotificationService
                 app.state.graph_store = create_graph_store("age", pool=_db_pool)
                 app.state.query_engine = create_query_engine("age", pool=_db_pool)
                 app.state.startup_health["database"] = _build_dependency_status(ok=True)
@@ -292,7 +360,32 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
                     from graphclaw.llm.factory import create_llm_client  # noqa: PLC0415
                     from graphclaw.state.machine import StateMachine  # noqa: PLC0415
 
-                    llm_client = create_llm_client("anthropic")
+                    llm_client = None
+                    selected_provider, selected_key = await _select_startup_llm_provider_and_key(
+                        app.state.secrets_client
+                    )
+                    if selected_provider and selected_key:
+                        try:
+                            llm_client = create_llm_client(
+                                selected_provider,
+                                api_key=selected_key,
+                            )
+                            logger.info(
+                                "GraphClaw: llm client initialised (provider=%s)",
+                                selected_provider,
+                            )
+                        except Exception as exc:  # noqa: BLE001
+                            logger.error(
+                                "GraphClaw: llm client initialisation failed for provider=%s: %s",
+                                selected_provider,
+                                exc,
+                            )
+                    else:
+                        logger.warning(
+                            "GraphClaw: no LLM API key configured (checked Anthropic/OpenAI). "
+                            "Chat will be available but report LLM not configured."
+                        )
+
                     agent_id = os.environ.get("AGENT_ID", "main")
 
                     # Optional: skill registry, worker pool, MCP registry
@@ -319,21 +412,27 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
                             )
                         except Exception:
                             pass
-                    try:
-                        from graphclaw.skills.llm_router import LLMRouter  # noqa: PLC0415
-                        from graphclaw.skills.worker import WorkerPool  # noqa: PLC0415
+                    if llm_client is not None:
+                        try:
+                            from graphclaw.skills.llm_router import LLMRouter  # noqa: PLC0415
+                            from graphclaw.skills.worker import WorkerPool  # noqa: PLC0415
 
-                        _llm_router = LLMRouter(llm_client=llm_client)
-                        _worker_pool = WorkerPool(pool_size=4, llm_router=_llm_router)
-                    except Exception:
-                        pass
+                            _llm_router = LLMRouter(llm_client=llm_client)
+                            _worker_pool = WorkerPool(pool_size=4, llm_router=_llm_router)
+                        except Exception:
+                            pass
+                    else:
+                        logger.warning(
+                            "GraphClaw: skipping skill worker pool initialisation because LLM "
+                            "is not configured"
+                        )
 
                     # Phase 5: Sub-agent pool + health monitor
                     _sub_agent_pool = None
                     _agent_health_monitor = None
                     _dispatch_planner = None
                     _result_collector = None
-                    if broker is not None:
+                    if broker is not None and llm_client is not None:
                         try:
                             from graphclaw.agent.dispatch_planner import (
                                 AgentDispatchPlanner,  # noqa: PLC0415
@@ -414,6 +513,11 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
                                 exc,
                                 exc_info=exc,
                             )
+                    elif broker is not None:
+                        logger.warning(
+                            "GraphClaw: skipping sub-agent pool initialisation because LLM is "
+                            "not configured"
+                        )
 
                     # User event publisher — Redis if available, else no-op
                     _event_publisher = None
@@ -448,6 +552,7 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
                         sub_agent_pool=_sub_agent_pool,
                         event_publisher=_event_publisher,
                         redis_client=getattr(app.state, "redis", None),
+                        db_pool=getattr(app.state, "pool", None),
                     )
                     app.state.agent_loop = agent_loop
                     logger.info("GraphClaw: agent loop initialised (agent_id=%s)", agent_id)
@@ -474,46 +579,81 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
                             TriggerConfig,
                             TriggerType,
                         )
+                        from graphclaw.triggers.persistence import (  # noqa: PLC0415
+                            load_trigger_schedule,
+                            save_trigger_schedule,
+                        )
                         from graphclaw.triggers.scheduler import TriggerScheduler  # noqa: PLC0415
 
                         scheduler = TriggerScheduler()
                         loaded_trigger_count = 0
                         trigger_user_id = os.environ.get("GRAPHCLAW_USER_ID", "")
 
-                        if trigger_user_id and app.state.storage_client is not None:
+                        if trigger_user_id:
+                            if app.state.graph_store is not None:
+                                persisted = await load_trigger_schedule(
+                                    app.state.graph_store,
+                                    trigger_user_id,
+                                    agent_id=agent_id,
+                                )
+                                for cfg in persisted:
+                                    scheduler.register(cfg)
+                                    loaded_trigger_count += 1
+
                             trigger_path = f"{trigger_user_id}/agents/{agent_id}/triggers.json"
-                            try:
-                                raw_bytes = await app.state.storage_client.read(trigger_path)
-                                parsed = json.loads(raw_bytes.decode(errors="replace"))
-                                if isinstance(parsed, list):
-                                    for idx, item in enumerate(parsed):
-                                        try:
-                                            cfg = TriggerConfig.model_validate(item)
-                                            scheduler.register(cfg)
-                                            loaded_trigger_count += 1
-                                        except Exception as exc:  # noqa: BLE001
-                                            logger.warning(
-                                                "GraphClaw: invalid trigger config at index %d in %s: %s",
-                                                idx,
-                                                trigger_path,
-                                                exc,
-                                            )
-                                else:
-                                    logger.warning(
-                                        "GraphClaw: trigger config file %s is not a JSON list",
+                            imported_from_storage = False
+
+                            if loaded_trigger_count == 0 and app.state.storage_client is not None:
+                                try:
+                                    raw_bytes = await app.state.storage_client.read(trigger_path)
+                                    parsed = json.loads(raw_bytes.decode(errors="replace"))
+                                    if isinstance(parsed, list):
+                                        for idx, item in enumerate(parsed):
+                                            try:
+                                                cfg = TriggerConfig.model_validate(item)
+                                                scheduler.register(cfg)
+                                                loaded_trigger_count += 1
+                                            except Exception as exc:  # noqa: BLE001
+                                                logger.warning(
+                                                    "GraphClaw: invalid trigger config at index %d in %s: %s",
+                                                    idx,
+                                                    trigger_path,
+                                                    exc,
+                                                )
+                                        imported_from_storage = loaded_trigger_count > 0
+                                    else:
+                                        logger.warning(
+                                            "GraphClaw: trigger config file %s is not a JSON list",
+                                            trigger_path,
+                                        )
+                                except FileNotFoundError:
+                                    logger.info(
+                                        "GraphClaw: no persisted trigger config found at %s",
                                         trigger_path,
                                     )
-                            except FileNotFoundError:
-                                logger.info(
-                                    "GraphClaw: no persisted trigger config found at %s",
-                                    trigger_path,
-                                )
-                            except Exception as exc:  # noqa: BLE001
-                                logger.warning(
-                                    "GraphClaw: failed to load persisted trigger config from %s: %s",
-                                    trigger_path,
-                                    exc,
-                                )
+                                except Exception as exc:  # noqa: BLE001
+                                    logger.warning(
+                                        "GraphClaw: failed to load persisted trigger config from %s: %s",
+                                        trigger_path,
+                                        exc,
+                                    )
+
+                            if imported_from_storage and app.state.graph_store is not None:
+                                try:
+                                    await save_trigger_schedule(
+                                        app.state.graph_store,
+                                        trigger_user_id,
+                                        list(getattr(scheduler, "_triggers", {}).values()),
+                                    )
+                                    logger.info(
+                                        "GraphClaw: imported trigger schedule into DB for user=%s",
+                                        trigger_user_id,
+                                    )
+                                except Exception as exc:  # noqa: BLE001
+                                    logger.warning(
+                                        "GraphClaw: failed to import legacy trigger schedule into DB: %s",
+                                        exc,
+                                    )
 
                             if loaded_trigger_count == 0:
                                 hour_raw = os.environ.get("GRAPHCLAW_BRIEFING_HOUR_UTC", "8")
@@ -546,6 +686,19 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
                                     hour,
                                     minute,
                                 )
+
+                                if app.state.graph_store is not None:
+                                    try:
+                                        await save_trigger_schedule(
+                                            app.state.graph_store,
+                                            trigger_user_id,
+                                            [fallback],
+                                        )
+                                    except Exception as exc:  # noqa: BLE001
+                                        logger.warning(
+                                            "GraphClaw: failed to persist fallback trigger schedule to DB: %s",
+                                            exc,
+                                        )
 
                         _trigger_engine = TriggerEngine(broker=broker, scheduler=scheduler)
                         await _trigger_engine.start()

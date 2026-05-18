@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """graphclaw.agent.main_orchestrator — MainOrchestrator core orchestration runtime.
 
@@ -65,6 +65,8 @@ from graphclaw.infra.logging.context import generate_session_id, get_session_id,
 from graphclaw.infra.logging.events import AgentToolCallEvent
 from graphclaw.models.nodes import TaskNode
 from graphclaw.models.scoring import ActionQueueEntry
+from graphclaw.notifications.emit import emit_notification
+from graphclaw.notifications.models import NotificationEventType
 from graphclaw.scoring.engine import ScoringContext, ScoringEngine
 
 if TYPE_CHECKING:
@@ -185,6 +187,7 @@ class MainOrchestrator:
         event_publisher: UserEventPublisher | None = None,
         redis_client: Any | None = None,
         admin_repo: GraphStore | None = None,
+        db_pool: Any | None = None,
     ) -> None:
         self._repo = graph_repo
         # Wave 0 (FR-DEL-002): admin_principal store for archive operations.
@@ -204,6 +207,7 @@ class MainOrchestrator:
         self._sub_agent_pool = sub_agent_pool
         self._event_publisher: UserEventPublisher | None = event_publisher
         self._redis = redis_client
+        self._db_pool = db_pool
         # Cache last action queue so system prompt can include current priorities.
         self._last_queue: list[ActionQueueEntry] = []
         self._last_queue_by_scope: dict[str, list[ActionQueueEntry]] = {}
@@ -212,6 +216,8 @@ class MainOrchestrator:
         self._dirty_task_ids: set[str] = set()
         # Track current session_id for structured logging
         self._current_session_id: str | None = None
+        # CallerContext for the active chat turn (built at turn start, used by tools)
+        self._current_caller_context: Any | None = None
         # Buffer for delegation calls within a single LLM turn (batch dispatch)
         self._turn_delegation_calls: list[dict[str, Any]] = []
 
@@ -271,6 +277,105 @@ class MainOrchestrator:
             return
         self._last_queue_by_scope.pop(user_id, None)
         self._last_queue_by_scope.pop("__all__", None)
+
+    async def invalidate_scoring_for_user(self, user_id: str) -> None:
+        """Invalidate cached scoring state after per-user weight updates.
+
+        Called by the settings API after ``PATCH /settings/scoring-weights`` so
+        the next scoring cycle recomputes instead of serving stale cached ranks.
+        """
+        self._invalidate_cached_queue(user_id)
+
+        cache = getattr(self._engine, "cache", None)
+        if cache is None:
+            return
+
+        try:
+            tasks = await self._fetch_active_tasks(user_id=user_id)
+        except Exception as exc:
+            logger.debug(
+                "AgentLoop: could not load active tasks for scoring invalidation (user_id=%s): %s",
+                user_id,
+                exc,
+            )
+            cache.invalidate_all()
+            return
+
+        if not tasks:
+            return
+
+        for task in tasks:
+            cache.invalidate(task.id)
+
+    async def _build_cycle_scoring_engine(self, user_id: str | None) -> ScoringEngine:
+        """Return a scoring engine configured for the current cycle scope.
+
+        For user-scoped cycles, persisted W1-W7 values are loaded from storage
+        and normalized before constructing an engine that shares the base cache.
+        Global/system cycles continue to use the process-wide default engine.
+        """
+        if user_id is None or self._storage is None:
+            return self._engine
+
+        from graphclaw.infra.storage import StoragePaths  # noqa: PLC0415
+
+        defaults = {
+            "w1": float(self._engine.w1),
+            "w2": float(self._engine.w2),
+            "w3": float(self._engine.w3),
+            "w4": float(self._engine.w4),
+            "w5": float(self._engine.w5),
+            "w6": float(self._engine.w6),
+            "w7": float(self._engine.w7),
+        }
+        key_map = {
+            "W1_timeline": "w1",
+            "W2_dependencies": "w2",
+            "W3_critical_path": "w3",
+            "W4_blocker": "w4",
+            "W5_override": "w5",
+            "W6_resource_risk": "w6",
+            "W7_constraint": "w7",
+        }
+
+        try:
+            raw = await self._storage.read(StoragePaths.user_scoring_weights(user_id))
+            payload = json.loads(raw.decode())
+        except FileNotFoundError:
+            return self._engine
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(
+                "AgentLoop: could not read scoring weights for user_id=%s, using defaults: %s",
+                user_id,
+                exc,
+            )
+            return self._engine
+
+        if not isinstance(payload, dict):
+            return self._engine
+
+        weights = dict(defaults)
+        for source_key, target_key in key_map.items():
+            value = payload.get(source_key)
+            if isinstance(value, int | float) and value >= 0.0:
+                weights[target_key] = float(value)
+
+        total = sum(weights.values())
+        if total <= 0.0:
+            return self._engine
+
+        normalized = {k: v / total for k, v in weights.items()}
+
+        return ScoringEngine(
+            w1=normalized["w1"],
+            w2=normalized["w2"],
+            w3=normalized["w3"],
+            w4=normalized["w4"],
+            w5=normalized["w5"],
+            w6=normalized["w6"],
+            w7=normalized["w7"],
+            cache=self._engine.cache,
+        )
 
     async def _invalidate_score_cache_for_task(
         self,
@@ -510,7 +615,8 @@ class MainOrchestrator:
             context = await self.build_scoring_context(tasks)
 
             # 3. Score all tasks and return.
-            queue = await self._engine.score_all(tasks, context)
+            cycle_engine = await self._build_cycle_scoring_engine(user_id)
+            queue = await cycle_engine.score_all(tasks, context)
             self._last_queue = queue
             self._last_queue_by_scope[scope_key] = queue
             self._score_cache_dirty = False
@@ -756,6 +862,7 @@ class MainOrchestrator:
         session_id: str | None = None,
         channel: str = "cockpit",
         thread_id: str | None = None,
+        org_id: str = "default",
     ) -> str:
         """Handle a conversational message from the user.
 
@@ -789,10 +896,19 @@ class MainOrchestrator:
         """
         # Store session_id for tool execution logging
         self._current_session_id = session_id
+        # Build CallerContext so agent tool calls satisfy ACL enforcement
+        from graphclaw.cross_tenant.acl import CallerContext as _CallerContext  # noqa: PLC0415
+
+        self._current_caller_context = _CallerContext(
+            user_id=user_id,
+            org_id=org_id,
+            principal="agent_principal",
+            session_id=session_id,
+        )
         if self._llm is None:
             return (
                 "I'm not fully initialised yet — the language model is not connected. "
-                "Please ensure ANTHROPIC_API_KEY is set and restart the service."
+                "Please configure ANTHROPIC_API_KEY or OPENAI_API_KEY and restart the service."
             )
 
         from graphclaw.llm.base import LLMMessage
@@ -914,6 +1030,7 @@ class MainOrchestrator:
         publisher: UserEventPublisher | None = None,
         channel: str = "cockpit",
         thread_id: str | None = None,
+        org_id: str = "default",
     ) -> AsyncIterator[AgentRunEvent]:
         """Return an async iterator that streams agent run-trace events.
 
@@ -955,6 +1072,7 @@ class MainOrchestrator:
             publisher=publisher or self._event_publisher,
             channel=channel,
             thread_id=thread_id,
+            org_id=org_id,
         )
 
     async def _process_chat_message_stream_impl(
@@ -966,9 +1084,19 @@ class MainOrchestrator:
         publisher: UserEventPublisher | None,
         channel: str = "cockpit",
         thread_id: str | None = None,
+        org_id: str = "default",
     ) -> None:
         """Async generator implementing process_chat_message_stream — yields AgentRunEvent."""
         import time as _time
+
+        from graphclaw.cross_tenant.acl import CallerContext as _CallerContext  # noqa: PLC0415
+
+        self._current_caller_context = _CallerContext(
+            user_id=user_id,
+            org_id=org_id,
+            principal="agent_principal",
+            session_id=session_id,
+        )
 
         from graphclaw.agent.run_events import (
             AssistantDeltaPayload,
@@ -1208,6 +1336,7 @@ class MainOrchestrator:
                 await _emit(final_event)
                 yield final_event
 
+                _duration_ms = int((_time.monotonic() - run_start_ms) * 1000)
                 completed_event = make_event(
                     ET.RUN_COMPLETED,
                     run_id,
@@ -1218,11 +1347,21 @@ class MainOrchestrator:
                         input_tokens=total_input_tokens,
                         output_tokens=total_output_tokens,
                         tool_call_count=tool_call_count,
-                        duration_ms=int((_time.monotonic() - run_start_ms) * 1000),
+                        duration_ms=_duration_ms,
                     ),
                 )
                 await _emit(completed_event)
                 yield completed_event
+                if tool_call_count > 0:
+                    await emit_notification(
+                        pool=self._db_pool,
+                        redis=self._redis,
+                        user_id=user_id,
+                        event_type=NotificationEventType.AGENT_RUN_COMPLETED,
+                        title="Agent run completed",
+                        body=f"{tool_call_count} tool call{'s' if tool_call_count != 1 else ''} in {_duration_ms}ms",
+                        metadata={"run_id": run_id, "session_id": sid},
+                    )
                 return
 
             # Safety cap reached
@@ -1240,9 +1379,20 @@ class MainOrchestrator:
             )
             await _emit(cap_event)
             yield cap_event
+            await emit_notification(
+                pool=self._db_pool,
+                redis=self._redis,
+                user_id=user_id,
+                event_type=NotificationEventType.AGENT_RUN_FAILED,
+                title="Agent run failed",
+                body="Agent tool-call loop limit reached.",
+                metadata={"run_id": run_id, "session_id": sid, "error_class": "ToolLoopCapReached"},
+            )
 
         except Exception as exc:  # noqa: BLE001
             logger.exception("AgentLoop.stream: unhandled error for user_id=%s", user_id)
+            _err_msg = sanitize_text(str(exc), 200)
+            _err_class = type(exc).__name__
             err_event = make_event(
                 ET.RUN_FAILED,
                 run_id,
@@ -1250,13 +1400,22 @@ class MainOrchestrator:
                 user_id,
                 seq,
                 RunFailedPayload(
-                    error_class=type(exc).__name__,
-                    error_message=sanitize_text(str(exc), 200),
+                    error_class=_err_class,
+                    error_message=_err_msg,
                     duration_ms=int((_time.monotonic() - run_start_ms) * 1000),
                 ),
             )
             await _emit(err_event)
             yield err_event
+            await emit_notification(
+                pool=self._db_pool,
+                redis=self._redis,
+                user_id=user_id,
+                event_type=NotificationEventType.AGENT_RUN_FAILED,
+                title="Agent run failed",
+                body=_err_msg,
+                metadata={"run_id": run_id, "session_id": sid, "error_class": _err_class},
+            )
 
     # ------------------------------------------------------------------
     # Post-turn distillation (FR-CA-002)
@@ -2088,7 +2247,7 @@ class MainOrchestrator:
             created_at=now,
             updated_at=now,
         )
-        await self._repo.create_node(goal)
+        await self._repo.create_node(goal, caller_context=self._current_caller_context)
         self._invalidate_cached_queue(user_id)
         return {"goal_id": goal_id, "title": args["title"], "status": "created"}
 
@@ -2147,7 +2306,7 @@ class MainOrchestrator:
             created_at=now_task,
             updated_at=now_task,
         )
-        await self._repo.create_node(task)
+        await self._repo.create_node(task, caller_context=self._current_caller_context)
 
         # Wire edges
         if args.get("goal_id"):
@@ -2262,7 +2421,7 @@ class MainOrchestrator:
                 ),
             )
             try:
-                await self._repo.create_node(followup)
+                await self._repo.create_node(followup, caller_context=self._current_caller_context)
                 await self._repo.create_edge(followup_id, task_id, "FOLLOW_UP_FOR", {})
                 followup_task_id = followup_id
                 del_meta = DelegatedMetadata(
@@ -2299,7 +2458,7 @@ class MainOrchestrator:
         from graphclaw.state.transitions import InvalidTransitionError
 
         task_id = args["task_id"]
-        props = await self._repo.get_node(task_id)
+        props = await self._repo.get_node(task_id, caller_context=self._current_caller_context)
         if not props:
             return {"error": f"Task {task_id} not found"}
 
@@ -2323,6 +2482,7 @@ class MainOrchestrator:
                 args.get("reason", ""),
                 self._repo,
                 self._sm,
+                caller_context=self._current_caller_context,
             )
         except InvalidTransitionError as exc:
             return {"error": str(exc)}
@@ -2529,7 +2689,7 @@ class MainOrchestrator:
         if not node_id:
             return {"error": "node_id is required"}
 
-        props = await self._repo.get_node(node_id)
+        props = await self._repo.get_node(node_id, caller_context=self._current_caller_context)
         if not props:
             return {"error": f"Node {node_id} not found"}
 
@@ -3158,7 +3318,7 @@ class MainOrchestrator:
         linked_task_ids: list[str] = []
         skipped_task_ids: list[str] = []
         try:
-            await self._repo.create_node(goal)
+            await self._repo.create_node(goal, caller_context=self._current_caller_context)
             for task_id in task_ids:
                 task_node = await self._repo.get_node(task_id)
                 if not task_node:
@@ -3908,7 +4068,7 @@ class MainOrchestrator:
                 }
 
         # Verify the task exists
-        task_props = await self._repo.get_node(task_id)
+        task_props = await self._repo.get_node(task_id, caller_context=self._current_caller_context)
         if not task_props:
             return {"error": f"Task {task_id} not found."}
 
@@ -3973,6 +4133,7 @@ class MainOrchestrator:
                 "assigned_to": agent_id,
                 "state_history": history,
             },
+            caller_context=self._current_caller_context,
         )
 
         # Record ownership transition context as a HandoffNode when assignee changes.
@@ -3993,7 +4154,7 @@ class MainOrchestrator:
                     context_refs=[],
                     transitioned_at=now,
                 )
-                await self._repo.create_node(handoff)
+                await self._repo.create_node(handoff, caller_context=self._current_caller_context)
                 await self._repo.create_edge(handoff_id, task_id, "REFERRED_BY")
             except Exception as exc:
                 logger.warning(
@@ -4290,7 +4451,16 @@ class MainOrchestrator:
             if user_id:
                 raw_nodes = await self._repo.list_nodes_by_user("TaskNode", user_id)
             else:
-                raw_nodes = await self._repo.list_nodes("TaskNode")
+                from graphclaw.cross_tenant.acl import (
+                    CallerContext as _CallerContext,  # noqa: PLC0415
+                )
+
+                _system_ctx = _CallerContext(
+                    user_id="system",
+                    org_id="default",
+                    principal="agent_principal",
+                )
+                raw_nodes = await self._repo.list_nodes("TaskNode", caller_context=_system_ctx)
         except Exception as exc:
             logger.warning("AgentLoop: failed to list TaskNode vertices: %s", exc)
             return []

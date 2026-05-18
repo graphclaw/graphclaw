@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """graphclaw.config — Application configuration loaded from environment variables.
 
@@ -64,6 +64,10 @@ class AppConfig:
 
     secrets_backend: str = field(default_factory=lambda: os.getenv("SECRETS_BACKEND", "env_file"))
     anthropic_api_key: str = field(default_factory=lambda: os.getenv("ANTHROPIC_API_KEY", ""))
+    openai_api_key: str = field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""))
+    default_llm_provider: str = field(
+        default_factory=lambda: os.getenv("GRAPHCLAW_DEFAULT_LLM_PROVIDER", "anthropic")
+    )
     log_level: str = field(default_factory=lambda: os.getenv("LOG_LEVEL", "INFO"))
     environment: str = field(default_factory=lambda: os.getenv("ENVIRONMENT", "development"))
     # Wave 0: No-Delete enforcement feature flag.
