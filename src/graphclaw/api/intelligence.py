@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """graphclaw.api.intelligence — Intelligence Hub endpoints.
 
@@ -78,6 +78,7 @@ from __future__ import annotations
 import logging
 import re
 import uuid
+from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, UploadFile, status
@@ -180,6 +181,28 @@ class MemoryWriteRequest(BaseModel):
     """Request body for writing a memory document."""
 
     content: str
+    description: str | None = None
+
+
+class RenameTopicRequest(BaseModel):
+    """Request body for renaming a semantic memory topic."""
+
+    new_name: str
+
+
+class SemanticTopicEntry(BaseModel):
+    """One entry in the semantic memory index."""
+
+    name: str
+    description: str
+    updated_at: datetime
+
+
+class SemanticMemoryIndex(BaseModel):
+    """Index of all semantic memory topics for an agent."""
+
+    updated_at: datetime
+    topics: list[SemanticTopicEntry]
 
 
 class CompactRequest(BaseModel):
@@ -357,19 +380,33 @@ async def list_intelligence_agents(
 ) -> list[AgentListEntry]:
     """Scan {user_id}/agents/ and system/agents/ to build agent list."""
     import json as _json
+    import os as _os
 
     results: list[AgentListEntry] = []
+    seen_user_agents: set[str] = set()
 
     # User agents: scan {user_id}/agents/
     user_agents_prefix = f"{user_id}/agents/"
     try:
         all_keys = await storage_client.list_objects(user_agents_prefix)
+        discovered_ids: set[str] = set()
+        for key in all_keys:
+            if not key.startswith(user_agents_prefix):
+                continue
+            remainder = key[len(user_agents_prefix) :]
+            if not remainder:
+                continue
+            agent_id = remainder.split("/", 1)[0]
+            if agent_id:
+                discovered_ids.add(agent_id)
+
         manifest_keys = [k for k in all_keys if k.endswith("/manifest.json")]
         for key in manifest_keys:
             try:
                 raw = await storage_client.read(key)
                 manifest = _json.loads(raw.decode())
                 agent_id = manifest.get("agent_id") or key.split("/")[-2]
+                seen_user_agents.add(agent_id)
                 results.append(
                     AgentListEntry(
                         agent_id=agent_id,
@@ -380,8 +417,37 @@ async def list_intelligence_agents(
                 )
             except Exception:
                 continue
+
+        # Include runtime-only agents that may not have manifest.json yet
+        # (e.g., the main orchestrator writing memory under AGENT_ID).
+        for agent_id in sorted(discovered_ids):
+            if agent_id in seen_user_agents:
+                continue
+            results.append(
+                AgentListEntry(
+                    agent_id=agent_id,
+                    name=agent_id,
+                    source="user",
+                    description="",
+                )
+            )
+            seen_user_agents.add(agent_id)
     except Exception:
         pass
+
+    # Ensure the configured main orchestrator agent appears in the selector
+    # even when no manifest or memory files have been written yet.
+    configured_agent_id = _os.environ.get("AGENT_ID", "main").strip() or "main"
+    if configured_agent_id not in seen_user_agents:
+        results.append(
+            AgentListEntry(
+                agent_id=configured_agent_id,
+                name=configured_agent_id,
+                source="user",
+                description="",
+            )
+        )
+        seen_user_agents.add(configured_agent_id)
 
     # System agents: scan system/agents/
     try:
@@ -554,25 +620,28 @@ async def compact_working_context(
     )
 
     context_before_chars = 0
+    original_text = ""
     try:
         original = await storage_client.read(working_path)
         original_text = original.decode()
         context_before_chars = len(original_text)
-        archive_content = (
-            f"# Compacted Context — {today}\n\n"
-            f"*Session: {session_label}*\n\n"
-            f"## Original Working Context\n\n" + original_text
-        )
-        await storage_client.write(
-            episodic_path, archive_content.encode(), content_type="text/markdown"
-        )
-        await storage_client.write(
-            working_archive_path,
-            archive_content.encode(),
-            content_type="text/markdown",
-        )
     except FileNotFoundError:
-        pass
+        original_text = ""
+
+    archive_content = (
+        f"# Compacted Context — {today}\n\n"
+        f"*Session: {session_label}*\n\n"
+        f"## Original Working Context\n\n"
+        f"{original_text if original_text else '_(empty)_'}"
+    )
+    await storage_client.write(
+        episodic_path, archive_content.encode(), content_type="text/markdown"
+    )
+    await storage_client.write(
+        working_archive_path,
+        archive_content.encode(),
+        content_type="text/markdown",
+    )
 
     await storage_client.write(working_path, body.summary.encode(), content_type="text/markdown")
     context_after_chars = len(body.summary)
@@ -857,6 +926,90 @@ async def archive_episodic_entry(
 
 
 # ---------------------------------------------------------------------------
+# Agent memory — semantic (helpers)
+# ---------------------------------------------------------------------------
+
+
+async def _load_semantic_index(
+    user_id: str,
+    agent_id: str,
+    storage_client: Any,
+) -> SemanticMemoryIndex:
+    """Load _index.json, returning an empty index if it doesn't exist."""
+    index_path = StoragePaths.agent_memory_semantic_index(user_id, agent_id)
+    try:
+        raw = await storage_client.read(index_path)
+        return SemanticMemoryIndex.model_validate_json(raw)
+    except FileNotFoundError:
+        return SemanticMemoryIndex(updated_at=utcnow(), topics=[])
+    except Exception:
+        logger.warning(
+            "intelligence: corrupted semantic index agent_id=%s user_id=%s — treating as empty",
+            agent_id,
+            user_id,
+        )
+        return SemanticMemoryIndex(updated_at=utcnow(), topics=[])
+
+
+async def _save_semantic_index(
+    user_id: str,
+    agent_id: str,
+    index: SemanticMemoryIndex,
+    storage_client: Any,
+) -> None:
+    index_path = StoragePaths.agent_memory_semantic_index(user_id, agent_id)
+    await storage_client.write(
+        index_path,
+        index.model_dump_json().encode(),
+        content_type="application/json",
+    )
+
+
+async def _upsert_semantic_index(
+    user_id: str,
+    agent_id: str,
+    topic: str,
+    description: str,
+    storage_client: Any,
+) -> None:
+    index = await _load_semantic_index(user_id, agent_id, storage_client)
+    now = utcnow()
+    updated = [e for e in index.topics if e.name != topic]
+    updated.append(SemanticTopicEntry(name=topic, description=description, updated_at=now))
+    index.topics = updated
+    index.updated_at = now
+    await _save_semantic_index(user_id, agent_id, index, storage_client)
+
+
+async def _remove_from_semantic_index(
+    user_id: str,
+    agent_id: str,
+    topic: str,
+    storage_client: Any,
+) -> None:
+    index = await _load_semantic_index(user_id, agent_id, storage_client)
+    index.topics = [e for e in index.topics if e.name != topic]
+    index.updated_at = utcnow()
+    await _save_semantic_index(user_id, agent_id, index, storage_client)
+
+
+async def _rename_in_semantic_index(
+    user_id: str,
+    agent_id: str,
+    old_name: str,
+    new_name: str,
+    storage_client: Any,
+) -> None:
+    index = await _load_semantic_index(user_id, agent_id, storage_client)
+    for entry in index.topics:
+        if entry.name == old_name:
+            entry.name = new_name
+            break
+    index.updated_at = utcnow()
+    await _save_semantic_index(user_id, agent_id, index, storage_client)
+
+
+# ---------------------------------------------------------------------------
 # Agent memory — semantic
 # ---------------------------------------------------------------------------
 
@@ -885,6 +1038,22 @@ async def list_semantic_memory(
         if k.endswith(".md")
     ]
     return MemoryListResponse(agent_id=agent_id, memory_type="semantic", entries=entries)
+
+
+@router.get(
+    "/agents/{agent_id}/memory/semantic/_index",
+    response_model=SemanticMemoryIndex,
+    status_code=status.HTTP_200_OK,
+    summary="Get semantic memory index",
+    description="Return the index of all semantic memory topics with their descriptions.",
+)
+async def get_semantic_index(
+    agent_id: str,
+    user_id: CurrentUserDep,
+    storage_client: StorageClientDep,
+) -> SemanticMemoryIndex:
+    """Return the semantic memory index, or an empty index if none exists yet."""
+    return await _load_semantic_index(user_id, agent_id, storage_client)
 
 
 @router.get(
@@ -934,6 +1103,10 @@ async def write_semantic_topic(
     """Write one semantic memory topic file."""
     path = StoragePaths.agent_memory_semantic_topic(user_id, agent_id, topic)
     await storage_client.write(path, body.content.encode(), content_type="text/markdown")
+
+    description = (body.description or "").strip() or topic
+    await _upsert_semantic_index(user_id, agent_id, topic, description, storage_client)
+
     logger.info(
         "intelligence: semantic topic written agent_id=%s topic=%s user_id=%s",
         agent_id,
@@ -960,11 +1133,81 @@ async def delete_semantic_topic(
     """Delete one semantic memory topic file."""
     path = StoragePaths.agent_memory_semantic_topic(user_id, agent_id, topic)
     await storage_client.delete(path)
+    await _remove_from_semantic_index(user_id, agent_id, topic, storage_client)
     logger.info(
         "intelligence: semantic topic deleted agent_id=%s topic=%s user_id=%s",
         agent_id,
         topic,
         user_id,
+    )
+
+
+@router.post(
+    "/agents/{agent_id}/memory/semantic/{topic}/rename",
+    response_model=MemoryContentResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Rename semantic memory topic",
+    description=(
+        "Rename an existing semantic memory topic (atomic copy-then-delete). "
+        "The description is preserved in the index."
+    ),
+)
+async def rename_semantic_topic(
+    agent_id: str,
+    topic: str,
+    body: RenameTopicRequest,
+    user_id: CurrentUserDep,
+    storage_client: StorageClientDep,
+) -> MemoryContentResponse:
+    """Rename a semantic memory topic: copy content to new name, delete old file, update index."""
+    new_name = body.new_name.strip()
+    if not re.fullmatch(r"[a-z0-9][a-z0-9\-_]*", new_name) or new_name == "_index":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="new_name must be a lowercase slug ([a-z0-9][a-z0-9-_]*) and not '_index'",
+        )
+    if new_name == topic:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="new_name must differ from the current topic name",
+        )
+
+    old_path = StoragePaths.agent_memory_semantic_topic(user_id, agent_id, topic)
+    new_path = StoragePaths.agent_memory_semantic_topic(user_id, agent_id, new_name)
+
+    # Ensure old topic exists
+    try:
+        content_bytes = await storage_client.read(old_path)
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Semantic topic '{topic}' not found",
+        )
+
+    # Ensure new name doesn't already exist
+    try:
+        await storage_client.read(new_path)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Semantic topic '{new_name}' already exists",
+        )
+    except FileNotFoundError:
+        pass
+
+    content = content_bytes.decode(errors="replace")
+    await storage_client.write(new_path, content_bytes, content_type="text/markdown")
+    await storage_client.delete(old_path)
+    await _rename_in_semantic_index(user_id, agent_id, topic, new_name, storage_client)
+
+    logger.info(
+        "intelligence: semantic topic renamed agent_id=%s topic=%s→%s user_id=%s",
+        agent_id,
+        topic,
+        new_name,
+        user_id,
+    )
+    return MemoryContentResponse(
+        agent_id=agent_id, memory_type="semantic", key=new_name, content=content
     )
 
 
@@ -1087,11 +1330,35 @@ async def update_authored_skill(
     user_id: CurrentUserDep,
     storage_client: StorageClientDep,
 ) -> AuthoredSkillResponse:
-    """Overwrite an authored SKILL.md in object storage."""
-    path = StoragePaths.skill_authored(user_id, skill_id)
-    await storage_client.write(path, body.content.encode(), content_type="text/markdown")
-    logger.info("intelligence: authored skill updated skill_id=%s user_id=%s", skill_id, user_id)
-    return _authored_skill_response(skill_id=skill_id, path=path, content=body.content)
+    """Overwrite an authored SKILL.md in object storage.
+
+    If the name in the body resolves to a different skill_id slug, the file is
+    moved to the new folder and the old folder is deleted.
+    """
+    new_skill_id = skill_id
+    if body.name:
+        candidate = _normalize_skill_id(body.name)
+        if candidate and candidate != skill_id:
+            new_skill_id = candidate
+
+    new_path = StoragePaths.skill_authored(user_id, new_skill_id)
+    await storage_client.write(new_path, body.content.encode(), content_type="text/markdown")
+
+    if new_skill_id != skill_id:
+        old_path = StoragePaths.skill_authored(user_id, skill_id)
+        await storage_client.delete(old_path)
+        logger.info(
+            "intelligence: authored skill renamed old=%s new=%s user_id=%s",
+            skill_id,
+            new_skill_id,
+            user_id,
+        )
+    else:
+        logger.info(
+            "intelligence: authored skill updated skill_id=%s user_id=%s", skill_id, user_id
+        )
+
+    return _authored_skill_response(skill_id=new_skill_id, path=new_path, content=body.content)
 
 
 @router.delete(
