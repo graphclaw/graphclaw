@@ -128,20 +128,20 @@ GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA ag_catalog TO migration_p
 
 -- Created here so the probe is available before the first migration run.
 -- The table has no meaningful data — it exists solely for the DELETE probe.
-CREATE TABLE IF NOT EXISTS _principal_probe (
+CREATE TABLE IF NOT EXISTS public._principal_probe (
     id SERIAL PRIMARY KEY,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Seed one row so the probe can attempt (and fail) to DELETE it.
-INSERT INTO _principal_probe DEFAULT VALUES
+INSERT INTO public._principal_probe DEFAULT VALUES
 ON CONFLICT DO NOTHING;
 
 -- agent_principal: SELECT + INSERT + UPDATE only — NO DELETE (the whole point).
-GRANT SELECT, INSERT, UPDATE ON _principal_probe TO agent_principal;
-REVOKE DELETE ON _principal_probe FROM agent_principal;
+GRANT SELECT, INSERT, UPDATE ON public._principal_probe TO agent_principal;
+REVOKE DELETE ON public._principal_probe FROM agent_principal;
 
 -- admin_principal: full access.
-GRANT SELECT, INSERT, UPDATE, DELETE ON _principal_probe TO admin_principal;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public._principal_probe TO admin_principal;
 
-RAISE NOTICE 'Wave 0 principal grants applied successfully.';
+DO $$ BEGIN RAISE NOTICE 'Wave 0 principal grants applied successfully.'; END $$;
