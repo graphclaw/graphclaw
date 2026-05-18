@@ -1633,12 +1633,29 @@ class MainOrchestrator:
         """Build a system prompt combining header, agent profile, and graph summary."""
         import datetime as _dt
 
+        from graphclaw.agent.onboarding import OnboardingFSM
+
         today = _dt.date.today().isoformat()
         date_line = f"\nToday's date is {today}. Use this as the reference for all scheduling and deadline reasoning."
 
         # 1. Load system header from storage (fallback to hardcoded default)
         header = await self._load_system_header()
         parts: list[str] = [header + date_line]
+
+        # 1a. Inject onboarding guidance when the user hasn't completed onboarding
+        if self._storage is not None:
+            try:
+                fsm = OnboardingFSM(storage=self._storage)
+                if await fsm.is_onboarding_needed(user_id):
+                    state = await fsm.get_state(user_id)
+                    onboarding_prompt = fsm.get_system_prompt(state)
+                    if onboarding_prompt:
+                        parts.append(
+                            f"\n## Onboarding Guidance (PRIORITY — follow these instructions now)\n"
+                            f"{onboarding_prompt}"
+                        )
+            except Exception:  # noqa: BLE001
+                pass  # Never let onboarding check break the chat
 
         # 2. Load user agent persona from profile.md
         persona = await self._load_agent_profile(user_id)

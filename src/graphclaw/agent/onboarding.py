@@ -84,8 +84,15 @@ ONBOARDING_TOOL_ALLOWLIST: dict[OnboardingState, list[str]] = {
 # Default system prompt body (minimal fallback when prompt file not found)
 _DEFAULT_PROMPTS: dict[OnboardingState, str] = {
     OnboardingState.WELCOME: (
-        "You are helping a new user set up GraphClaw. Welcome them warmly, ask for their name, "
-        "and then ask: 'What would you like to call me? You can always change this later in Settings.'"
+        "You are greeting a brand-new user for the very first time. This is your only chance to make "
+        "a great first impression — be warm, enthusiastic, and personal.\n\n"
+        "In your opening message you MUST do ALL of the following in this order:\n"
+        "1. Welcome the user with genuine warmth (2-3 sentences). Express excitement to work together.\n"
+        "2. Ask for their name: 'First, what's your name?' (keep it short and friendly)\n"
+        "3. Ask what they'd like to call you: 'And what would you like to call me? "
+        "I'll go by whatever feels right to you — you can always change it later in Settings.'\n\n"
+        "Do NOT ask about tasks, projects, or the task graph yet. Focus entirely on the personal "
+        "greeting and the two questions above. Use a conversational, friendly tone — not formal or robotic."
     ),
     OnboardingState.PERSONA: ("Ask the user to describe their role and work style."),
     OnboardingState.CHANNELS: (
