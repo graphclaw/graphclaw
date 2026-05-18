@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """graphclaw.api.agent — Agent monitor and trigger management endpoints.
 
@@ -42,14 +42,25 @@ Dependencies
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from graphclaw.api.deps import CurrentUserDep, GraphStoreDep, ScoringEngineDep
-from graphclaw.triggers.models import TriggerType
+from graphclaw.notifications.emit import emit_notification
+from graphclaw.notifications.models import NotificationEventType
+from graphclaw.triggers.models import TriggerConfig, TriggerType
+from graphclaw.triggers.persistence import (
+    TriggerPersistenceError,
+    UserNodeNotFoundError,
+    load_follow_up_settings,
+    load_trigger_schedule,
+    save_follow_up_settings,
+    save_trigger_schedule,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -123,6 +134,37 @@ class TriggerFireResponse(BaseModel):
     fired_at: datetime
 
 
+class TriggerSettingsResponse(BaseModel):
+    """Response body for trigger follow-up settings endpoints."""
+
+    default_follow_up_days: int
+    interrupt_threshold_overrides: dict[str, float] = Field(default_factory=dict)
+
+
+class TriggerSettingsPatchRequest(BaseModel):
+    """Patch model for trigger follow-up settings."""
+
+    default_follow_up_days: int | None = Field(None, ge=1, le=365)
+    interrupt_threshold_overrides: dict[str, float] | None = None
+
+
+class TriggerCreateRequest(BaseModel):
+    """Create model for trigger schedule CRUD."""
+
+    trigger_type: TriggerType = TriggerType.TIME_BASED
+    cron_expression: str | None = None
+    enabled: bool = True
+    payload_template: dict[str, Any] = Field(default_factory=dict)
+
+
+class TriggerUpdateRequest(BaseModel):
+    """Partial update model for trigger schedule CRUD."""
+
+    cron_expression: str | None = None
+    enabled: bool | None = None
+    payload_template: dict[str, Any] | None = None
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
@@ -159,6 +201,16 @@ def _get_trigger_scheduler(request: Request) -> Any | None:
         return None
     scheduler = getattr(engine, "_scheduler", None)
     return scheduler
+
+
+async def _persist_user_triggers(
+    graph_store: Any,
+    user_id: str,
+    triggers: dict[str, Any],
+) -> None:
+    """Persist all triggers owned by a user into DB-backed preferences."""
+    schedule = [cfg for cfg in triggers.values() if getattr(cfg, "user_id", "") == user_id]
+    await save_trigger_schedule(graph_store, user_id, schedule)
 
 
 # ---------------------------------------------------------------------------
@@ -255,6 +307,7 @@ async def get_action_queue(
     ),
 )
 async def get_briefing(
+    request: Request,
     user_id: CurrentUserDep,
     graph_store: GraphStoreDep,
 ) -> BriefingResponse:
@@ -275,6 +328,16 @@ async def get_briefing(
 
     generator = BriefingGenerator()
     briefing = await generator.generate(tasks=raw_tasks, goals=raw_goals)
+
+    await emit_notification(
+        pool=getattr(request.app.state, "pool", None),
+        redis=getattr(request.app.state, "redis", None),
+        user_id=user_id,
+        event_type=NotificationEventType.BRIEFING_READY,
+        title="Your daily briefing is ready",
+        body=f"{len(briefing.critical.items)} critical items",
+        metadata={"briefing_date": briefing.generated_at.date().isoformat()},
+    )
 
     def _section(sec: Any) -> BriefingSectionOut:
         return BriefingSectionOut(
@@ -312,11 +375,147 @@ async def get_briefing(
 )
 async def list_trigger_schedule(
     user_id: CurrentUserDep,
+    graph_store: GraphStoreDep,
     request: Request,
 ) -> list[TriggerConfigResponse]:
     """List all registered TriggerConfigs from the trigger engine scheduler."""
+    scheduler = _get_trigger_scheduler(request)
     triggers = _get_trigger_registry(request)
-    return [_cfg_to_response(cfg) for cfg in triggers.values()]
+    if not triggers:
+        persisted = await load_trigger_schedule(graph_store, user_id)
+        if scheduler is not None:
+            for cfg in persisted:
+                scheduler.register(cfg)
+            triggers = _get_trigger_registry(request)
+        else:
+            triggers = {cfg.trigger_id: cfg for cfg in persisted}
+
+    filtered = [cfg for cfg in triggers.values() if getattr(cfg, "user_id", "") == user_id]
+    return [_cfg_to_response(cfg) for cfg in filtered]
+
+
+@router.get(
+    "/triggers/settings",
+    response_model=TriggerSettingsResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get trigger follow-up settings",
+    description=(
+        "Return DB-backed follow-up policy settings for the authenticated user."
+    ),
+)
+async def get_trigger_settings(
+    user_id: CurrentUserDep,
+    graph_store: GraphStoreDep,
+) -> TriggerSettingsResponse:
+    """Return persisted follow-up trigger settings for the authenticated user."""
+    try:
+        settings = await load_follow_up_settings(graph_store, user_id)
+    except UserNodeNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User profile not found",
+        ) from exc
+
+    return TriggerSettingsResponse(
+        default_follow_up_days=settings["default_follow_up_days"],
+        interrupt_threshold_overrides=settings["interrupt_threshold_overrides"],
+    )
+
+
+@router.patch(
+    "/triggers/settings",
+    response_model=TriggerSettingsResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Update trigger follow-up settings",
+    description=(
+        "Persist follow-up policy settings for the authenticated user in graph DB."
+    ),
+)
+async def patch_trigger_settings(
+    body: TriggerSettingsPatchRequest,
+    user_id: CurrentUserDep,
+    graph_store: GraphStoreDep,
+) -> TriggerSettingsResponse:
+    """Persist and return follow-up trigger settings."""
+    try:
+        settings = await save_follow_up_settings(
+            graph_store,
+            user_id,
+            default_follow_up_days=body.default_follow_up_days,
+            interrupt_threshold_overrides=body.interrupt_threshold_overrides,
+        )
+    except UserNodeNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User profile not found",
+        ) from exc
+
+    return TriggerSettingsResponse(
+        default_follow_up_days=settings["default_follow_up_days"],
+        interrupt_threshold_overrides=settings["interrupt_threshold_overrides"],
+    )
+
+
+@router.post(
+    "/triggers/schedule",
+    response_model=TriggerConfigResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create trigger",
+    description="Create a trigger and persist it as DB-backed schedule state.",
+)
+async def create_trigger(
+    body: TriggerCreateRequest,
+    user_id: CurrentUserDep,
+    graph_store: GraphStoreDep,
+    request: Request,
+) -> TriggerConfigResponse:
+    """Create a trigger, register it in scheduler, and persist schedule in DB."""
+    scheduler = _get_trigger_scheduler(request)
+    if scheduler is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Trigger engine is not initialised",
+        )
+
+    if body.trigger_type == TriggerType.TIME_BASED and not body.cron_expression:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="cron_expression is required for TIME_BASED triggers",
+        )
+
+    next_fire_at: datetime | None = None
+    if body.trigger_type == TriggerType.TIME_BASED and body.cron_expression:
+        compute_next = getattr(scheduler, "_compute_next_cron", None)
+        if callable(compute_next):
+            next_fire_at = compute_next(body.cron_expression, datetime.now(timezone.utc))
+
+    cfg = TriggerConfig(
+        trigger_id=f"TRIG-{uuid.uuid4().hex[:12]}",
+        trigger_type=body.trigger_type,
+        user_id=user_id,
+        enabled=body.enabled,
+        cron_expression=body.cron_expression,
+        next_fire_at=next_fire_at,
+        payload_template=dict(body.payload_template),
+    )
+    scheduler.register(cfg)
+
+    try:
+        await _persist_user_triggers(graph_store, user_id, _get_trigger_registry(request))
+    except UserNodeNotFoundError as exc:
+        scheduler.unregister(cfg.trigger_id)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User profile not found",
+        ) from exc
+    except TriggerPersistenceError as exc:
+        scheduler.unregister(cfg.trigger_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to persist trigger schedule",
+        ) from exc
+
+    return _cfg_to_response(cfg)
 
 
 @router.get(
@@ -329,17 +528,140 @@ async def list_trigger_schedule(
 async def get_trigger(
     trigger_id: str,
     user_id: CurrentUserDep,
+    graph_store: GraphStoreDep,
     request: Request,
 ) -> TriggerConfigResponse:
     """Return a single TriggerConfig by ID."""
     triggers = _get_trigger_registry(request)
     cfg = triggers.get(trigger_id)
     if cfg is None:
+        persisted = await load_trigger_schedule(graph_store, user_id)
+        for candidate in persisted:
+            if candidate.trigger_id == trigger_id:
+                cfg = candidate
+                break
+    if cfg is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Trigger '{trigger_id}' not found",
+        )
+    if cfg.user_id != user_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Trigger '{trigger_id}' not found",
         )
     return _cfg_to_response(cfg)
+
+
+@router.patch(
+    "/triggers/{trigger_id}",
+    response_model=TriggerConfigResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Update trigger",
+    description="Update a trigger and persist schedule changes in graph DB.",
+)
+async def update_trigger(
+    trigger_id: str,
+    body: TriggerUpdateRequest,
+    user_id: CurrentUserDep,
+    graph_store: GraphStoreDep,
+    request: Request,
+) -> TriggerConfigResponse:
+    """Update trigger schedule state and persist DB-backed configuration."""
+    scheduler = _get_trigger_scheduler(request)
+    if scheduler is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Trigger engine is not initialised",
+        )
+
+    triggers = _get_trigger_registry(request)
+    cfg = triggers.get(trigger_id)
+    if cfg is None or cfg.user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Trigger '{trigger_id}' not found",
+        )
+
+    updates: dict[str, Any] = {}
+    if body.enabled is not None:
+        updates["enabled"] = body.enabled
+    if body.cron_expression is not None:
+        updates["cron_expression"] = body.cron_expression
+        if cfg.trigger_type == TriggerType.TIME_BASED:
+            compute_next = getattr(scheduler, "_compute_next_cron", None)
+            if callable(compute_next):
+                updates["next_fire_at"] = compute_next(
+                    body.cron_expression,
+                    datetime.now(timezone.utc),
+                )
+    if body.payload_template is not None:
+        updates["payload_template"] = dict(body.payload_template)
+
+    updated = cfg.model_copy(update=updates)
+    triggers[trigger_id] = updated
+
+    try:
+        await _persist_user_triggers(graph_store, user_id, triggers)
+    except UserNodeNotFoundError as exc:
+        triggers[trigger_id] = cfg
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User profile not found",
+        ) from exc
+    except TriggerPersistenceError as exc:
+        triggers[trigger_id] = cfg
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to persist trigger schedule",
+        ) from exc
+
+    return _cfg_to_response(updated)
+
+
+@router.delete(
+    "/triggers/{trigger_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete trigger",
+    description="Delete a trigger and persist schedule changes in graph DB.",
+)
+async def delete_trigger(
+    trigger_id: str,
+    user_id: CurrentUserDep,
+    graph_store: GraphStoreDep,
+    request: Request,
+) -> None:
+    """Delete a trigger from scheduler registry and persisted DB schedule."""
+    scheduler = _get_trigger_scheduler(request)
+    if scheduler is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Trigger engine is not initialised",
+        )
+
+    triggers = _get_trigger_registry(request)
+    cfg = triggers.get(trigger_id)
+    if cfg is None or cfg.user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Trigger '{trigger_id}' not found",
+        )
+
+    del triggers[trigger_id]
+    try:
+        await _persist_user_triggers(graph_store, user_id, triggers)
+    except UserNodeNotFoundError as exc:
+        triggers[trigger_id] = cfg
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User profile not found",
+        ) from exc
+    except TriggerPersistenceError as exc:
+        triggers[trigger_id] = cfg
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to persist trigger schedule",
+        ) from exc
 
 
 @router.post(
@@ -396,6 +718,7 @@ async def fire_trigger(
 async def snooze_trigger(
     trigger_id: str,
     user_id: CurrentUserDep,
+    graph_store: GraphStoreDep,
     request: Request,
 ) -> TriggerConfigResponse:
     """Disable a trigger in the in-memory scheduler registry."""
@@ -408,7 +731,7 @@ async def snooze_trigger(
 
     triggers = _get_trigger_registry(request)
     cfg = triggers.get(trigger_id)
-    if cfg is None:
+    if cfg is None or cfg.user_id != user_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Trigger '{trigger_id}' not found",
@@ -416,6 +739,22 @@ async def snooze_trigger(
 
     updated = cfg.model_copy(update={"enabled": False})
     triggers[trigger_id] = updated
+
+    try:
+        await _persist_user_triggers(graph_store, user_id, triggers)
+    except UserNodeNotFoundError as exc:
+        triggers[trigger_id] = cfg
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User profile not found",
+        ) from exc
+    except TriggerPersistenceError as exc:
+        triggers[trigger_id] = cfg
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to persist trigger schedule",
+        ) from exc
+
     return _cfg_to_response(updated)
 
 
@@ -429,6 +768,7 @@ async def snooze_trigger(
 async def resume_trigger(
     trigger_id: str,
     user_id: CurrentUserDep,
+    graph_store: GraphStoreDep,
     request: Request,
 ) -> TriggerConfigResponse:
     """Re-enable a trigger and recompute schedule when required."""
@@ -441,7 +781,7 @@ async def resume_trigger(
 
     triggers = _get_trigger_registry(request)
     cfg = triggers.get(trigger_id)
-    if cfg is None:
+    if cfg is None or cfg.user_id != user_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Trigger '{trigger_id}' not found",
@@ -460,4 +800,20 @@ async def resume_trigger(
         }
     )
     triggers[trigger_id] = updated
+
+    try:
+        await _persist_user_triggers(graph_store, user_id, triggers)
+    except UserNodeNotFoundError as exc:
+        triggers[trigger_id] = cfg
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User profile not found",
+        ) from exc
+    except TriggerPersistenceError as exc:
+        triggers[trigger_id] = cfg
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to persist trigger schedule",
+        ) from exc
+
     return _cfg_to_response(updated)

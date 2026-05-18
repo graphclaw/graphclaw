@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """graphclaw.infra.broker — MessageBroker ABC and RedisMessageBroker implementation.
 
@@ -49,8 +49,11 @@ implementation could use Redis Streams (XACK).
 
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Queue name constants
@@ -146,6 +149,14 @@ class RedisMessageBroker(MessageBroker):
         """Push *message* onto the left end of Redis list *queue*."""
         r = await self._get_redis()
         await r.lpush(queue, message)
+        logger.debug(
+            "broker.publish",
+            extra={
+                "event_type": "broker.publish",
+                "queue": queue,
+                "message_size": len(message),
+            },
+        )
 
     async def consume(self, queue: str) -> AsyncIterator[str]:
         """Yield messages from *queue* using blocking BRPOP (timeout=5s).
@@ -159,6 +170,14 @@ class RedisMessageBroker(MessageBroker):
             if result is not None:
                 # brpop returns (queue_name, value)
                 _, value = result
+                logger.debug(
+                    "broker.consume",
+                    extra={
+                        "event_type": "broker.consume",
+                        "queue": queue,
+                        "message_size": len(value),
+                    },
+                )
                 yield value
 
     async def acknowledge(self, queue: str, message_id: str) -> None:
@@ -169,3 +188,9 @@ class RedisMessageBroker(MessageBroker):
         if self._redis is not None:
             await self._redis.aclose()
             self._redis = None
+            logger.debug(
+                "broker.close",
+                extra={
+                    "event_type": "broker.close",
+                },
+            )

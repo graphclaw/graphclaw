@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """tests.test_llm.test_litellm — Unit tests for LiteLLMLLMClient.
 
@@ -40,6 +40,32 @@ def _make_litellm_response(
     response.choices = [choice]
     response.usage = usage
     return response
+
+
+def _make_litellm_stream_chunk(content: str, finish_reason: str | None = None) -> MagicMock:
+    """Build a mock stream chunk matching LiteLLM delta shape."""
+    delta = MagicMock()
+    delta.content = content
+    delta.tool_calls = None
+
+    choice = MagicMock()
+    choice.delta = delta
+    choice.finish_reason = finish_reason
+
+    chunk = MagicMock()
+    chunk.choices = [choice]
+    return chunk
+
+
+class _MockLiteLLMStream:
+    """Async iterable used by stream() tests."""
+
+    def __init__(self, chunks: list[MagicMock]) -> None:
+        self._chunks = chunks
+
+    async def __aiter__(self):
+        for chunk in self._chunks:
+            yield chunk
 
 
 @contextmanager
@@ -151,6 +177,41 @@ async def test_complete_api_error_raises_runtime_error():
         client = LiteLLMLLMClient()
         with pytest.raises(RuntimeError, match="LiteLLM call failed"):
             await client.complete([LLMMessage(role="user", content="hi")])
+
+
+# ---------------------------------------------------------------------------
+# stream() — trace parity
+# ---------------------------------------------------------------------------
+
+
+async def test_stream_traces_success_with_accumulated_content():
+    from graphclaw.llm.litellm.client import LiteLLMLLMClient
+
+    mock_resp = _make_litellm_response()
+    with _mock_litellm(mock_resp) as mock_litellm:
+        mock_litellm.acompletion = AsyncMock(
+            return_value=_MockLiteLLMStream(
+                [
+                    _make_litellm_stream_chunk("Hel"),
+                    _make_litellm_stream_chunk("lo", finish_reason="stop"),
+                ]
+            )
+        )
+
+        client = LiteLLMLLMClient()
+        client._trace_llm_call = MagicMock()
+
+        chunks = [chunk async for chunk in client.stream([LLMMessage(role="user", content="hi")])]
+
+    assert chunks[-1].is_final is True
+    assert chunks[-1].accumulated is not None
+    assert chunks[-1].accumulated.content == "Hello"
+
+    client._trace_llm_call.assert_called_once()
+    traced = client._trace_llm_call.call_args.kwargs
+    assert traced["provider"] == "litellm"
+    assert traced["call_type"] == "stream"
+    assert traced["response_content"] == "Hello"
 
 
 # ---------------------------------------------------------------------------

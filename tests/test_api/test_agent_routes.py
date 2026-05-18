@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """tests.test_api.test_agent_routes — Tests for /app/v1/agent/* endpoints.
 
@@ -72,6 +72,9 @@ class FakeTriggerScheduler:
     def register(self, config: TriggerConfig) -> None:
         self._triggers[config.trigger_id] = config
 
+    def unregister(self, trigger_id: str) -> None:
+        self._triggers.pop(trigger_id, None)
+
     def _compute_next_cron(self, _cron_expr: str, now):
         from datetime import timedelta
 
@@ -112,6 +115,7 @@ def _make_app(
 ) -> tuple[FastAPI, FakeGraphStore, FakeTriggerEngine | None]:
     """Build a minimal FastAPI app with dependency and state overrides."""
     fake_store = FakeGraphStore()
+    fake_store._nodes[_TEST_USER] = {"id": _TEST_USER, "preferences": {}}
     fake_scoring = FakeScoringEngine()
 
     app = FastAPI()
@@ -385,7 +389,9 @@ def test_resume_trigger_not_found_returns_404() -> None:
 
 def test_resume_trigger_reenables_trigger_and_sets_next_fire() -> None:
     """POST /agent/triggers/{id}/resume reenables trigger and computes next fire."""
-    cfg = _make_trigger_config("TRIG-resume").model_copy(update={"enabled": False, "next_fire_at": None})
+    cfg = _make_trigger_config("TRIG-resume").model_copy(
+        update={"enabled": False, "next_fire_at": None}
+    )
     app, _, _ = _make_app(with_trigger_engine=True, trigger_configs=[cfg])
     client = TestClient(app)
 
@@ -394,3 +400,73 @@ def test_resume_trigger_reenables_trigger_and_sets_next_fire() -> None:
     data = response.json()
     assert data["enabled"] is True
     assert data["next_fire_at"] is not None
+
+
+# ---------------------------------------------------------------------------
+# Trigger settings + schedule CRUD
+# ---------------------------------------------------------------------------
+
+
+def test_get_trigger_settings_returns_defaults() -> None:
+    """GET /agent/triggers/settings returns persisted defaults."""
+    app, _, _ = _make_app(with_trigger_engine=True)
+    client = TestClient(app)
+
+    response = client.get("/app/v1/agent/triggers/settings")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["default_follow_up_days"] == 3
+    assert payload["interrupt_threshold_overrides"] == {}
+
+
+def test_patch_trigger_settings_persists_values() -> None:
+    """PATCH /agent/triggers/settings persists policy settings in graph store."""
+    app, store, _ = _make_app(with_trigger_engine=True)
+    client = TestClient(app)
+
+    response = client.patch(
+        "/app/v1/agent/triggers/settings",
+        json={"default_follow_up_days": 5, "interrupt_threshold_overrides": {"default": 0.9}},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["default_follow_up_days"] == 5
+    assert payload["interrupt_threshold_overrides"] == {"default": 0.9}
+    assert store._nodes[_TEST_USER]["preferences"]["default_follow_up_days"] == 5
+
+
+def test_create_update_delete_trigger_roundtrip() -> None:
+    """Trigger CRUD endpoints persist scheduler state into user preferences."""
+    app, store, _ = _make_app(with_trigger_engine=True)
+    client = TestClient(app)
+
+    create_response = client.post(
+        "/app/v1/agent/triggers/schedule",
+        json={
+            "trigger_type": "TIME_BASED",
+            "cron_expression": "15 9 * * *",
+            "enabled": True,
+            "payload_template": {"agent_id": "main", "briefing": True},
+        },
+    )
+    assert create_response.status_code == 201
+    created = create_response.json()
+    trigger_id = created["trigger_id"]
+    assert created["cron_expression"] == "15 9 * * *"
+
+    update_response = client.patch(
+        f"/app/v1/agent/triggers/{trigger_id}",
+        json={"enabled": False, "cron_expression": "30 10 * * *"},
+    )
+    assert update_response.status_code == 200
+    updated = update_response.json()
+    assert updated["enabled"] is False
+    assert updated["cron_expression"] == "30 10 * * *"
+
+    schedule = store._nodes[_TEST_USER]["preferences"].get("trigger_schedules", [])
+    assert len(schedule) == 1
+    assert schedule[0]["trigger_id"] == trigger_id
+
+    delete_response = client.delete(f"/app/v1/agent/triggers/{trigger_id}")
+    assert delete_response.status_code == 204
+    assert store._nodes[_TEST_USER]["preferences"].get("trigger_schedules", []) == []

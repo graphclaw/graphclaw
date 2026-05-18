@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """tests.test_infra.test_broker — Unit tests for MessageBroker / RedisMessageBroker.
 
@@ -23,6 +23,7 @@ Dependencies
 
 from __future__ import annotations
 
+import logging
 from unittest.mock import AsyncMock
 
 import pytest
@@ -50,13 +51,19 @@ def _make_broker(mock_redis: object) -> RedisMessageBroker:
 # ---------------------------------------------------------------------------
 
 
-async def test_publish_calls_lpush() -> None:
+async def test_publish_calls_lpush(caplog: pytest.LogCaptureFixture) -> None:
     mock_redis = AsyncMock()
     broker = _make_broker(mock_redis)
 
-    await broker.publish(INBOUND_MESSAGES, '{"task_id": "T1"}')
+    with caplog.at_level(logging.DEBUG, logger="graphclaw.infra.broker"):
+        await broker.publish(INBOUND_MESSAGES, '{"task_id": "T1"}')
 
     mock_redis.lpush.assert_awaited_once_with(INBOUND_MESSAGES, '{"task_id": "T1"}')
+    assert any(
+        r.__dict__.get("event_type") == "broker.publish"
+        and r.__dict__.get("queue") == INBOUND_MESSAGES
+        for r in caplog.records
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -64,7 +71,7 @@ async def test_publish_calls_lpush() -> None:
 # ---------------------------------------------------------------------------
 
 
-async def test_consume_yields_messages() -> None:
+async def test_consume_yields_messages(caplog: pytest.LogCaptureFixture) -> None:
     mock_redis = AsyncMock()
     # First call returns a message, second call returns None (timeout), which
     # causes the generator to loop; we stop after the first yielded value.
@@ -76,12 +83,16 @@ async def test_consume_yields_messages() -> None:
     broker = _make_broker(mock_redis)
 
     messages: list[str] = []
-    async for msg in broker.consume(INBOUND_MESSAGES):
-        messages.append(msg)
-        if len(messages) >= 2:
-            break
+    with caplog.at_level(logging.DEBUG, logger="graphclaw.infra.broker"):
+        async for msg in broker.consume(INBOUND_MESSAGES):
+            messages.append(msg)
+            if len(messages) >= 2:
+                break
 
     assert messages == ['{"task_id": "T1"}', '{"task_id": "T2"}']
+    consume_logs = [r for r in caplog.records if r.__dict__.get("event_type") == "broker.consume"]
+    assert len(consume_logs) == 2
+    assert all(r.__dict__.get("queue") == INBOUND_MESSAGES for r in consume_logs)
 
 
 # ---------------------------------------------------------------------------
@@ -104,14 +115,16 @@ async def test_acknowledge_is_noop() -> None:
 # ---------------------------------------------------------------------------
 
 
-async def test_close_closes_connection() -> None:
+async def test_close_closes_connection(caplog: pytest.LogCaptureFixture) -> None:
     mock_redis = AsyncMock()
     broker = _make_broker(mock_redis)
 
-    await broker.close()
+    with caplog.at_level(logging.DEBUG, logger="graphclaw.infra.broker"):
+        await broker.close()
 
     mock_redis.aclose.assert_awaited_once()
     assert broker._redis is None
+    assert any(r.__dict__.get("event_type") == "broker.close" for r in caplog.records)
 
 
 async def test_close_when_not_connected_is_safe() -> None:

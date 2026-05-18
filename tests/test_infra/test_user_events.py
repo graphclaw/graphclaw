@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """Integration tests for UserEventPublisher implementations.
 
@@ -185,8 +185,8 @@ class TestRedisPublisher:
 
         assert received is not None, "No message received from Redis within timeout"
         parsed = json.loads(received)
-        assert parsed["event"] == RunEventType.RUN_STARTED
-        assert parsed["data"]["run_id"] == run_id
+        assert parsed["event_type"] == RunEventType.RUN_STARTED
+        assert parsed["run_id"] == run_id
 
     @pytest.mark.asyncio
     async def test_publish_multiple_events_in_order(self, redis_client):
@@ -218,7 +218,7 @@ class TestRedisPublisher:
             msg = await pubsub.get_message(ignore_subscribe_messages=True, timeout=0.2)
             if msg and msg.get("type") == "message":
                 data = json.loads(msg["data"])
-                received_seqs.append(data["data"]["event_seq"])
+                received_seqs.append(data["event_seq"])
 
         await pubsub.unsubscribe(channel)
         await pubsub.aclose()
@@ -266,6 +266,6 @@ class TestRedisPublisher:
         await pubsub.aclose()
 
         assert received is not None
-        payload = received["data"]["payload"]
+        payload = received["payload"]
         assert payload["input_tokens"] == 200
         assert payload["tool_call_count"] == 2

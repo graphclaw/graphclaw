@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """graphclaw.api.events — Server-Sent Events stream for real-time cockpit updates.
 
@@ -67,10 +67,12 @@ import logging
 from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Request, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
+from jose import JWTError
 
-from graphclaw.api.deps import CurrentUserDep
+from graphclaw.api.deps import StorageClientDep
+from graphclaw.auth.middleware import get_jwt_service
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +84,43 @@ router = APIRouter(prefix="/events", tags=["events"])
 
 _KEEPALIVE_INTERVAL_SECS = 30
 _REDIS_CHANNEL_PREFIX = "graphclaw:events:"
+
+_ONBOARDING_STEP_MAP = {
+    "WELCOME": 1,
+    "PERSONA": 2,
+    "CHANNELS": 3,
+    "WORKING_HOURS": 4,
+    "PREFERENCES": 5,
+    "POLICIES": 6,
+    "DONE": 7,
+}
+_ONBOARDING_TOTAL_STEPS = 6
+
+
+async def _onboarding_frames(user_id: str, storage) -> AsyncGenerator[str, None]:
+    """Yield onboarding_needed or onboarding_complete SSE frame once, after connect."""
+    try:
+        from graphclaw.agent.onboarding import OnboardingFSM  # noqa: PLC0415
+
+        fsm = OnboardingFSM(storage)
+        needed = await fsm.is_onboarding_needed(user_id)
+        if needed:
+            state = await fsm.get_state(user_id)
+            step = _ONBOARDING_STEP_MAP.get(state.value, 1)
+            yield _sse_event(
+                "onboarding_needed",
+                {
+                    "needed": True,
+                    "state": state.value,
+                    "step": step,
+                    "total_steps": _ONBOARDING_TOTAL_STEPS,
+                },
+            )
+        else:
+            yield _sse_event("onboarding_complete", {"needed": False})
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("events: onboarding check failed for user_id=%s: %s", user_id, exc)
+
 
 # ---------------------------------------------------------------------------
 # SSE formatting helpers
@@ -121,6 +160,7 @@ async def _stream_with_redis(
     user_id: str,
     redis,
     request: Request,
+    storage,
 ) -> AsyncGenerator[str, None]:
     """Subscribe to the user's Redis pub/sub channel and yield SSE frames.
 
@@ -144,6 +184,10 @@ async def _stream_with_redis(
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             },
         )
+
+        # Emit onboarding status immediately after connect
+        async for frame in _onboarding_frames(user_id, storage):
+            yield frame
 
         last_ping = asyncio.get_event_loop().time()
 
@@ -191,6 +235,7 @@ async def _stream_with_redis(
 async def _stream_keepalive_only(
     user_id: str,
     request: Request,
+    storage,
 ) -> AsyncGenerator[str, None]:
     """Emit keepalive pings only (used when Redis is unavailable)."""
     logger.warning(
@@ -206,6 +251,9 @@ async def _stream_keepalive_only(
             "timestamp": datetime.now(timezone.utc).isoformat(),
         },
     )
+
+    async for frame in _onboarding_frames(user_id, storage):
+        yield frame
 
     while True:
         if await request.is_disconnected():
@@ -231,15 +279,55 @@ async def _stream_keepalive_only(
 )
 async def event_stream(
     request: Request,
-    user_id: CurrentUserDep,
+    storage_client: StorageClientDep,
+    access_token: str | None = Query(default=None),
 ) -> StreamingResponse:
     """Return an SSE ``StreamingResponse`` for the authenticated user."""
+    auth_header = request.headers.get("Authorization", "")
+    token = ""
+    if auth_header.lower().startswith("bearer "):
+        token = auth_header[7:].strip()
+    elif access_token:
+        token = access_token.strip()
+
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    jwt_service = get_jwt_service()
+    try:
+        payload = await jwt_service.verify_token_async(token)
+    except JWTError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
+
+    if payload.get("type") != "access":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Access token required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    user_id = str(payload.get("sub") or "").strip()
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token missing subject claim",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     redis = getattr(request.app.state, "redis", None)
 
     if redis is not None:
-        generator = _stream_with_redis(user_id, redis, request)
+        generator = _stream_with_redis(user_id, redis, request, storage_client)
     else:
-        generator = _stream_keepalive_only(user_id, request)
+        generator = _stream_keepalive_only(user_id, request, storage_client)
 
     return StreamingResponse(
         generator,

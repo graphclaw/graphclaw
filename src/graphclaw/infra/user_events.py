@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """graphclaw.infra.user_events — Per-user UI event publisher abstraction.
 
@@ -111,13 +111,8 @@ class RedisUserEventPublisher(UserEventPublisher):
     async def publish(self, user_id: str, event: AgentRunEvent) -> None:
         channel = f"{_REDIS_CHANNEL_PREFIX}{user_id}"
         try:
-            payload = json.dumps(
-                {
-                    "event": event.event_type,
-                    "data": event.model_dump(mode="json"),
-                },
-                default=str,
-            )
+            # Keep payload flat with event_type so SSE forwarding can map event names directly.
+            payload = json.dumps(event.model_dump(mode="json"), default=str)
             await self._redis.publish(channel, payload)
         except Exception as exc:  # noqa: BLE001
             logger.warning(

@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """graphclaw.api.admin.triggers — Admin endpoints for trigger tuning (FR-SCHED-001).
 
@@ -17,7 +17,6 @@ POST /admin/triggers/escalation/{decision_id}/resolve — resolve a pending deci
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -25,6 +24,11 @@ from pydantic import BaseModel, Field
 
 from graphclaw.api.deps import AdminGraphStoreDep, CallerContextDep
 from graphclaw.models.base import utcnow
+from graphclaw.triggers.persistence import (
+    UserNodeNotFoundError,
+    load_follow_up_settings,
+    save_follow_up_settings,
+)
 
 router = APIRouter(prefix="/admin/triggers", tags=["admin-triggers"])
 
@@ -92,37 +96,40 @@ async def configure_follow_up(
     onto the user's ``UserNode.preferences``.
     """
     try:
-        user_node_raw = await store.get_node(body.user_id, caller_context=caller_context)
-    except Exception as exc:
+        persisted = await save_follow_up_settings(
+            store,
+            body.user_id,
+            default_follow_up_days=body.default_follow_up_days,
+            interrupt_threshold_overrides=body.interrupt_threshold_overrides,
+            caller_context=caller_context,
+        )
+    except UserNodeNotFoundError as exc:
         raise HTTPException(status_code=404, detail=f"User not found: {body.user_id}") from exc
-
-    if user_node_raw is None:
-        raise HTTPException(status_code=404, detail=f"User not found: {body.user_id}")
-
-    updates: dict[str, Any] = {}
-    raw_prefs = user_node_raw.get("preferences", {}) if isinstance(user_node_raw, dict) else {}
-    if isinstance(raw_prefs, str):
-        try:
-            raw_prefs = json.loads(raw_prefs)
-        except (ValueError, TypeError):
-            raw_prefs = {}
-    current_prefs: dict[str, Any] = dict(raw_prefs) if isinstance(raw_prefs, dict) else {}
-
-    if body.default_follow_up_days is not None:
-        current_prefs["default_follow_up_days"] = body.default_follow_up_days
-        updates["preferences"] = current_prefs
-
-    if body.interrupt_threshold_overrides is not None:
-        current_prefs["interrupt_threshold_overrides"] = body.interrupt_threshold_overrides
-        updates["preferences"] = current_prefs
-
-    if updates:
-        await store.update_node(body.user_id, updates, caller_context=caller_context)
 
     return FollowUpConfigResponse(
         user_id=body.user_id,
-        default_follow_up_days=current_prefs.get("default_follow_up_days", 3),
-        interrupt_threshold_overrides=current_prefs.get("interrupt_threshold_overrides", {}),
+        default_follow_up_days=persisted["default_follow_up_days"],
+        interrupt_threshold_overrides=persisted["interrupt_threshold_overrides"],
+        updated_at=utcnow().isoformat(),
+    )
+
+
+@router.get("/follow_up/{user_id}")
+async def get_follow_up_config(
+    user_id: str,
+    store: AdminGraphStoreDep,
+    caller_context: CallerContextDep,
+) -> FollowUpConfigResponse:
+    """Read follow-up trigger configuration for a specific user."""
+    try:
+        settings = await load_follow_up_settings(store, user_id, caller_context=caller_context)
+    except UserNodeNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"User not found: {user_id}") from exc
+
+    return FollowUpConfigResponse(
+        user_id=user_id,
+        default_follow_up_days=settings["default_follow_up_days"],
+        interrupt_threshold_overrides=settings["interrupt_threshold_overrides"],
         updated_at=utcnow().isoformat(),
     )
 

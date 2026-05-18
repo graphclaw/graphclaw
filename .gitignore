@@ -18,6 +18,10 @@ htmlcov/
 # Test artifacts — never commit these
 tests/agent_evals/reports/
 
+# Local structured log artifacts (including DEBUG LLM traces)
+logs/
+llm-traces.jsonl
+
 # PRD docs kept at root for convenience (canonical copies live in docs/)
 task-graph-requirements.md
 task-graph-review-notes.md

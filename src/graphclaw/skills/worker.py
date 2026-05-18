@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """graphclaw.skills.worker — Async skill worker pool with priority dispatch.
 
@@ -58,6 +58,8 @@ excluded so that permanently broken workers are not re-used until
 from __future__ import annotations
 
 import asyncio
+import logging
+import time
 from typing import TYPE_CHECKING
 
 from graphclaw.models.base import utcnow
@@ -72,6 +74,9 @@ from graphclaw.skills.models import (
 
 if TYPE_CHECKING:
     from graphclaw.skills.llm_router import LLMRouter
+
+
+logger = logging.getLogger(__name__)
 
 
 class SkillWorker:
@@ -137,6 +142,19 @@ class SkillWorker:
         self._state = ThreadState.RUNNING
         self._current_job = job
         started_at = utcnow()
+        started_monotonic = time.monotonic()
+        logger.debug(
+            "skill.job.started",
+            extra={
+                "event_type": "skill.job.started",
+                "worker_id": self._worker_id,
+                "job_id": job.job_id,
+                "skill_name": job.skill_name,
+                "task_id": job.task_id,
+                "session_id": job.session_id,
+                "timeout_seconds": job.timeout_seconds,
+            },
+        )
 
         try:
             response = await asyncio.wait_for(
@@ -152,6 +170,22 @@ class SkillWorker:
 
             self._jobs_completed += 1
             self._state = ThreadState.COMPLETED
+            completed_at = utcnow()
+            duration_ms = int((time.monotonic() - started_monotonic) * 1000)
+            logger.info(
+                "skill.job.completed",
+                extra={
+                    "event_type": "skill.job.completed",
+                    "worker_id": self._worker_id,
+                    "job_id": job.job_id,
+                    "skill_name": job.skill_name,
+                    "task_id": job.task_id,
+                    "session_id": job.session_id,
+                    "duration_ms": duration_ms,
+                    "tokens_used": response.get("tokens_used", 0),
+                    "cost_usd": response.get("cost_usd", 0.0),
+                },
+            )
             return SkillResult(
                 job_id=job.job_id,
                 skill_name=job.skill_name,
@@ -160,7 +194,7 @@ class SkillWorker:
                 status=SkillStatus.COMPLETED,
                 output=response.get("content", ""),
                 started_at=started_at,
-                completed_at=utcnow(),
+                completed_at=completed_at,
                 tokens_used=response.get("tokens_used", 0),
                 cost_usd=response.get("cost_usd", 0.0),
             )
@@ -168,6 +202,20 @@ class SkillWorker:
         except (TimeoutError, asyncio.TimeoutError):
             self._jobs_failed += 1
             self._state = ThreadState.TIMED_OUT
+            duration_ms = int((time.monotonic() - started_monotonic) * 1000)
+            logger.warning(
+                "skill.job.timeout",
+                extra={
+                    "event_type": "skill.job.timeout",
+                    "worker_id": self._worker_id,
+                    "job_id": job.job_id,
+                    "skill_name": job.skill_name,
+                    "task_id": job.task_id,
+                    "session_id": job.session_id,
+                    "duration_ms": duration_ms,
+                    "timeout_seconds": job.timeout_seconds,
+                },
+            )
             return SkillResult(
                 job_id=job.job_id,
                 skill_name=job.skill_name,
@@ -182,6 +230,20 @@ class SkillWorker:
         except Exception as exc:
             self._jobs_failed += 1
             self._state = ThreadState.FAILED
+            duration_ms = int((time.monotonic() - started_monotonic) * 1000)
+            logger.warning(
+                "skill.job.failed",
+                extra={
+                    "event_type": "skill.job.failed",
+                    "worker_id": self._worker_id,
+                    "job_id": job.job_id,
+                    "skill_name": job.skill_name,
+                    "task_id": job.task_id,
+                    "session_id": job.session_id,
+                    "duration_ms": duration_ms,
+                    "error": str(exc),
+                },
+            )
             return SkillResult(
                 job_id=job.job_id,
                 skill_name=job.skill_name,
@@ -251,6 +313,13 @@ class WorkerPool:
                 worker_id=wid,
                 llm_router=self._llm_router,
             )
+        logger.info(
+            "worker.pool.started",
+            extra={
+                "event_type": "worker.pool.started",
+                "pool_size": self._pool_size,
+            },
+        )
 
     async def stop(self) -> None:
         """Tear down the worker pool.
@@ -261,6 +330,13 @@ class WorkerPool:
         """
         self._running = False
         self._workers = {}
+        logger.info(
+            "worker.pool.stopped",
+            extra={
+                "event_type": "worker.pool.stopped",
+                "pool_size": self._pool_size,
+            },
+        )
 
     # ------------------------------------------------------------------
     # Job submission
@@ -277,6 +353,17 @@ class WorkerPool:
             job: The ``SkillJob`` to enqueue.
         """
         await self._job_queue.put((-job.priority, job))
+        logger.debug(
+            "worker.pool.job_enqueued",
+            extra={
+                "event_type": "worker.pool.job_enqueued",
+                "job_id": job.job_id,
+                "task_id": job.task_id,
+                "skill_name": job.skill_name,
+                "session_id": job.session_id,
+                "priority": job.priority,
+            },
+        )
 
     # ------------------------------------------------------------------
     # Worker queries

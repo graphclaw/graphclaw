@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """graphclaw.llm.litellm.client — LLMClient implementation backed by LiteLLM.
 
@@ -43,9 +43,10 @@ from graphclaw.llm.base import (
     ToolCall,
     ToolDefinition,
 )
+from graphclaw.llm.logging_mixin import LLMTraceMixin
 
 
-class LiteLLMLLMClient(LLMClient):
+class LiteLLMLLMClient(LLMTraceMixin, LLMClient):
     """LLMClient backed by LiteLLM (routes to 100+ providers).
 
     Args:
@@ -96,9 +97,24 @@ class LiteLLMLLMClient(LLMClient):
                 for t in tools
             ]
 
+        t0 = self._now_ms()
         try:
             response = await litellm.acompletion(**kwargs)
         except Exception as exc:
+            self._trace_llm_call(
+                provider="litellm",
+                model=target_model,
+                call_type="complete",
+                messages=[{"role": m.role, "content": m.content} for m in messages],
+                params={"max_tokens": max_tokens, "temperature": temperature},
+                response_content="",
+                response_tool_calls=[],
+                prompt_tokens=0,
+                completion_tokens=0,
+                cost_usd=0.0,
+                latency_ms=self._now_ms() - t0,
+                error=str(exc),
+            )
             raise RuntimeError(f"LiteLLM call failed: {exc}") from exc
 
         choice = response.choices[0]
@@ -121,6 +137,20 @@ class LiteLLMLLMClient(LLMClient):
                 )
 
         stop_reason = getattr(choice, "finish_reason", None)
+
+        self._trace_llm_call(
+            provider="litellm",
+            model=target_model,
+            call_type="complete",
+            messages=[{"role": m.role, "content": m.content} for m in messages],
+            params={"max_tokens": max_tokens, "temperature": temperature},
+            response_content=content,
+            response_tool_calls=[{"name": tc.name, "arguments": tc.arguments} for tc in tool_calls],
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            cost_usd=0.0,
+            latency_ms=self._now_ms() - t0,
+        )
 
         return LLMResponse(
             content=content,
@@ -170,6 +200,7 @@ class LiteLLMLLMClient(LLMClient):
                 for t in tools
             ]
 
+        t0 = self._now_ms()
         try:
             stream_kwargs: dict[str, Any] = {
                 "model": target_model,
@@ -182,58 +213,119 @@ class LiteLLMLLMClient(LLMClient):
                 stream_kwargs["tools"] = litellm_tools
             response = await litellm.acompletion(**stream_kwargs)
         except Exception as exc:
+            self._trace_llm_call(
+                provider="litellm",
+                model=target_model,
+                call_type="stream",
+                messages=[{"role": m.role, "content": m.content} for m in messages],
+                params={"max_tokens": max_tokens, "temperature": temperature},
+                response_content="",
+                response_tool_calls=[],
+                prompt_tokens=0,
+                completion_tokens=0,
+                cost_usd=0.0,
+                latency_ms=self._now_ms() - t0,
+                error=str(exc),
+            )
             raise RuntimeError(f"LiteLLM stream call failed: {exc}") from exc
 
         accumulated_content = ""
         # index → {"id": str, "name": str, "arguments": str}
         tc_chunks: dict[int, dict[str, str]] = {}
-        async for chunk in response:
-            choice = chunk.choices[0]
-            delta = choice.delta
-            text_delta = delta.content or ""
-            accumulated_content += text_delta
-            is_final = choice.finish_reason is not None
+        final_tool_calls: list[ToolCall] = []
+        try:
+            async for chunk in response:
+                choice = chunk.choices[0]
+                delta = choice.delta
+                text_delta = delta.content or ""
+                accumulated_content += text_delta
+                is_final = choice.finish_reason is not None
 
-            # Accumulate tool call deltas
-            if hasattr(delta, "tool_calls") and delta.tool_calls:
-                for tc_delta in delta.tool_calls:
-                    idx = getattr(tc_delta, "index", 0)
-                    if idx not in tc_chunks:
-                        tc_chunks[idx] = {"id": "", "name": "", "arguments": ""}
-                    if getattr(tc_delta, "id", None):
-                        tc_chunks[idx]["id"] += tc_delta.id
-                    fn = getattr(tc_delta, "function", None)
-                    if fn:
-                        if getattr(fn, "name", None):
-                            tc_chunks[idx]["name"] += fn.name
-                        if getattr(fn, "arguments", None):
-                            tc_chunks[idx]["arguments"] += fn.arguments
+                # Accumulate tool call deltas
+                if hasattr(delta, "tool_calls") and delta.tool_calls:
+                    for tc_delta in delta.tool_calls:
+                        idx = getattr(tc_delta, "index", 0)
+                        if idx not in tc_chunks:
+                            tc_chunks[idx] = {"id": "", "name": "", "arguments": ""}
+                        if getattr(tc_delta, "id", None):
+                            tc_chunks[idx]["id"] += tc_delta.id
+                        fn = getattr(tc_delta, "function", None)
+                        if fn:
+                            if getattr(fn, "name", None):
+                                tc_chunks[idx]["name"] += fn.name
+                            if getattr(fn, "arguments", None):
+                                tc_chunks[idx]["arguments"] += fn.arguments
 
-            if is_final:
-                tool_calls: list[ToolCall] = []
-                for idx in sorted(tc_chunks):
-                    tc = tc_chunks[idx]
-                    try:
-                        args = _json.loads(tc["arguments"]) if tc["arguments"] else {}
-                    except (_json.JSONDecodeError, ValueError):
-                        args = {}
-                    tool_calls.append(ToolCall(id=tc["id"], name=tc["name"], arguments=args))
-                final_response = LLMResponse(
-                    content=accumulated_content,
-                    model=target_model,
-                    tokens_used=0,
-                    prompt_tokens=0,
-                    completion_tokens=0,
-                    cost_usd=0.0,
-                    tool_calls=tool_calls,
-                )
-                yield LLMStreamChunk(
-                    content_delta=text_delta,
-                    is_final=True,
-                    accumulated=final_response,
-                )
-            else:
-                yield LLMStreamChunk(content_delta=text_delta)
+                if is_final:
+                    final_tool_calls = []
+                    for idx in sorted(tc_chunks):
+                        tc = tc_chunks[idx]
+                        try:
+                            args = _json.loads(tc["arguments"]) if tc["arguments"] else {}
+                        except (_json.JSONDecodeError, ValueError):
+                            args = {}
+                        final_tool_calls.append(
+                            ToolCall(id=tc["id"], name=tc["name"], arguments=args)
+                        )
+                    final_response = LLMResponse(
+                        content=accumulated_content,
+                        model=target_model,
+                        tokens_used=0,
+                        prompt_tokens=0,
+                        completion_tokens=0,
+                        cost_usd=0.0,
+                        tool_calls=final_tool_calls,
+                    )
+                    yield LLMStreamChunk(
+                        content_delta=text_delta,
+                        is_final=True,
+                        accumulated=final_response,
+                    )
+                else:
+                    yield LLMStreamChunk(content_delta=text_delta)
+        except Exception as exc:
+            self._trace_llm_call(
+                provider="litellm",
+                model=target_model,
+                call_type="stream",
+                messages=[{"role": m.role, "content": m.content} for m in messages],
+                params={"max_tokens": max_tokens, "temperature": temperature},
+                response_content=accumulated_content,
+                response_tool_calls=[
+                    {"name": tc.name, "arguments": tc.arguments} for tc in final_tool_calls
+                ],
+                prompt_tokens=0,
+                completion_tokens=0,
+                cost_usd=0.0,
+                latency_ms=self._now_ms() - t0,
+                error=str(exc),
+            )
+            raise RuntimeError(f"LiteLLM stream failed: {exc}") from exc
+
+        if not final_tool_calls and tc_chunks:
+            for idx in sorted(tc_chunks):
+                tc = tc_chunks[idx]
+                try:
+                    args = _json.loads(tc["arguments"]) if tc["arguments"] else {}
+                except (_json.JSONDecodeError, ValueError):
+                    args = {}
+                final_tool_calls.append(ToolCall(id=tc["id"], name=tc["name"], arguments=args))
+
+        self._trace_llm_call(
+            provider="litellm",
+            model=target_model,
+            call_type="stream",
+            messages=[{"role": m.role, "content": m.content} for m in messages],
+            params={"max_tokens": max_tokens, "temperature": temperature},
+            response_content=accumulated_content,
+            response_tool_calls=[
+                {"name": tc.name, "arguments": tc.arguments} for tc in final_tool_calls
+            ],
+            prompt_tokens=0,
+            completion_tokens=0,
+            cost_usd=0.0,
+            latency_ms=self._now_ms() - t0,
+        )
 
     async def count_tokens(
         self,

@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """graphclaw.llm.openai.client — LLMClient implementation backed by the OpenAI SDK.
 
@@ -142,6 +142,18 @@ class OpenAILLMClient(LLMTraceMixin, LLMClient):
             result.append(ToolCall(id=tc.id, name=tc.function.name, arguments=args))
         return result
 
+    @staticmethod
+    def _build_stream_tool_calls(tc_chunks: dict[int, dict[str, str]]) -> list[ToolCall]:
+        tool_calls: list[ToolCall] = []
+        for idx in sorted(tc_chunks):
+            tc = tc_chunks[idx]
+            try:
+                args = json.loads(tc["arguments"]) if tc["arguments"] else {}
+            except (json.JSONDecodeError, ValueError):
+                args = {}
+            tool_calls.append(ToolCall(id=tc["id"], name=tc["name"], arguments=args))
+        return tool_calls
+
     async def complete(
         self,
         messages: list[LLMMessage],
@@ -241,12 +253,12 @@ class OpenAILLMClient(LLMTraceMixin, LLMClient):
         if tools:
             kwargs["tools"] = self._translate_tools(tools)
 
-        import json as _json  # noqa: PLC0415
-
+        t0 = self._now_ms()
         accumulated_content = ""
         finish_reason = None
         # index → {"id": str, "name": str, "arguments": str}
         tc_chunks: dict[int, dict[str, str]] = {}
+        final_tool_calls: list[ToolCall] = []
         try:
             async with await client.chat.completions.create(**kwargs) as stream:
                 async for chunk in stream:
@@ -272,16 +284,7 @@ class OpenAILLMClient(LLMTraceMixin, LLMClient):
                                     tc_chunks[idx]["arguments"] += fn.arguments
 
                     if finish_reason:
-                        tool_calls: list[ToolCall] = []
-                        for idx in sorted(tc_chunks):
-                            tc = tc_chunks[idx]
-                            try:
-                                args = _json.loads(tc["arguments"]) if tc["arguments"] else {}
-                            except (_json.JSONDecodeError, ValueError):
-                                args = {}
-                            tool_calls.append(
-                                ToolCall(id=tc["id"], name=tc["name"], arguments=args)
-                            )
+                        final_tool_calls = self._build_stream_tool_calls(tc_chunks)
                         final_response = LLMResponse(
                             content=accumulated_content,
                             model=target_model,
@@ -289,7 +292,7 @@ class OpenAILLMClient(LLMTraceMixin, LLMClient):
                             prompt_tokens=0,
                             completion_tokens=0,
                             cost_usd=0.0,
-                            tool_calls=tool_calls,
+                            tool_calls=final_tool_calls,
                             stop_reason=finish_reason,
                         )
                         yield LLMStreamChunk(
@@ -300,7 +303,42 @@ class OpenAILLMClient(LLMTraceMixin, LLMClient):
                     else:
                         yield LLMStreamChunk(content_delta=text_delta)
         except Exception as exc:
+            self._trace_llm_call(
+                provider="openai",
+                model=target_model,
+                call_type="stream",
+                messages=[{"role": m.role, "content": m.content} for m in messages],
+                params={"max_tokens": max_tokens, "temperature": temperature},
+                response_content=accumulated_content,
+                response_tool_calls=[
+                    {"name": tc.name, "arguments": tc.arguments} for tc in final_tool_calls
+                ],
+                prompt_tokens=0,
+                completion_tokens=0,
+                cost_usd=0.0,
+                latency_ms=self._now_ms() - t0,
+                error=str(exc),
+            )
             raise RuntimeError(f"OpenAI stream failed: {exc}") from exc
+
+        if not final_tool_calls and tc_chunks:
+            final_tool_calls = self._build_stream_tool_calls(tc_chunks)
+
+        self._trace_llm_call(
+            provider="openai",
+            model=target_model,
+            call_type="stream",
+            messages=[{"role": m.role, "content": m.content} for m in messages],
+            params={"max_tokens": max_tokens, "temperature": temperature},
+            response_content=accumulated_content,
+            response_tool_calls=[
+                {"name": tc.name, "arguments": tc.arguments} for tc in final_tool_calls
+            ],
+            prompt_tokens=0,
+            completion_tokens=0,
+            cost_usd=0.0,
+            latency_ms=self._now_ms() - t0,
+        )
 
     async def count_tokens(
         self,

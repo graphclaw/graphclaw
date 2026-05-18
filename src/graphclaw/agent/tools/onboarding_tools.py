@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """graphclaw.agent.tools.onboarding_tools — Onboarding tool definitions (FR-ID-001).
 
@@ -39,6 +39,37 @@ async def set_user_name(
     """Update the user's display name on their UserNode."""
     await store.update_node(user_id, {"name": name})
     return {"updated": True, "name": name}
+
+
+async def set_agent_name(
+    user_id: str,
+    agent_name: str,
+    agent_id: str = "main",
+    storage: Any = None,
+    **_: Any,
+) -> dict:
+    """Persist the user-chosen name for the main orchestrator agent in profile.md frontmatter."""
+    if storage is None:
+        return {"updated": False, "error": "storage not provided"}
+    try:
+        from graphclaw.agent.onboarding import _render_profile, _split_frontmatter  # noqa: PLC0415
+        from graphclaw.infra.storage import StoragePaths  # noqa: PLC0415
+
+        path = StoragePaths.agent_profile(user_id, agent_id)
+        try:
+            raw = await storage.read(path)
+            content = raw.decode("utf-8", errors="replace")
+        except Exception:  # noqa: BLE001
+            content = ""
+
+        frontmatter, body = _split_frontmatter(content)
+        frontmatter["agent_name"] = agent_name
+        new_content = _render_profile(frontmatter, body)
+        await storage.write(path, new_content.encode("utf-8"), "text/markdown")
+        return {"updated": True, "agent_name": agent_name}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("set_agent_name failed: %s", exc)
+        return {"updated": False, "error": str(exc)}
 
 
 async def set_user_persona(
@@ -269,6 +300,21 @@ ONBOARDING_TOOLS: list[dict] = [
             "required": ["name"],
         },
         "fn": set_user_name,
+    },
+    {
+        "name": "set_agent_name",
+        "description": "Set the name the user wants to call this agent (e.g. 'Max', 'Aria').",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "agent_name": {
+                    "type": "string",
+                    "description": "The chosen name for the orchestrator agent.",
+                },
+            },
+            "required": ["agent_name"],
+        },
+        "fn": set_agent_name,
     },
     {
         "name": "set_user_persona",

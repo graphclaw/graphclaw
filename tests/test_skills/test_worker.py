@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """tests.test_skills.test_worker — Unit tests for SkillWorker and WorkerPool.
 
@@ -27,8 +27,11 @@ Dependencies
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from graphclaw.skills.models import (
     SkillDefinition,
@@ -86,14 +89,15 @@ def _make_job(priority: int = 0, timeout_seconds: int = 300) -> SkillJob:
 # ---------------------------------------------------------------------------
 
 
-async def test_worker_execute_success() -> None:
+async def test_worker_execute_success(caplog: pytest.LogCaptureFixture) -> None:
     """execute() should return a COMPLETED SkillResult on LLM success."""
     router = _make_router(content="Summary result", tokens=42)
     worker = SkillWorker(worker_id="worker-000", llm_router=router)
     job = _make_job()
     skill = _make_skill()
 
-    result = await worker.execute(job, skill)
+    with caplog.at_level(logging.DEBUG, logger="graphclaw.skills.worker"):
+        result = await worker.execute(job, skill)
 
     assert result.status == SkillStatus.COMPLETED
     assert result.output == "Summary result"
@@ -101,9 +105,19 @@ async def test_worker_execute_success() -> None:
     assert result.tokens_used == 42
     assert result.job_id == "job-001"
     assert result.skill_name == "test-skill"
+    assert any(
+        r.__dict__.get("event_type") == "skill.job.started"
+        and r.__dict__.get("job_id") == "job-001"
+        for r in caplog.records
+    )
+    assert any(
+        r.__dict__.get("event_type") == "skill.job.completed"
+        and r.__dict__.get("job_id") == "job-001"
+        for r in caplog.records
+    )
 
 
-async def test_worker_execute_timeout() -> None:
+async def test_worker_execute_timeout(caplog: pytest.LogCaptureFixture) -> None:
     """execute() should return a TIMEOUT SkillResult when the LLM call times out."""
     router = MagicMock()
 
@@ -115,14 +129,20 @@ async def test_worker_execute_timeout() -> None:
     job = _make_job(timeout_seconds=1)  # 1-second timeout
     skill = _make_skill(timeout_seconds=1)
 
-    result = await worker.execute(job, skill)
+    with caplog.at_level(logging.WARNING, logger="graphclaw.skills.worker"):
+        result = await worker.execute(job, skill)
 
     assert result.status == SkillStatus.TIMEOUT
     assert result.error == "Execution timed out"
     assert result.output == ""
+    assert any(
+        r.__dict__.get("event_type") == "skill.job.timeout"
+        and r.__dict__.get("job_id") == "job-001"
+        for r in caplog.records
+    )
 
 
-async def test_worker_execute_failure() -> None:
+async def test_worker_execute_failure(caplog: pytest.LogCaptureFixture) -> None:
     """execute() should return a FAILED SkillResult when the LLM call raises."""
     router = MagicMock()
     router.complete = AsyncMock(side_effect=RuntimeError("API failure"))
@@ -130,11 +150,16 @@ async def test_worker_execute_failure() -> None:
     job = _make_job()
     skill = _make_skill()
 
-    result = await worker.execute(job, skill)
+    with caplog.at_level(logging.WARNING, logger="graphclaw.skills.worker"):
+        result = await worker.execute(job, skill)
 
     assert result.status == SkillStatus.FAILED
     assert "API failure" in result.error
     assert result.output == ""
+    assert any(
+        r.__dict__.get("event_type") == "skill.job.failed" and r.__dict__.get("job_id") == "job-001"
+        for r in caplog.records
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -187,27 +212,31 @@ async def test_worker_status_initial_state() -> None:
 # ---------------------------------------------------------------------------
 
 
-async def test_pool_start_creates_workers() -> None:
+async def test_pool_start_creates_workers(caplog: pytest.LogCaptureFixture) -> None:
     """start() should create pool_size workers accessible by worker ID."""
     pool = WorkerPool(pool_size=3, llm_router=_make_router())
-    await pool.start()
+    with caplog.at_level(logging.INFO, logger="graphclaw.skills.worker"):
+        await pool.start()
 
     assert len(pool._workers) == 3
     assert "worker-000" in pool._workers
     assert "worker-001" in pool._workers
     assert "worker-002" in pool._workers
+    assert any(r.__dict__.get("event_type") == "worker.pool.started" for r in caplog.records)
 
     await pool.stop()
 
 
-async def test_pool_stop_clears_workers() -> None:
+async def test_pool_stop_clears_workers(caplog: pytest.LogCaptureFixture) -> None:
     """stop() should clear the workers dict and set _running to False."""
     pool = WorkerPool(pool_size=2, llm_router=_make_router())
     await pool.start()
-    await pool.stop()
+    with caplog.at_level(logging.INFO, logger="graphclaw.skills.worker"):
+        await pool.stop()
 
     assert len(pool._workers) == 0
     assert pool._running is False
+    assert any(r.__dict__.get("event_type") == "worker.pool.stopped" for r in caplog.records)
 
 
 async def test_pool_get_worker_statuses() -> None:
@@ -228,13 +257,14 @@ async def test_pool_get_worker_statuses() -> None:
 # ---------------------------------------------------------------------------
 
 
-async def test_pool_submit_enqueues_job() -> None:
+async def test_pool_submit_enqueues_job(caplog: pytest.LogCaptureFixture) -> None:
     """submit() should place the job in the priority queue."""
     pool = WorkerPool(pool_size=2, llm_router=_make_router())
     await pool.start()
 
     job = _make_job(priority=3)
-    await pool.submit(job)
+    with caplog.at_level(logging.DEBUG, logger="graphclaw.skills.worker"):
+        await pool.submit(job)
 
     assert pool._job_queue.qsize() == 1
 
@@ -242,6 +272,11 @@ async def test_pool_submit_enqueues_job() -> None:
     priority_val, dequeued_job = await pool._job_queue.get()
     assert priority_val == -3
     assert dequeued_job.job_id == "job-001"
+    assert any(
+        r.__dict__.get("event_type") == "worker.pool.job_enqueued"
+        and r.__dict__.get("job_id") == "job-001"
+        for r in caplog.records
+    )
 
     await pool.stop()
 

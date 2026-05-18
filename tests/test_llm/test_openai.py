@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """tests.test_llm.test_openai — Unit tests for OpenAILLMClient.
 
@@ -40,6 +40,38 @@ def _make_openai_response(
     response.choices = [choice]
     response.usage = usage
     return response
+
+
+def _make_openai_stream_chunk(content: str, finish_reason: str | None = None) -> MagicMock:
+    """Build a mock stream chunk matching OpenAI delta shape."""
+    delta = MagicMock()
+    delta.content = content
+    delta.tool_calls = None
+
+    choice = MagicMock()
+    choice.delta = delta
+    choice.finish_reason = finish_reason
+
+    chunk = MagicMock()
+    chunk.choices = [choice]
+    return chunk
+
+
+class _MockOpenAIStream:
+    """Async context manager + async iterator used by stream() tests."""
+
+    def __init__(self, chunks: list[MagicMock]) -> None:
+        self._chunks = chunks
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+    async def __aiter__(self):
+        for chunk in self._chunks:
+            yield chunk
 
 
 @contextmanager
@@ -162,6 +194,40 @@ async def test_complete_api_error_raises_runtime_error():
         client = OpenAILLMClient()
         with pytest.raises(RuntimeError, match="OpenAI API call failed"):
             await client.complete([LLMMessage(role="user", content="hi")])
+
+
+# ---------------------------------------------------------------------------
+# stream() — trace parity
+# ---------------------------------------------------------------------------
+
+
+async def test_stream_traces_success_with_accumulated_content():
+    from graphclaw.llm.openai.client import OpenAILLMClient
+
+    mock_resp = _make_openai_response()
+    with _mock_openai_sdk(mock_resp) as (_, mock_client):
+        stream = _MockOpenAIStream(
+            [
+                _make_openai_stream_chunk("Hel"),
+                _make_openai_stream_chunk("lo", finish_reason="stop"),
+            ]
+        )
+        mock_client.chat.completions.create = AsyncMock(return_value=stream)
+
+        client = OpenAILLMClient()
+        client._trace_llm_call = MagicMock()
+
+        chunks = [chunk async for chunk in client.stream([LLMMessage(role="user", content="hi")])]
+
+    assert chunks[-1].is_final is True
+    assert chunks[-1].accumulated is not None
+    assert chunks[-1].accumulated.content == "Hello"
+
+    client._trace_llm_call.assert_called_once()
+    traced = client._trace_llm_call.call_args.kwargs
+    assert traced["provider"] == "openai"
+    assert traced["call_type"] == "stream"
+    assert traced["response_content"] == "Hello"
 
 
 # ---------------------------------------------------------------------------
