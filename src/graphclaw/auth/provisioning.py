@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """graphclaw.auth.provisioning — User Onboarding Provisioning service.
 
@@ -135,6 +135,7 @@ class UserProvisioningService:
         display_name: str,
         provider: str,
         org_id: str | None = None,
+        caller_context: object | None = None,
     ) -> ProvisioningResult:
         """Provision all resources for a new user, or return existing user data.
 
@@ -175,9 +176,13 @@ class UserProvisioningService:
             exception is chained via ``raise ... from``.
         """
         # ------------------------------------------------------------------
-        # Step 0: idempotency check
+        # Step 0: idempotency check — oauth_subject first, email fallback
         # ------------------------------------------------------------------
-        existing = await self._find_user_by_email(email)
+        existing = await self._find_user_by_oauth_subject(
+            oauth_subject, caller_context=caller_context
+        )
+        if existing is None:
+            existing = await self._find_user_by_email(email, caller_context=caller_context)
         if existing is not None:
             existing_user_id: str = existing["id"]
             existing_workspace_id = await self._find_default_workspace(existing_user_id)
@@ -210,12 +215,13 @@ class UserProvisioningService:
                 id=user_id,
                 name=display_name,
                 email=email,
+                oauth_subject=oauth_subject,
                 role=provider,
                 created_at=now,
                 updated_at=now,
                 version=0,
             )
-            await self._graph.create_node(user_node)
+            await self._graph.create_node(user_node, caller_context=caller_context)
             logger.debug("provision_new_user: UserNode created", extra={"user_id": user_id})
 
             async def _delete_user_node() -> None:
@@ -255,7 +261,7 @@ class UserProvisioningService:
                 updated_at=now,
                 version=0,
             )
-            await self._graph.create_node(workspace_node)
+            await self._graph.create_node(workspace_node, caller_context=caller_context)
             logger.debug(
                 "provision_new_user: WorkspaceNode created",
                 extra={"workspace_id": workspace_id},
@@ -279,6 +285,32 @@ class UserProvisioningService:
                 "provision_new_user: OWNS edge created",
                 extra={"user_id": user_id, "workspace_id": workspace_id},
             )
+
+            # --------------------------------------------------------------
+            # Step 4b: Seed profile.md so OnboardingFSM treats this as new
+            # --------------------------------------------------------------
+            try:
+                from graphclaw.agent.onboarding import _render_profile  # noqa: PLC0415
+                from graphclaw.infra.storage import StoragePaths  # noqa: PLC0415
+
+                profile_path = StoragePaths.agent_profile(user_id, "main")
+                profile_content = _render_profile(
+                    {"onboarding_complete": False, "onboarding_state": "WELCOME"},
+                    "",
+                )
+                await self._storage.write(
+                    profile_path, profile_content.encode("utf-8"), "text/markdown"
+                )
+                logger.debug(
+                    "provision_new_user: profile.md seeded",
+                    extra={"user_id": user_id, "path": profile_path},
+                )
+            except Exception as profile_exc:  # noqa: BLE001
+                logger.warning(
+                    "provision_new_user: profile.md seed failed (non-fatal): %s",
+                    profile_exc,
+                    extra={"user_id": user_id},
+                )
 
         except Exception as exc:  # noqa: BLE001
             logger.error(
@@ -380,9 +412,26 @@ class UserProvisioningService:
     # Private helpers
     # ------------------------------------------------------------------
 
-    async def _find_user_by_email(self, email: str) -> dict | None:
+    async def _find_user_by_oauth_subject(
+        self, oauth_subject: str, caller_context: object | None = None
+    ) -> dict | None:
+        """Return the raw graph dict for the user with *oauth_subject*, or None."""
+        if not oauth_subject:
+            return None
+        results = await self._graph.list_nodes(
+            "UserNode", {"oauth_subject": oauth_subject}, caller_context=caller_context
+        )
+        if results:
+            return results[0]
+        return None
+
+    async def _find_user_by_email(
+        self, email: str, caller_context: object | None = None
+    ) -> dict | None:
         """Return the raw graph dict for the user with *email*, or None."""
-        results = await self._graph.list_nodes("UserNode", {"email": email})
+        results = await self._graph.list_nodes(
+            "UserNode", {"email": email}, caller_context=caller_context
+        )
         if results:
             return results[0]
         return None

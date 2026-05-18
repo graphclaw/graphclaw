@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """graphclaw.api.settings — User settings endpoints.
 
@@ -41,10 +41,11 @@ import logging
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel
 
 from graphclaw.api.deps import (
+    CallerContextDep,
     CurrentUserDep,
     GraphStoreDep,
     SecretsClientDep,
@@ -198,6 +199,53 @@ async def list_channels(
 # ---------------------------------------------------------------------------
 
 
+async def _read_agent_name(user_id: str, storage_client: Any, agent_id: str = "main") -> str:
+    """Read agent_name from profile.md frontmatter; return '' when absent."""
+    import yaml  # noqa: PLC0415
+
+    path = StoragePaths.agent_profile(user_id, agent_id)
+    try:
+        raw = await storage_client.read(path)
+        content = raw.decode("utf-8", errors="replace")
+        if content.startswith("---"):
+            parts = content.split("---", 2)
+            if len(parts) >= 3:
+                fm = yaml.safe_load(parts[1]) or {}
+                return str(fm.get("agent_name", ""))
+    except Exception:  # noqa: BLE001
+        pass
+    return ""
+
+
+async def _write_agent_name(
+    user_id: str, agent_name: str, storage_client: Any, agent_id: str = "main"
+) -> None:
+    """Write agent_name into profile.md frontmatter, preserving the rest of the file."""
+    import yaml  # noqa: PLC0415
+
+    path = StoragePaths.agent_profile(user_id, agent_id)
+    try:
+        raw = await storage_client.read(path)
+        content = raw.decode("utf-8", errors="replace")
+    except Exception:  # noqa: BLE001
+        content = ""
+
+    if content.startswith("---"):
+        parts = content.split("---", 2)
+        if len(parts) >= 3:
+            fm = yaml.safe_load(parts[1]) or {}
+            body = parts[2]
+        else:
+            fm, body = {}, content
+    else:
+        fm, body = {}, content
+
+    fm["agent_name"] = agent_name
+    fm_str = yaml.dump(fm, default_flow_style=False, allow_unicode=True)
+    new_content = f"---\n{fm_str}---\n{body}"
+    await storage_client.write(path, new_content.encode("utf-8"), "text/markdown")
+
+
 class UserProfileResponse(BaseModel):
     """Response body for GET /settings/profile."""
 
@@ -206,6 +254,7 @@ class UserProfileResponse(BaseModel):
     email: str = ""
     role: str | None = None
     timezone: str = "UTC"
+    agent_name: str = ""
 
 
 class UserProfilePatchRequest(BaseModel):
@@ -214,6 +263,7 @@ class UserProfilePatchRequest(BaseModel):
     name: str | None = None
     timezone: str | None = None
     role: str | None = None
+    agent_name: str | None = None
 
 
 @router.get(
@@ -226,18 +276,21 @@ class UserProfilePatchRequest(BaseModel):
 async def get_profile(
     user_id: CurrentUserDep,
     graph_store: GraphStoreDep,
+    storage_client: StorageClientDep,
+    caller_context: CallerContextDep,
 ) -> UserProfileResponse:
-    """Read the UserNode for the authenticated user."""
-    node = await graph_store.get_node(user_id)
+    """Read the UserNode for the authenticated user, plus agent_name from profile.md."""
+    node = await graph_store.get_node(user_id, caller_context=caller_context)
+    agent_name = await _read_agent_name(user_id, storage_client)
     if node is None:
-        # Return a minimal profile if not yet provisioned
-        return UserProfileResponse(user_id=user_id)
+        return UserProfileResponse(user_id=user_id, agent_name=agent_name)
     return UserProfileResponse(
         user_id=user_id,
         name=node.get("name", ""),
         email=node.get("email", ""),
         role=node.get("role"),
         timezone=node.get("timezone", "UTC"),
+        agent_name=agent_name,
     )
 
 
@@ -252,9 +305,11 @@ async def patch_profile(
     body: UserProfilePatchRequest,
     user_id: CurrentUserDep,
     graph_store: GraphStoreDep,
+    storage_client: StorageClientDep,
+    caller_context: CallerContextDep,
 ) -> UserProfileResponse:
-    """Update fields on the UserNode for the authenticated user."""
-    node = await graph_store.get_node(user_id)
+    """Update fields on the UserNode for the authenticated user, and agent_name in profile.md."""
+    node = await graph_store.get_node(user_id, caller_context=caller_context)
     if node is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -268,8 +323,13 @@ async def patch_profile(
     if body.role is not None:
         updates["role"] = body.role
 
-    updated = await graph_store.update_node(user_id, updates)
+    updated = await graph_store.update_node(user_id, updates, caller_context=caller_context)
     node = updated or node
+
+    if body.agent_name is not None:
+        await _write_agent_name(user_id, body.agent_name, storage_client)
+
+    agent_name = await _read_agent_name(user_id, storage_client)
     logger.debug("settings: profile updated for user_id=%s", user_id)
     return UserProfileResponse(
         user_id=user_id,
@@ -277,6 +337,7 @@ async def patch_profile(
         email=node.get("email", ""),
         role=node.get("role"),
         timezone=node.get("timezone", "UTC"),
+        agent_name=agent_name,
     )
 
 
@@ -386,6 +447,30 @@ async def _save_weights(user_id: str, storage_client: Any, data: dict[str, float
     await storage_client.write(_weights_path(user_id), raw, content_type="application/json")
 
 
+async def _invalidate_scoring_after_weights_update(request: Request, user_id: str) -> None:
+    """Invalidate per-user scoring cache after weight updates.
+
+    Best effort only — weight persistence must still succeed even if the
+    orchestrator is unavailable in this process.
+    """
+    agent_loop = getattr(request.app.state, "agent_loop", None)
+    if agent_loop is None:
+        return
+
+    invalidate = getattr(agent_loop, "invalidate_scoring_for_user", None)
+    if not callable(invalidate):
+        return
+
+    try:
+        await invalidate(user_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "settings: could not invalidate scoring cache after weight update for user_id=%s: %s",
+            user_id,
+            exc,
+        )
+
+
 class ScoringWeightsResponse(BaseModel):
     """Response body for GET /settings/scoring-weights."""
 
@@ -440,6 +525,7 @@ async def patch_scoring_weights(
     body: ScoringWeightsPatchRequest,
     user_id: CurrentUserDep,
     storage_client: StorageClientDep,
+    request: Request,
 ) -> ScoringWeightsResponse:
     """Apply partial weight updates and persist."""
     current = await _load_weights(user_id, storage_client)
@@ -448,6 +534,7 @@ async def patch_scoring_weights(
         if value is not None:
             current[field] = value
     await _save_weights(user_id, storage_client, current)
+    await _invalidate_scoring_after_weights_update(request, user_id)
     logger.debug("settings: scoring weights updated for user_id=%s", user_id)
     return ScoringWeightsResponse(**current)
 
