@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """Integration tests for O-AUTH-01: UserProvisioningService wiring in auth callback.
 
@@ -283,3 +283,99 @@ class TestCallbackProvisionsUser:
         finally:
             if user_id_created:
                 await provisioning_svc.deprovision_user(user_id_created)
+
+
+# ---------------------------------------------------------------------------
+# oauth_subject-based idempotency integration tests
+# ---------------------------------------------------------------------------
+
+
+class TestOAuthSubjectIdempotency:
+    """Integration tests verifying that oauth_subject drives stable user identity."""
+
+    @pytest.mark.asyncio
+    async def test_re_login_same_oauth_subject_returns_same_user_id(
+        self, provisioning_svc: UserProvisioningService, repo: AgeGraphStore
+    ):
+        """Two provision calls with the same oauth_subject must return the same user_id."""
+        email = _unique_email()
+        oauth_subject = f"google:{uuid.uuid4().hex[:12]}"
+
+        result1 = await provisioning_svc.provision_new_user(
+            oauth_subject=oauth_subject,
+            email=email,
+            display_name="Repeat Login",
+            provider="google",
+        )
+
+        try:
+            result2 = await provisioning_svc.provision_new_user(
+                oauth_subject=oauth_subject,
+                email=email,
+                display_name="Repeat Login",
+                provider="google",
+            )
+
+            assert result2.is_new_user is False
+            assert result2.user_id == result1.user_id
+
+        finally:
+            await provisioning_svc.deprovision_user(result1.user_id)
+
+    @pytest.mark.asyncio
+    async def test_oauth_subject_stored_on_usernode_in_graph(
+        self, provisioning_svc: UserProvisioningService, repo: AgeGraphStore
+    ):
+        """The oauth_subject value must be persisted on the UserNode in AGE."""
+        email = _unique_email()
+        oauth_subject = f"google:{uuid.uuid4().hex[:12]}"
+
+        result = await provisioning_svc.provision_new_user(
+            oauth_subject=oauth_subject,
+            email=email,
+            display_name="Subject Persistence",
+            provider="google",
+        )
+
+        try:
+            raw_node = await repo.get_node(result.user_id)
+            assert raw_node is not None
+            assert raw_node.get("oauth_subject") == oauth_subject
+
+        finally:
+            await provisioning_svc.deprovision_user(result.user_id)
+
+    @pytest.mark.asyncio
+    async def test_re_login_by_oauth_subject_when_email_differs(
+        self, provisioning_svc: UserProvisioningService, repo: AgeGraphStore
+    ):
+        """Re-login with same oauth_subject but a different email returns the existing user.
+
+        This simulates the case where a user changes their email address on the
+        provider side between logins — the provider identity (oauth_subject) is
+        the authoritative lookup key.
+        """
+        original_email = _unique_email()
+        oauth_subject = f"google:{uuid.uuid4().hex[:12]}"
+
+        result1 = await provisioning_svc.provision_new_user(
+            oauth_subject=oauth_subject,
+            email=original_email,
+            display_name="Email Changer",
+            provider="google",
+        )
+
+        try:
+            changed_email = _unique_email()
+            result2 = await provisioning_svc.provision_new_user(
+                oauth_subject=oauth_subject,
+                email=changed_email,
+                display_name="Email Changer",
+                provider="google",
+            )
+
+            assert result2.is_new_user is False
+            assert result2.user_id == result1.user_id
+
+        finally:
+            await provisioning_svc.deprovision_user(result1.user_id)

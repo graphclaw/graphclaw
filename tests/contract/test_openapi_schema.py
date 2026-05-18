@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """
 GC-K-API-W12-001 — OpenAPI schema conformance via schemathesis
@@ -27,6 +27,7 @@ Notes:
 - Run standalone: pytest tests/contract/ -v
 - schemathesis v4 API: schemathesis.pytest.from_fixture + schema.parametrize()
 """
+
 import httpx
 import pytest
 import schemathesis
@@ -56,6 +57,7 @@ def test_api_conformance(case, graphclaw_app):
 
 
 # ── Targeted contract tests ───────────────────────────────────────────────────
+
 
 @pytest.fixture(scope="module")
 async def async_client():

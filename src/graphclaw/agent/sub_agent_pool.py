@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """graphclaw.agent.sub_agent_pool — SubAgentPool: bounded pool of SubAgentRunner instances.
 
@@ -332,7 +332,9 @@ class SubAgentPool:
             batch_done = batch.completed_count >= batch.total_count
             jobs: list[dict[str, str]] = []
             for job in batch.current_jobs:
-                raw_state = active_by_task.get(job.task_id, "COMPLETED" if batch_done else "PENDING")
+                raw_state = active_by_task.get(
+                    job.task_id, "COMPLETED" if batch_done else "PENDING"
+                )
                 jobs.append(
                     {
                         "agent_id": job.agent_id,

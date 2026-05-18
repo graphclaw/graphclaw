@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """graphclaw.scoring.engine — 7-factor weighted priority scoring engine.
 
@@ -415,6 +415,13 @@ class ScoringEngine:
         task.scoring.human_override = f5_raw
         task.scoring.resource_risk = f6_raw
         task.scoring.constraint_pressure = f7_raw
+        task.scoring.W1_timeline_weight = self.w1
+        task.scoring.W2_dependencies_weight = self.w2
+        task.scoring.W3_critical_path_weight = self.w3
+        task.scoring.W4_blocker_weight = self.w4
+        task.scoring.W5_override_weight = self.w5
+        task.scoring.W6_resource_risk_weight = self.w6
+        task.scoring.W7_constraint_weight = self.w7
         task.scoring.computed_priority = final_score
         task.scoring.last_scored_at = now
         task.scoring.score_reasoning = summary

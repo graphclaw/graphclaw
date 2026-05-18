@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """graphclaw.api.chat_streaming — Helpers for the streaming chat endpoint.
 
@@ -88,6 +88,7 @@ async def stream_chat_run(
     text: str,
     history: list[dict[str, Any]],
     session_id: str,
+    org_id: str = "default",
 ) -> AsyncGenerator[str, None]:
     """Async generator that streams SSE frames for one chat run.
 
@@ -134,6 +135,7 @@ async def stream_chat_run(
             text=text,
             conversation_history=history[:-1],  # exclude the just-added user msg
             session_id=session_id,
+            org_id=org_id,
         ):
             # Accumulate assistant text
             if event.event_type == RunEventType.ASSISTANT_DELTA:

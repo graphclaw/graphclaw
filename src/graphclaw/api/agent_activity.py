@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """graphclaw.api.agent_activity — Historical activity feed endpoints."""
 
@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -21,6 +21,8 @@ from graphclaw.storage.minio_log_reader import (
 )
 
 logger = logging.getLogger(__name__)
+
+UTC = timezone.utc
 
 router = APIRouter(prefix="/agent", tags=["app-api"])
 
@@ -373,8 +375,12 @@ async def get_agent_sessions(
             if event_type == "inbound.processed":
                 bucket["messagesReceived"] += 1
 
-            bucket["inputTokens"] += _read_int(record, "input_tokens", "inputTokens", "prompt_tokens")
-            bucket["outputTokens"] += _read_int(record, "output_tokens", "outputTokens", "completion_tokens")
+            bucket["inputTokens"] += _read_int(
+                record, "input_tokens", "inputTokens", "prompt_tokens"
+            )
+            bucket["outputTokens"] += _read_int(
+                record, "output_tokens", "outputTokens", "completion_tokens"
+            )
 
             status_value = (_read_str(record, "status") or "").upper()
             if status_value in {"FAILED", "ERROR", "TIMEOUT", "BLOCKED"} or _is_failed(record):

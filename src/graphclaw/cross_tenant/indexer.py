@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """graphclaw.cross_tenant.indexer — Event-bus consumer for org_task_index sync (FR-XT-001).
 

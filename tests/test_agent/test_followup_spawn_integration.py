@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """Integration tests for O-AGT-02: FollowUp auto-spawn on DELEGATED task creation.
 

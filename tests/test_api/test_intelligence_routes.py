@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """tests.test_api.test_intelligence_routes — Tests for Intelligence Hub endpoints.
 
@@ -300,6 +300,126 @@ def test_semantic_list_shows_written_topic(client: TestClient) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Semantic memory index
+# ---------------------------------------------------------------------------
+
+
+def test_write_semantic_topic_creates_index_with_user_description(
+    client: TestClient, storage: FakeStorageClient
+) -> None:
+    r = client.put(
+        f"/app/v1/intelligence/agents/{_AGENT_ID}/memory/semantic/etiquette",
+        json={"content": "# Etiquette\n\nBe polite.", "description": "Email etiquette rules"},
+    )
+    assert r.status_code == 200
+
+    r2 = client.get(f"/app/v1/intelligence/agents/{_AGENT_ID}/memory/semantic/_index")
+    assert r2.status_code == 200
+    data = r2.json()
+    names = [t["name"] for t in data["topics"]]
+    assert "etiquette" in names
+    entry = next(t for t in data["topics"] if t["name"] == "etiquette")
+    assert entry["description"] == "Email etiquette rules"
+
+
+def test_write_semantic_topic_defaults_description_to_topic_name(
+    client: TestClient,
+) -> None:
+    r = client.put(
+        f"/app/v1/intelligence/agents/{_AGENT_ID}/memory/semantic/contacts",
+        json={"content": "# Contacts\n\nRalph is family."},
+    )
+    assert r.status_code == 200
+
+    r2 = client.get(f"/app/v1/intelligence/agents/{_AGENT_ID}/memory/semantic/_index")
+    data = r2.json()
+    entry = next((t for t in data["topics"] if t["name"] == "contacts"), None)
+    assert entry is not None
+    assert entry["description"] == "contacts"
+
+
+def test_write_semantic_topic_updates_existing_index(client: TestClient) -> None:
+    client.put(
+        f"/app/v1/intelligence/agents/{_AGENT_ID}/memory/semantic/topic-a",
+        json={"content": "# A", "description": "First topic"},
+    )
+    client.put(
+        f"/app/v1/intelligence/agents/{_AGENT_ID}/memory/semantic/topic-b",
+        json={"content": "# B", "description": "Second topic"},
+    )
+    r = client.get(f"/app/v1/intelligence/agents/{_AGENT_ID}/memory/semantic/_index")
+    data = r.json()
+    names = [t["name"] for t in data["topics"]]
+    assert "topic-a" in names
+    assert "topic-b" in names
+
+
+def test_delete_semantic_topic_removes_from_index(client: TestClient) -> None:
+    client.put(
+        f"/app/v1/intelligence/agents/{_AGENT_ID}/memory/semantic/to-delete",
+        json={"content": "# Delete me", "description": "Will be removed"},
+    )
+    client.delete(f"/app/v1/intelligence/agents/{_AGENT_ID}/memory/semantic/to-delete")
+
+    r = client.get(f"/app/v1/intelligence/agents/{_AGENT_ID}/memory/semantic/_index")
+    data = r.json()
+    names = [t["name"] for t in data["topics"]]
+    assert "to-delete" not in names
+
+
+def test_rename_semantic_topic(client: TestClient, storage: FakeStorageClient) -> None:
+    from graphclaw.infra.storage import StoragePaths
+
+    client.put(
+        f"/app/v1/intelligence/agents/{_AGENT_ID}/memory/semantic/old-name",
+        json={"content": "# Old Name", "description": "Original description"},
+    )
+    r = client.post(
+        f"/app/v1/intelligence/agents/{_AGENT_ID}/memory/semantic/old-name/rename",
+        json={"new_name": "new-name"},
+    )
+    assert r.status_code == 200
+    assert r.json()["key"] == "new-name"
+
+    # Old file gone, new file exists
+    old_path = StoragePaths.agent_memory_semantic_topic(_TEST_USER, _AGENT_ID, "old-name")
+    new_path = StoragePaths.agent_memory_semantic_topic(_TEST_USER, _AGENT_ID, "new-name")
+    assert old_path not in storage._data
+    assert new_path in storage._data
+
+    # Index reflects new name
+    r2 = client.get(f"/app/v1/intelligence/agents/{_AGENT_ID}/memory/semantic/_index")
+    names = [t["name"] for t in r2.json()["topics"]]
+    assert "old-name" not in names
+    assert "new-name" in names
+    entry = next(t for t in r2.json()["topics"] if t["name"] == "new-name")
+    assert entry["description"] == "Original description"
+
+
+def test_rename_to_existing_fails_409(client: TestClient) -> None:
+    client.put(
+        f"/app/v1/intelligence/agents/{_AGENT_ID}/memory/semantic/alpha",
+        json={"content": "# Alpha"},
+    )
+    client.put(
+        f"/app/v1/intelligence/agents/{_AGENT_ID}/memory/semantic/beta",
+        json={"content": "# Beta"},
+    )
+    r = client.post(
+        f"/app/v1/intelligence/agents/{_AGENT_ID}/memory/semantic/alpha/rename",
+        json={"new_name": "beta"},
+    )
+    assert r.status_code == 409
+
+
+def test_get_index_returns_empty_when_no_index(client: TestClient) -> None:
+    r = client.get(f"/app/v1/intelligence/agents/{_AGENT_ID}/memory/semantic/_index")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["topics"] == []
+
+
+# ---------------------------------------------------------------------------
 # Skill authoring
 # ---------------------------------------------------------------------------
 
@@ -374,6 +494,27 @@ def test_update_authored_skill(client: TestClient) -> None:
     assert r.status_code == 200
     assert r.json()["description"] == "Updated description"
     assert "Updated description" in r.json()["content"]
+
+
+def test_update_authored_skill_renames_folder(
+    client: TestClient, storage: FakeStorageClient
+) -> None:
+    client.post(
+        "/app/v1/intelligence/skills/authored",
+        json={"skill_id": "old-skill-name", "content": _SAMPLE_SKILL_MD},
+    )
+    renamed_content = _SAMPLE_SKILL_MD.replace("name: test-authored-skill", "name: new-skill-name")
+    r = client.put(
+        "/app/v1/intelligence/skills/authored/old-skill-name",
+        json={"content": renamed_content, "name": "new-skill-name"},
+    )
+    assert r.status_code == 200
+    assert r.json()["skill_id"] == "new-skill-name"
+    # old path deleted, new path exists
+    old_path = f"{_TEST_USER}/skills/authored/old-skill-name/SKILL.md"
+    new_path = f"{_TEST_USER}/skills/authored/new-skill-name/SKILL.md"
+    assert old_path not in storage._data
+    assert new_path in storage._data
 
 
 def test_delete_authored_skill(client: TestClient, storage: FakeStorageClient) -> None:

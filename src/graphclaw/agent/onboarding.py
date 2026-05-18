@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """graphclaw.agent.onboarding — Onboarding FSM for first-run experience (FR-ID-001).
 
@@ -72,8 +72,8 @@ _ACTIVE_STATES: set[OnboardingState] = {s for s in _ORDERED_STATES if s != Onboa
 
 # Per-state allowed tools (FR-ID-001 AC2 — tool allow-lists)
 ONBOARDING_TOOL_ALLOWLIST: dict[OnboardingState, list[str]] = {
-    OnboardingState.WELCOME: ["set_user_name"],
-    OnboardingState.PERSONA: ["set_user_name", "set_user_persona"],
+    OnboardingState.WELCOME: ["set_user_name", "set_agent_name"],
+    OnboardingState.PERSONA: ["set_user_name", "set_user_persona", "set_agent_name"],
     OnboardingState.CHANNELS: ["add_user_identity", "set_user_persona"],
     OnboardingState.WORKING_HOURS: ["set_working_hours"],
     OnboardingState.PREFERENCES: ["set_preferences"],
@@ -84,7 +84,8 @@ ONBOARDING_TOOL_ALLOWLIST: dict[OnboardingState, list[str]] = {
 # Default system prompt body (minimal fallback when prompt file not found)
 _DEFAULT_PROMPTS: dict[OnboardingState, str] = {
     OnboardingState.WELCOME: (
-        "You are helping a new user set up GraphClaw. Welcome them warmly and ask for their name."
+        "You are helping a new user set up GraphClaw. Welcome them warmly, ask for their name, "
+        "and then ask: 'What would you like to call me? You can always change this later in Settings.'"
     ),
     OnboardingState.PERSONA: ("Ask the user to describe their role and work style."),
     OnboardingState.CHANNELS: (

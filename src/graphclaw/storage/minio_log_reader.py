@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """graphclaw.storage.minio_log_reader — MinIO NDJSON activity log reader."""
 
@@ -9,12 +9,13 @@ import json
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from graphclaw.infra.storage import StorageClient
 
 _HOUR_KEY_RE = re.compile(r"/(?P<date>\d{4}-\d{2}-\d{2})/(?P<hour>\d{2})00Z")
+UTC = timezone.utc
 
 
 @dataclass(frozen=True)

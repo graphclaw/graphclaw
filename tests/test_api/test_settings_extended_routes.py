@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """tests.test_api.test_settings_extended_routes — Tests for extended /settings/* endpoints.
 
@@ -313,6 +313,49 @@ def test_patch_scoring_weights_preserves_other_factors() -> None:
     updated = client.get("/app/v1/settings/scoring-weights").json()
     assert updated["W2_dependencies"] == 0.30
     assert updated["W1_timeline"] == original["W1_timeline"]  # unchanged
+
+
+def test_patch_scoring_weights_invalidates_agent_loop_scope() -> None:
+    """PATCH /settings/scoring-weights calls agent_loop invalidation hook."""
+
+    class _FakeAgentLoop:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        async def invalidate_scoring_for_user(self, user_id: str) -> None:
+            self.calls.append(user_id)
+
+    app, _, _, _ = _make_app()
+    app.state.agent_loop = _FakeAgentLoop()
+
+    client = TestClient(app)
+    response = client.patch(
+        "/app/v1/settings/scoring-weights",
+        json={"W1_timeline": 0.31},
+    )
+
+    assert response.status_code == 200
+    assert app.state.agent_loop.calls == [_TEST_USER]
+
+
+def test_patch_scoring_weights_still_succeeds_on_invalidation_error() -> None:
+    """Weight persistence remains successful when invalidation hook raises."""
+
+    class _FailingAgentLoop:
+        async def invalidate_scoring_for_user(self, user_id: str) -> None:  # noqa: ARG002
+            raise RuntimeError("boom")
+
+    app, _, _, _ = _make_app()
+    app.state.agent_loop = _FailingAgentLoop()
+
+    client = TestClient(app)
+    response = client.patch(
+        "/app/v1/settings/scoring-weights",
+        json={"W2_dependencies": 0.33},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["W2_dependencies"] == 0.33
 
 
 # ---------------------------------------------------------------------------

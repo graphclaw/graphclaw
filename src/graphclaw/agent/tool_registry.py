@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """graphclaw.agent.tool_registry — ToolSetRegistry: lazy two-tier tool loading.
 
@@ -201,6 +201,20 @@ def _make_core_tools() -> list[ToolDefinition]:
                         "scoring_context",
                         "follow_up_timing",
                     ],
+                },
+            },
+            required=["topic"],
+        ),
+        _td(
+            "read_memory",
+            (
+                "Load a specific semantic memory topic into context. "
+                "Call this when you need knowledge from a topic listed in the Semantic Memory index."
+            ),
+            {
+                "topic": {
+                    "type": "string",
+                    "description": "The topic name exactly as shown in the Semantic Memory index.",
                 },
             },
             required=["topic"],

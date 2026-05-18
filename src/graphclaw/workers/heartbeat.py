@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """graphclaw.workers.heartbeat — Worker heartbeat utility (FR-DEL-005).
 
@@ -27,11 +27,13 @@ Dependencies
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
+
+UTC = timezone.utc
 
 _REDIS_PREFIX = "worker:heartbeat:"
 

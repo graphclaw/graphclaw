@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """graphclaw.models.nodes — Pydantic node models for all graph vertex types.
 
@@ -124,6 +124,13 @@ class ScoringBlock(BaseModel):
     human_override: float = 0.0  # W5: -0.3 to +1.0
     resource_risk: float = 0.0  # W6: 0.0 – 1.0
     constraint_pressure: float = 0.0  # W7: 0.0 – 1.0
+    W1_timeline_weight: float = 0.25
+    W2_dependencies_weight: float = 0.20
+    W3_critical_path_weight: float = 0.20
+    W4_blocker_weight: float = 0.15
+    W5_override_weight: float = 0.10
+    W6_resource_risk_weight: float = 0.05
+    W7_constraint_weight: float = 0.05
     computed_priority: float = 0.0  # final weighted score
     chain_urgency_rollup: float = 0.0
     last_scored_at: datetime | None = None
@@ -391,6 +398,7 @@ class UserNode(BaseNode):
 
     name: str
     email: str
+    oauth_subject: str = ""
     role: str | None = None
     timezone: str = "UTC"
     working_hours: WorkingHours = WorkingHours()

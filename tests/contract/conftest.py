@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """
 Shared fixtures for contract tests.
@@ -6,9 +6,12 @@ Shared fixtures for contract tests.
 Provides a running FastAPI app instance for schemathesis (v4 API).
 The app is started in-process so no external service is needed.
 """
+
 import pytest
 
-pytest.importorskip("schemathesis", reason="schemathesis not installed — pip install '.[dev]' to run")
+pytest.importorskip(
+    "schemathesis", reason="schemathesis not installed — pip install '.[dev]' to run"
+)
 
 import schemathesis
 import schemathesis.openapi

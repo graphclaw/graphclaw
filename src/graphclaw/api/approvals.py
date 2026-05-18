@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """graphclaw.api.approvals — MCP tool approval endpoints.
 
@@ -49,7 +49,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 
-from graphclaw.api.deps import CurrentUserDep, GraphStoreDep, StateMachineDep
+from graphclaw.api.deps import CallerContextDep, CurrentUserDep, GraphStoreDep, StateMachineDep
 from graphclaw.models.enums import ChangedBy, TaskState, TaskType
 from graphclaw.models.nodes import TaskNode
 from graphclaw.state.cascade import persist_transition, run_post_transition_cascade
@@ -103,6 +103,7 @@ class ApprovalActionResponse(BaseModel):
 async def list_approvals(
     user_id: CurrentUserDep,
     graph_store: GraphStoreDep,
+    caller_context: CallerContextDep,
 ) -> list[ApprovalTask]:
     """List APPROVAL tasks assigned to the authenticated user."""
     pending = await graph_store.list_nodes(
@@ -112,6 +113,7 @@ async def list_approvals(
             "assigned_to": user_id,
             "state": TaskState.PENDING.value,
         },
+        caller_context=caller_context,
     )
     in_progress = await graph_store.list_nodes(
         "TaskNode",
@@ -120,6 +122,7 @@ async def list_approvals(
             "assigned_to": user_id,
             "state": TaskState.IN_PROGRESS.value,
         },
+        caller_context=caller_context,
     )
     return [_task_dict_to_approval(t) for t in list(pending) + list(in_progress)]
 
@@ -139,9 +142,10 @@ async def approve_task(
     user_id: CurrentUserDep,
     graph_store: GraphStoreDep,
     state_machine: StateMachineDep,
+    caller_context: CallerContextDep,
 ) -> ApprovalActionResponse:
     """Drive an APPROVAL task to COMPLETE."""
-    raw_task = await graph_store.get_node(task_id)
+    raw_task = await graph_store.get_node(task_id, caller_context=caller_context)
     if raw_task is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"Task '{task_id}' not found"
@@ -163,8 +167,10 @@ async def approve_task(
     except InvalidTransitionError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
 
-    await graph_store.update_node(task_id, task_node.model_dump(mode="json"))
-    await run_post_transition_cascade(task_node, graph_store)
+    await graph_store.update_node(
+        task_id, task_node.model_dump(mode="json"), caller_context=caller_context
+    )
+    await run_post_transition_cascade(task_node, graph_store, caller_context=caller_context)
     logger.info("approvals: task %s approved by user_id=%s", task_id, user_id)
     return ApprovalActionResponse(task_id=task_id, status="COMPLETE")
 
@@ -184,9 +190,10 @@ async def deny_task(
     user_id: CurrentUserDep,
     graph_store: GraphStoreDep,
     state_machine: StateMachineDep,
+    caller_context: CallerContextDep,
 ) -> ApprovalActionResponse:
     """Transition an APPROVAL task to CANCELLED."""
-    raw_task = await graph_store.get_node(task_id)
+    raw_task = await graph_store.get_node(task_id, caller_context=caller_context)
     if raw_task is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"Task '{task_id}' not found"
@@ -211,6 +218,7 @@ async def deny_task(
             "Denied by user",
             graph_store,
             state_machine,
+            caller_context=caller_context,
         )
     except InvalidTransitionError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))

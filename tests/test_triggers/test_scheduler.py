@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """Tests for graphclaw.triggers.scheduler — TriggerScheduler registration and cron logic.
 

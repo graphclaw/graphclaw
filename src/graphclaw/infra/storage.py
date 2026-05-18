@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """graphclaw.infra.storage — StorageClient ABC, S3StorageClient, and StoragePaths.
 
@@ -330,6 +330,16 @@ class StoragePaths:
         agent = StoragePaths._validate_segment(agent_id, "agent_id")
         topic_segment = StoragePaths._validate_segment(topic, "topic")
         return f"{user}/agents/{agent}/memory/semantic/{topic_segment}.md"
+
+    @staticmethod
+    def agent_memory_semantic_index(user_id: str, agent_id: str) -> str:
+        """Index file describing all semantic memory topics for an agent.
+
+        Example: ``usr-abc123/agents/main/memory/semantic/_index.json``
+        """
+        user = StoragePaths._validate_segment(user_id, "user_id")
+        agent = StoragePaths._validate_segment(agent_id, "agent_id")
+        return f"{user}/agents/{agent}/memory/semantic/_index.json"
 
     # ------------------------------------------------------------------
     # Skill registry paths

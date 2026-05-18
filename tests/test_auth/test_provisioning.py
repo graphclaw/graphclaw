@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """tests.test_auth.test_provisioning — Unit tests for UserProvisioningService.
 
@@ -272,7 +272,7 @@ class TestProvisionRollback:
         """Rollback steps execute in LIFO order: S3 deleted before UserNode."""
         call_order: list[str] = []
 
-        async def _create_node_side_effect(node):
+        async def _create_node_side_effect(node, **kwargs):
             if call_order.count("create_node") == 0:
                 call_order.append("create_node")
                 return {}
@@ -342,6 +342,128 @@ class TestDeprovisionUser:
 
         delete_calls = [str(c) for c in mock_graph.delete_node.call_args_list]
         assert any("WS-test-workspace-001" in c for c in delete_calls)
+
+
+# ---------------------------------------------------------------------------
+# provision_new_user — oauth_subject-based idempotency
+# ---------------------------------------------------------------------------
+
+
+class TestProvisionByOauthSubject:
+    @pytest.mark.asyncio
+    async def test_existing_user_found_by_oauth_subject_returns_is_new_user_false(
+        self, svc, mock_graph
+    ):
+        """User found by oauth_subject on first list_nodes call → is_new_user=False."""
+        existing_record = {"id": "USER-existing-abc", "email": "eve@example.com", "name": "Eve"}
+        mock_graph.list_nodes = AsyncMock(return_value=[existing_record])
+        mock_graph.get_edges = AsyncMock(return_value=[])
+
+        result = await svc.provision_new_user(
+            oauth_subject="google:999",
+            email="eve@example.com",
+            display_name="Eve",
+            provider="google",
+        )
+        assert result.is_new_user is False
+
+    @pytest.mark.asyncio
+    async def test_existing_user_found_by_oauth_subject_does_not_call_create_node(
+        self, svc, mock_graph
+    ):
+        """No graph mutations when user found by oauth_subject."""
+        existing_record = {"id": "USER-existing-abc", "email": "eve@example.com", "name": "Eve"}
+        mock_graph.list_nodes = AsyncMock(return_value=[existing_record])
+        mock_graph.get_edges = AsyncMock(return_value=[])
+
+        await svc.provision_new_user(
+            oauth_subject="google:999",
+            email="eve@example.com",
+            display_name="Eve",
+            provider="google",
+        )
+        mock_graph.create_node.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_existing_user_found_by_oauth_subject_returns_existing_user_id(
+        self, svc, mock_graph
+    ):
+        """Returned user_id matches the graph record when found by oauth_subject."""
+        existing_record = {"id": "USER-existing-abc", "email": "eve@example.com", "name": "Eve"}
+        mock_graph.list_nodes = AsyncMock(return_value=[existing_record])
+        mock_graph.get_edges = AsyncMock(return_value=[])
+
+        result = await svc.provision_new_user(
+            oauth_subject="google:999",
+            email="eve@example.com",
+            display_name="Eve",
+            provider="google",
+        )
+        assert result.user_id == "USER-existing-abc"
+
+    @pytest.mark.asyncio
+    async def test_email_fallback_used_when_oauth_subject_not_found(self, svc, mock_graph):
+        """When oauth_subject lookup misses, email lookup fires and returns existing user."""
+        existing_record = {"id": "USER-existing-def", "email": "frank@example.com", "name": "Frank"}
+        # First call (oauth_subject lookup) returns nothing; second call (email lookup) finds user
+        mock_graph.list_nodes = AsyncMock(side_effect=[[], [existing_record]])
+        mock_graph.get_edges = AsyncMock(return_value=[])
+
+        result = await svc.provision_new_user(
+            oauth_subject="google:777",
+            email="frank@example.com",
+            display_name="Frank",
+            provider="google",
+        )
+        assert result.is_new_user is False
+        assert result.user_id == "USER-existing-def"
+        mock_graph.create_node.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_both_lookups_miss_creates_new_user(self, svc, mock_graph):
+        """When both oauth_subject and email lookups return nothing, a new user is minted."""
+        mock_graph.list_nodes = AsyncMock(return_value=[])
+
+        result = await svc.provision_new_user(
+            oauth_subject="google:555",
+            email="new@example.com",
+            display_name="New",
+            provider="google",
+        )
+        assert result.is_new_user is True
+        assert result.user_id.startswith("USER-")
+        assert mock_graph.create_node.called
+
+    @pytest.mark.asyncio
+    async def test_new_user_stores_oauth_subject_on_usernode(self, svc, mock_graph):
+        """UserNode passed to create_node carries the oauth_subject field."""
+        await svc.provision_new_user(
+            oauth_subject="google:123456",
+            email="grace@example.com",
+            display_name="Grace",
+            provider="google",
+        )
+        # First create_node call is for UserNode
+        first_call_node = mock_graph.create_node.call_args_list[0][0][0]
+        assert hasattr(first_call_node, "oauth_subject")
+        assert first_call_node.oauth_subject == "google:123456"
+
+    @pytest.mark.asyncio
+    async def test_existing_user_by_email_still_works_after_dual_lookup(self, svc, mock_graph):
+        """Regression: email-path idempotency still works (oauth_subject lookup returns None)."""
+        existing_record = {"id": "USER-legacy-xyz", "email": "henry@example.com", "name": "Henry"}
+        # oauth_subject lookup misses; email lookup hits
+        mock_graph.list_nodes = AsyncMock(side_effect=[[], [existing_record]])
+        mock_graph.get_edges = AsyncMock(return_value=[])
+
+        result = await svc.provision_new_user(
+            oauth_subject="github:legacy",
+            email="henry@example.com",
+            display_name="Henry",
+            provider="github",
+        )
+        assert result.is_new_user is False
+        assert result.user_id == "USER-legacy-xyz"
 
 
 # ---------------------------------------------------------------------------

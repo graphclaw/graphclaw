@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """graphclaw.api.state — State machine endpoints for the cockpit task views.
 
@@ -42,13 +42,15 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel
 
 from graphclaw.api.deps import CurrentUserDep, GraphStoreDep, StateMachineDep
 from graphclaw.models.deserialization import deserialize_task_node_props
 from graphclaw.models.enums import ChangedBy, TaskState
 from graphclaw.models.nodes import TaskNode
+from graphclaw.notifications.emit import emit_notification
+from graphclaw.notifications.models import NotificationEventType
 from graphclaw.state.cascade import persist_transition_and_cascade
 from graphclaw.state.transitions import VALID_TRANSITIONS, InvalidTransitionError
 
@@ -203,6 +205,7 @@ async def get_valid_transitions(
 async def transition_task(
     task_id: str,
     body: TransitionRequest,
+    request: Request,
     user_id: CurrentUserDep,
     graph_store: GraphStoreDep,
     state_machine: StateMachineDep,
@@ -247,6 +250,8 @@ async def transition_task(
             body.reason or "",
             graph_store,
             state_machine,
+            pool=getattr(request.app.state, "pool", None),
+            redis=getattr(request.app.state, "redis", None),
         )
     except InvalidTransitionError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
@@ -259,6 +264,19 @@ async def transition_task(
         user_id,
         body.reason,
     )
+
+    new_state = task_node.state.value
+    if new_state in ("BLOCKED", "NEEDS_REVIEW"):
+        task_title = raw_task.get("title", task_id)
+        await emit_notification(
+            pool=getattr(request.app.state, "pool", None),
+            redis=getattr(request.app.state, "redis", None),
+            user_id=user_id,
+            event_type=NotificationEventType.TASK_NEEDS_ATTENTION,
+            title=f"Task needs attention: {task_title}",
+            body=f"Transitioned to {new_state}",
+            metadata={"task_id": task_id, "new_state": new_state},
+        )
 
     return {
         "task_id": task_node.id,

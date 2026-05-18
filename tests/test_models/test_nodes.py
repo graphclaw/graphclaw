@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """Tests for GraphClaw domain models (WS-B).
 
@@ -426,6 +426,37 @@ class TestUserNode:
             + sw.W7_constraint
         )
         assert abs(total - 1.0) < 1e-9
+
+    def test_oauth_subject_accepted(self):
+        node = UserNode(
+            id=generate_user_id(),
+            name="Carol",
+            email="carol@example.com",
+            oauth_subject="google:100671522771592774946",
+            created_at=NOW,
+            updated_at=NOW,
+        )
+        assert node.oauth_subject == "google:100671522771592774946"
+
+    def test_oauth_subject_defaults_to_empty_string(self):
+        node = UserNode(
+            id=generate_user_id(),
+            name="Dave",
+            email="dave@example.com",
+            created_at=NOW,
+            updated_at=NOW,
+        )
+        assert node.oauth_subject == ""
+
+    def test_user_id_validator_still_rejects_oauth_subject_as_id(self):
+        with pytest.raises(ValidationError):
+            UserNode(
+                id="google:100671522771592774946",
+                name="Eve",
+                email="eve@example.com",
+                created_at=NOW,
+                updated_at=NOW,
+            )
 
 
 # ---------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """Tests for AgentLoop — scoring cycle, scoring context, and briefing.
 
@@ -7,6 +7,7 @@ All database calls are mocked via AsyncMock so no live DB is required.
 
 from __future__ import annotations
 
+import json
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -16,6 +17,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from graphclaw.agent.main_orchestrator import MainOrchestrator as AgentLoop
+from graphclaw.infra.storage import StoragePaths
 from graphclaw.models.base import generate_task_id
 from graphclaw.models.enums import (
     GateType,
@@ -83,12 +85,26 @@ def _make_queue_entry(task: TaskNode, rank: int = 1, score: float = 0.75) -> Act
     )
 
 
-def _make_loop(mock_repo=None, mock_engine=None) -> tuple[AgentLoop, Any, Any]:
+def _make_loop(mock_repo=None, mock_engine=None, storage=None) -> tuple[AgentLoop, Any, Any]:
     repo = mock_repo or AsyncMock()
     repo._pool = None
     engine = mock_engine or MagicMock(spec=ScoringEngine)
+    if mock_engine is None:
+        engine.w1 = 0.25
+        engine.w2 = 0.20
+        engine.w3 = 0.20
+        engine.w4 = 0.15
+        engine.w5 = 0.10
+        engine.w6 = 0.05
+        engine.w7 = 0.05
+        engine.cache = MagicMock()
     sm = StateMachine()
-    loop = AgentLoop(graph_repo=repo, scoring_engine=engine, state_machine=sm)
+    loop = AgentLoop(
+        graph_repo=repo,
+        scoring_engine=engine,
+        state_machine=sm,
+        storage_client=storage,
+    )
     return loop, repo, engine
 
 
@@ -262,6 +278,76 @@ class TestRunCycle:
         ]
         assert len(scoring_records) == 1
         assert getattr(scoring_records[0], "trigger_source", None) == "on_demand"
+
+    @pytest.mark.asyncio
+    async def test_run_cycle_loads_user_scoring_weights_from_storage(self):
+        task = _make_task(title="Weighted Task")
+        entry = _make_queue_entry(task, rank=1, score=0.81)
+        storage = AsyncMock()
+        storage.read = AsyncMock(
+            return_value=json.dumps(
+                {
+                    "W1_timeline": 0.4,
+                    "W2_dependencies": 0.1,
+                    "W3_critical_path": 0.1,
+                    "W4_blocker": 0.1,
+                    "W5_override": 0.1,
+                    "W6_resource_risk": 0.1,
+                    "W7_constraint": 0.1,
+                }
+            ).encode()
+        )
+
+        loop, repo, engine = _make_loop(storage=storage)
+        loop._fetch_active_tasks = AsyncMock(return_value=[task])  # type: ignore[method-assign]
+        loop.build_scoring_context = AsyncMock(return_value=ScoringContext())  # type: ignore[method-assign]
+
+        captured: dict[str, tuple[float, ...]] = {}
+
+        async def _capture_score_all(self, tasks, context):  # noqa: ANN001, ANN202
+            captured["weights"] = (self.w1, self.w2, self.w3, self.w4, self.w5, self.w6, self.w7)
+            return [entry]
+
+        with patch.object(ScoringEngine, "score_all", _capture_score_all):
+            queue = await loop.run_cycle(user_id="USER-weighted", trigger_source="on_demand")
+
+        assert len(queue) == 1
+        storage.read.assert_awaited_once_with(StoragePaths.user_scoring_weights("USER-weighted"))
+        assert captured["weights"][0] == pytest.approx(0.4)
+        assert captured["weights"][1] == pytest.approx(0.1)
+
+    @pytest.mark.asyncio
+    async def test_run_cycle_falls_back_to_default_engine_when_weights_missing(self):
+        task = _make_task(title="Default Weighted Task")
+        entry = _make_queue_entry(task, rank=1, score=0.67)
+        storage = AsyncMock()
+        storage.read = AsyncMock(side_effect=FileNotFoundError("missing scoring weights"))
+
+        loop, repo, engine = _make_loop(storage=storage)
+        loop._fetch_active_tasks = AsyncMock(return_value=[task])  # type: ignore[method-assign]
+        loop.build_scoring_context = AsyncMock(return_value=ScoringContext())  # type: ignore[method-assign]
+        engine.score_all = AsyncMock(return_value=[entry])
+
+        queue = await loop.run_cycle(user_id="USER-default", trigger_source="on_demand")
+
+        assert len(queue) == 1
+        storage.read.assert_awaited_once_with(StoragePaths.user_scoring_weights("USER-default"))
+        engine.score_all.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_invalidate_scoring_for_user_marks_dirty_and_invalidates_tasks(self):
+        task_a = _make_task(title="Dirty Task A")
+        task_b = _make_task(title="Dirty Task B")
+
+        loop, repo, engine = _make_loop()
+        loop._score_cache_dirty = False
+        loop._fetch_active_tasks = AsyncMock(return_value=[task_a, task_b])  # type: ignore[method-assign]
+
+        await loop.invalidate_scoring_for_user("USER-test")
+
+        assert loop._score_cache_dirty is True
+        engine.cache.invalidate.assert_any_call(task_a.id)
+        engine.cache.invalidate.assert_any_call(task_b.id)
 
 
 # ---------------------------------------------------------------------------

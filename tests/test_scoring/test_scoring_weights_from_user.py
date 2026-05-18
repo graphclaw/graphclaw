@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """Tests for O-SCR-01: ScoringEngine.from_user() reads UserNode.scoring_weights.
 

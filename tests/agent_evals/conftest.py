@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """
 Pytest configuration and fixtures for agent eval tests.
@@ -6,6 +6,7 @@ Pytest configuration and fixtures for agent eval tests.
 Requires: --run-evals flag (prevents accidental runs on every PR).
 Provides: llm_client, session_factory, eval_reporter fixtures.
 """
+
 import json
 import os
 from collections.abc import Generator
@@ -14,6 +15,7 @@ from pathlib import Path
 import pytest
 
 # ── --run-evals flag ──────────────────────────────────────────────────────────
+
 
 def pytest_addoption(parser: pytest.Parser) -> None:
     # Adds --run-evals option (already added by tests/conftest.py — skip if present)
@@ -30,6 +32,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 
 # ── Skip marker ───────────────────────────────────────────────────────────────
 
+
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     if not config.getoption("--run-evals", default=False):
         skip_evals = pytest.mark.skip(reason="Pass --run-evals to run agent evals")
@@ -39,6 +42,7 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 
 
 # ── LLM client fixture ────────────────────────────────────────────────────────
+
 
 @pytest.fixture(scope="session")
 def llm_client():
@@ -56,6 +60,7 @@ def llm_client():
 
 
 # ── Session factory ────────────────────────────────────────────────────────────
+
 
 @pytest.fixture
 def session_factory(llm_client):
@@ -79,13 +84,17 @@ class EvalReporter:
     def __init__(self) -> None:
         self.records: list[dict] = []
 
-    def record(self, scenario_id: str, transcript: list, passed: bool, score: float | None = None) -> None:
-        self.records.append({
-            "scenario_id": scenario_id,
-            "passed": passed,
-            "score": score,
-            "turns": len(transcript),
-        })
+    def record(
+        self, scenario_id: str, transcript: list, passed: bool, score: float | None = None
+    ) -> None:
+        self.records.append(
+            {
+                "scenario_id": scenario_id,
+                "passed": passed,
+                "score": score,
+                "turns": len(transcript),
+            }
+        )
 
     def write_report(self, path: Path) -> None:
         REPORTS_DIR.mkdir(exist_ok=True)
@@ -98,5 +107,6 @@ def eval_reporter() -> Generator[EvalReporter, None, None]:
     yield reporter
     if reporter.records:
         import datetime
+
         ts = datetime.datetime.utcnow().strftime("%Y%m%d_%H%M%S")
         reporter.write_report(REPORTS_DIR / f"eval_run_{ts}.json")

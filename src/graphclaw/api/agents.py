@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """graphclaw.api.agents — Agent canvas definition CRUD endpoints.
 
@@ -23,6 +23,7 @@ GET    /app/v1/agents/{id}/wiring      — resolved wiring summary
 POST   /app/v1/agents/{id}/test        — run a quick test of the agent
 GET    /app/v1/agents/delegations      — list active sub-agent delegations
 GET    /app/v1/agents/dispatch-plan/{session_id} — list planned dispatch tiers for a session
+GET    /app/v1/agents/{id}/plans       — list pending plans from MinIO
 
 Storage layout
 --------------
@@ -690,6 +691,100 @@ async def list_agent_versions(
             return 0
 
     return sorted(versions, key=_version_key)
+
+
+# ---------------------------------------------------------------------------
+# Pending plans
+# ---------------------------------------------------------------------------
+
+
+class PendingPlanTask(BaseModel):
+    draft_task_id: str = ""
+    title: str = ""
+    description: str = ""
+    priority: str = ""
+    estimated_effort: str = ""
+
+
+class PendingPlanOut(BaseModel):
+    plan_id: str
+    goal_title: str = ""
+    goal_description: str = ""
+    status: str = "DRAFT"
+    revision: int = 1
+    created_at: str = ""
+    updated_at: str = ""
+    deadline: str | None = None
+    tasks: list[PendingPlanTask] = Field(default_factory=list)
+
+
+@router.get(
+    "/{agent_id}/plans",
+    response_model=list[PendingPlanOut],
+    status_code=status.HTTP_200_OK,
+    summary="List pending plans",
+    description=(
+        "Return all pending plans for this agent, ordered newest-first.  "
+        "Plans with status EXECUTED are excluded."
+    ),
+)
+async def list_pending_plans(
+    agent_id: str,
+    user_id: CurrentUserDep,
+    storage_client: StorageClientDep,
+    include_executed: bool = Query(default=False, description="Include EXECUTED plans"),
+) -> list[PendingPlanOut]:
+    """List pending plans stored in MinIO for the given agent."""
+    prefix = f"{StoragePaths.agent_root(user_id, agent_id)}state/pending_plans/"
+    try:
+        paths = await storage_client.list_objects(prefix)
+    except Exception as exc:
+        logger.warning("agents: failed to list plans for %s/%s: %s", user_id, agent_id, exc)
+        return []
+
+    plans: list[PendingPlanOut] = []
+    for path in paths:
+        if not path.endswith(".json"):
+            continue
+        try:
+            raw = await storage_client.read(path)
+            d = json.loads(raw.decode())
+        except Exception as exc:
+            logger.warning("agents: failed to read plan %s: %s", path, exc)
+            continue
+
+        if not include_executed and d.get("status") == "EXECUTED":
+            continue
+
+        tasks_raw = d.get("tasks", [])
+        tasks = [
+            PendingPlanTask(
+                draft_task_id=str(t.get("draft_task_id", "")),
+                title=str(t.get("title", t.get("name", ""))),
+                description=str(t.get("description", "")),
+                priority=str(t.get("priority", "")),
+                estimated_effort=str(t.get("estimated_effort", "")),
+            )
+            for t in tasks_raw
+            if isinstance(t, dict)
+        ]
+
+        plans.append(
+            PendingPlanOut(
+                plan_id=str(d.get("plan_id", "")),
+                goal_title=str(d.get("goal_title", "")),
+                goal_description=str(d.get("goal_description", "")),
+                status=str(d.get("status", "DRAFT")),
+                revision=int(d.get("revision", 1)),
+                created_at=str(d.get("created_at", "")),
+                updated_at=str(d.get("updated_at", "")),
+                deadline=d.get("deadline") or None,
+                tasks=tasks,
+            )
+        )
+
+    plans.sort(key=lambda p: p.created_at, reverse=True)
+    return plans
 
 
 @router.get(

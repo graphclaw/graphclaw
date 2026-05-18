@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """Tests for Wave 8 completion: DirectoryIndexer, embedding, OrgTaskIndexer, CrossTenantRepo.
 

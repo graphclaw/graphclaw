@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """
 LLM-as-judge for agent eval rubric scoring.
@@ -9,6 +9,7 @@ judge model, and returns a 0-1 score with feedback text.
 Cost cap: judge calls are billed against the eval run's budget. The judge
 model default is claude-sonnet-4-6 (cheaper than Opus, sufficient for rubric scoring).
 """
+
 from __future__ import annotations
 
 import os
@@ -77,9 +78,7 @@ async def judge_session(
     judge_prompt = f"""## Rubric\n\n{rubric_text}\n\n## Transcript\n\n{transcript_text}"""
 
     # Create client if not provided
-    client = anthropic_client or anthropic.Anthropic(
-        api_key=os.environ["ANTHROPIC_API_KEY"]
-    )
+    client = anthropic_client or anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
     response = client.messages.create(
         model=rubric_config.judge_model,
@@ -100,6 +99,7 @@ async def judge_session(
     except (json.JSONDecodeError, KeyError, TypeError) as e:
         # Fallback: extract score heuristically
         import re
+
         score_match = re.search(r'"score"\s*:\s*([0-9.]+)', raw)
         score = float(score_match.group(1)) if score_match else 0.0
         return JudgeVerdict(score=score, feedback=f"Parse error: {e}. Raw: {raw}", raw_response=raw)

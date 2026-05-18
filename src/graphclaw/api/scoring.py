@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """graphclaw.api.scoring — Scoring explanation and simulation endpoints.
 
@@ -116,20 +116,25 @@ def _scoring_block_to_explanation(task_id: str, scoring: dict[str, Any]) -> Scor
     else:
         scored_at = now
 
-    # Default weights (PRD §4.1)
-    factor_meta: list[tuple[str, str, float]] = [
-        ("W1 Timeline Urgency", "timeline_urgency", 0.25),
-        ("W2 Dependency Weight", "dependency_weight", 0.20),
-        ("W3 Critical Path", "critical_path", 0.20),
-        ("W4 Blocker Score", "blocker", 0.15),
-        ("W5 Human Override", "human_override", 0.10),
-        ("W6 Resource Risk", "resource_risk", 0.05),
-        ("W7 Constraint Pressure", "constraint_pressure", 0.05),
+    # Use weights persisted during the last scoring pass; fallback to defaults.
+    factor_meta: list[tuple[str, str, str, float]] = [
+        ("W1 Timeline Urgency", "timeline_urgency", "W1_timeline_weight", 0.25),
+        ("W2 Dependency Weight", "dependency_weight", "W2_dependencies_weight", 0.20),
+        ("W3 Critical Path", "critical_path", "W3_critical_path_weight", 0.20),
+        ("W4 Blocker Score", "blocker", "W4_blocker_weight", 0.15),
+        ("W5 Human Override", "human_override", "W5_override_weight", 0.10),
+        ("W6 Resource Risk", "resource_risk", "W6_resource_risk_weight", 0.05),
+        ("W7 Constraint Pressure", "constraint_pressure", "W7_constraint_weight", 0.05),
     ]
 
     factors: list[ScoreFactor] = []
-    for name, key, weight in factor_meta:
+    for name, key, weight_key, default_weight in factor_meta:
         raw = float(scoring.get(key, 0.0))
+        weight_value = scoring.get(weight_key, default_weight)
+        if isinstance(weight_value, int | float):
+            weight = float(weight_value)
+        else:
+            weight = float(default_weight)
         factors.append(
             ScoreFactor(
                 factor_name=name,

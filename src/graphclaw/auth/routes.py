@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """graphclaw.auth.routes — FastAPI router for OAuth 2.0 + JWT authentication.
 
@@ -430,11 +430,19 @@ async def callback(
     # ── User provisioning — create/lookup UserNode + WorkspaceNode ───────────
     if provisioning_service is not None:
         try:
+            from graphclaw.cross_tenant.acl import CallerContext as _CallerContext  # noqa: PLC0415
+
+            _provisioning_ctx = _CallerContext(
+                user_id=oauth_subject,
+                org_id="default",
+                principal="agent_principal",
+            )
             result = await provisioning_service.provision_new_user(
                 oauth_subject=oauth_subject,
                 email=email,
                 display_name=name,
                 provider=provider_name,
+                caller_context=_provisioning_ctx,
             )
             logger.info(
                 "auth/callback: provisioned user_id=%s is_new=%s provider=%s email=%s",
@@ -456,17 +464,20 @@ async def callback(
             )
         except Exception as exc:  # noqa: BLE001
             logger.error(
-                "auth/callback: provisioning failed for %s — falling back to token-only: %s",
+                "auth/callback: provisioning failed for %s: %s",
                 email,
                 exc,
             )
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="User provisioning is temporarily unavailable. Please try again.",
+            ) from exc
 
-    # ── Fallback: token-only (no DB, or provisioning error) ──────────────────
+    # ── Fallback: token-only (no DB configured — dev/test mode only) ─────────
     logger.info(
-        "auth/callback: token-only mode for provider=%s email=%s platform_user_id=%s",
+        "auth/callback: token-only mode (no provisioning service) for provider=%s email=%s",
         provider_name,
         email,
-        oauth_subject,
     )
     access_token = jwt_service.issue_access_token(oauth_subject)
     refresh_token = jwt_service.issue_refresh_token(oauth_subject)
@@ -790,7 +801,12 @@ async def me(
     email = ""
     if graph_store is not None:
         try:
-            nodes = await graph_store.list_nodes("UserNode", {"id": user_id})
+            from graphclaw.cross_tenant.acl import CallerContext as _CallerContext  # noqa: PLC0415
+
+            _me_ctx = _CallerContext(user_id=user_id, org_id="default", principal="agent_principal")
+            nodes = await graph_store.list_nodes(
+                "UserNode", {"id": user_id}, caller_context=_me_ctx
+            )
             if nodes:
                 node = nodes[0]
                 display_name = node.get("name", "")

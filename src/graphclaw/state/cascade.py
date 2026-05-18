@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """graphclaw.state.cascade — Composite completion cascade and shared transition helpers.
 
@@ -38,7 +38,7 @@ Dependencies
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from graphclaw.models.deserialization import deserialize_task_node_props
 from graphclaw.models.enums import (
@@ -50,6 +50,8 @@ from graphclaw.models.enums import (
 )
 from graphclaw.models.nodes import TaskNode
 from graphclaw.models.type_metadata import CompositeMetadata
+from graphclaw.notifications.emit import emit_notification
+from graphclaw.notifications.models import NotificationEventType
 from graphclaw.state.machine import StateMachine
 
 if TYPE_CHECKING:
@@ -200,6 +202,7 @@ async def activate_next_in_chain(
     completed_task: TaskNode,
     graph_repo: GraphStore,
     state_machine: StateMachine | None = None,
+    caller_context: Any | None = None,
 ) -> list[TaskNode]:
     """Activate INACTIVE_PENDING tasks that were waiting on *completed_task*.
 
@@ -234,7 +237,7 @@ async def activate_next_in_chain(
         dep_id = edge.get("_start_id")
         if not dep_id:
             continue
-        node_props = await graph_repo.get_node(dep_id)
+        node_props = await graph_repo.get_node(dep_id, caller_context=caller_context)
         if node_props is None:
             continue
         try:
@@ -267,7 +270,11 @@ async def activate_next_in_chain(
     return activated
 
 
-async def _load_children_for_parent(parent_id: str, graph_repo: GraphStore) -> list[TaskNode]:
+async def _load_children_for_parent(
+    parent_id: str,
+    graph_repo: GraphStore,
+    caller_context: Any | None = None,
+) -> list[TaskNode]:
     """Return parsed direct PART_OF children for *parent_id*."""
     child_edges = await graph_repo.get_edges(parent_id, direction="in", edge_type="PART_OF")
 
@@ -276,7 +283,7 @@ async def _load_children_for_parent(parent_id: str, graph_repo: GraphStore) -> l
         child_id = edge.get("_start_id")
         if not child_id:
             continue
-        raw_child = await graph_repo.get_node(child_id)
+        raw_child = await graph_repo.get_node(child_id, caller_context=caller_context)
         if raw_child is None:
             continue
         try:
@@ -290,6 +297,9 @@ async def run_post_transition_cascade(
     task: TaskNode,
     graph_repo: GraphStore,
     state_machine: StateMachine | None = None,
+    caller_context: Any | None = None,
+    pool: Any | None = None,
+    redis: Any | None = None,
 ) -> list[TaskNode]:
     """Run COMPLETE-triggered cascade side effects for *task* and persist them."""
     if task.state != TaskState.COMPLETE:
@@ -299,9 +309,13 @@ async def run_post_transition_cascade(
 
     sm = _resolve_state_machine(state_machine)
 
-    activated = await activate_next_in_chain(task, graph_repo, state_machine=sm)
+    activated = await activate_next_in_chain(
+        task, graph_repo, state_machine=sm, caller_context=caller_context
+    )
     for activated_task in activated:
-        await graph_repo.update_node(activated_task.id, activated_task.model_dump(mode="json"))
+        await graph_repo.update_node(
+            activated_task.id, activated_task.model_dump(mode="json"), caller_context=caller_context
+        )
         persisted_updates.append(activated_task)
 
     parent_edges = await graph_repo.get_edges(task.id, direction="out", edge_type="PART_OF")
@@ -310,7 +324,7 @@ async def run_post_transition_cascade(
         if not parent_id:
             continue
 
-        raw_parent = await graph_repo.get_node(parent_id)
+        raw_parent = await graph_repo.get_node(parent_id, caller_context=caller_context)
         if raw_parent is None:
             continue
 
@@ -320,19 +334,44 @@ async def run_post_transition_cascade(
             logger.warning("cascade: could not parse parent node %s", parent_id)
             continue
 
-        children = await _load_children_for_parent(parent_id, graph_repo)
+        children = await _load_children_for_parent(
+            parent_id, graph_repo, caller_context=caller_context
+        )
         prior_state = parent_task.state
         check_composite_completion(parent_task, children, state_machine=sm)
 
         if parent_task.state == prior_state:
             continue
 
-        await graph_repo.update_node(parent_task.id, parent_task.model_dump(mode="json"))
+        await graph_repo.update_node(
+            parent_task.id, parent_task.model_dump(mode="json"), caller_context=caller_context
+        )
         persisted_updates.append(parent_task)
 
         if parent_task.state == TaskState.COMPLETE:
+            owner_id = parent_task.model_dump(mode="json").get("created_by") or ""
+            if owner_id:
+                await emit_notification(
+                    pool=pool,
+                    redis=redis,
+                    user_id=owner_id,
+                    event_type=NotificationEventType.TASK_CASCADE_COMPLETE,
+                    title=f"Milestone completed: {parent_task.title}",
+                    body="All required sub-tasks are complete.",
+                    metadata={
+                        "task_id": parent_task.id,
+                        "task_type": parent_task.task_type.value if parent_task.task_type else None,
+                    },
+                )
             persisted_updates.extend(
-                await run_post_transition_cascade(parent_task, graph_repo, state_machine=sm)
+                await run_post_transition_cascade(
+                    parent_task,
+                    graph_repo,
+                    state_machine=sm,
+                    caller_context=caller_context,
+                    pool=pool,
+                    redis=redis,
+                )
             )
 
     return persisted_updates
@@ -345,10 +384,13 @@ async def persist_transition(
     reason: str,
     graph_repo: GraphStore,
     state_machine: StateMachine,
+    caller_context: Any | None = None,
 ) -> TaskNode:
     """Apply a state transition and persist the mutated task node."""
     state_machine.transition(task, target_state, changed_by, reason)
-    await graph_repo.update_node(task.id, task.model_dump(mode="json"))
+    await graph_repo.update_node(
+        task.id, task.model_dump(mode="json"), caller_context=caller_context
+    )
     return task
 
 
@@ -359,10 +401,28 @@ async def persist_transition_and_cascade(
     reason: str,
     graph_repo: GraphStore,
     state_machine: StateMachine,
+    caller_context: Any | None = None,
+    pool: Any | None = None,
+    redis: Any | None = None,
 ) -> TaskNode:
     """Persist a state transition and run any cascade side effects it triggers."""
-    await persist_transition(task, target_state, changed_by, reason, graph_repo, state_machine)
-    await run_post_transition_cascade(task, graph_repo, state_machine=state_machine)
+    await persist_transition(
+        task,
+        target_state,
+        changed_by,
+        reason,
+        graph_repo,
+        state_machine,
+        caller_context=caller_context,
+    )
+    await run_post_transition_cascade(
+        task,
+        graph_repo,
+        state_machine=state_machine,
+        caller_context=caller_context,
+        pool=pool,
+        redis=redis,
+    )
     return task
 
 

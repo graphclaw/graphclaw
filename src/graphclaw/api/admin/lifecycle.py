@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """graphclaw.api.admin.lifecycle — Data-lifecycle admin endpoints (Wave 0.5).
 
@@ -41,7 +41,7 @@ Dependencies
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
@@ -51,6 +51,8 @@ from graphclaw.audit.immutable_log import AuditEventType, AuditLog
 from graphclaw.models.base import utcnow
 
 logger = logging.getLogger(__name__)
+
+UTC = timezone.utc
 
 router = APIRouter(prefix="/admin/lifecycle", tags=["admin-lifecycle"])
 

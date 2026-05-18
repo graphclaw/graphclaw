@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """tests.test_api.conftest — Shared fakes and fixtures for API route tests.
 
@@ -7,6 +7,9 @@ so API tests can override FastAPI dependencies without hitting real backends.
 """
 
 from __future__ import annotations
+
+import uuid
+from datetime import datetime, timezone
 
 from graphclaw.db.base import GraphStore
 from graphclaw.infra.storage import StorageClient
@@ -113,3 +116,79 @@ class FakeStorageClient(StorageClient):
 
     async def exists(self, path: str) -> bool:
         return path in self._data
+
+
+class FakeNotificationService:
+    """In-memory NotificationService for use in FastAPI dependency overrides."""
+
+    def __init__(self) -> None:
+        self._rows: list[dict] = []
+
+    def clear(self) -> None:
+        self._rows.clear()
+
+    async def create(
+        self,
+        user_id: str,
+        event_type: str,
+        title: str,
+        body: str = "",
+        metadata: dict | None = None,
+    ) -> str:
+        row = {
+            "id": str(uuid.uuid4()),
+            "user_id": user_id,
+            "event_type": event_type,
+            "title": title,
+            "body": body,
+            "metadata": metadata or {},
+            "is_read": False,
+            "read_at": None,
+            "created_at": datetime.now(timezone.utc),
+            "dismissed_at": None,
+        }
+        self._rows.append(row)
+        return row["id"]
+
+    async def list_for_user(
+        self,
+        user_id: str,
+        limit: int = 30,
+        cursor: str | None = None,
+    ) -> tuple[list[dict], int, str | None]:
+        visible = [r for r in self._rows if r["user_id"] == user_id and r["dismissed_at"] is None]
+        if cursor:
+            visible = [r for r in visible if r["created_at"].isoformat() < cursor]
+        unread = sum(1 for r in visible if not r["is_read"])
+        page = visible[:limit]
+        next_cursor = page[-1]["created_at"].isoformat() if len(visible) > limit else None
+        return page, unread, next_cursor
+
+    async def mark_read(self, notification_id: str, user_id: str) -> bool:
+        for r in self._rows:
+            if r["id"] == notification_id and r["user_id"] == user_id and r["dismissed_at"] is None:
+                r["is_read"] = True
+                return True
+        return False
+
+    async def mark_all_read(self, user_id: str) -> int:
+        count = 0
+        for r in self._rows:
+            if r["user_id"] == user_id and not r["is_read"] and r["dismissed_at"] is None:
+                r["is_read"] = True
+                count += 1
+        return count
+
+    async def dismiss(self, notification_id: str, user_id: str) -> bool:
+        for r in self._rows:
+            if r["id"] == notification_id and r["user_id"] == user_id and r["dismissed_at"] is None:
+                r["dismissed_at"] = datetime.now(timezone.utc)
+                return True
+        return False
+
+    async def unread_count(self, user_id: str) -> int:
+        return sum(
+            1
+            for r in self._rows
+            if r["user_id"] == user_id and not r["is_read"] and r["dismissed_at"] is None
+        )

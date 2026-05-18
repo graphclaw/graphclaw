@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """graphclaw.api.graph — Graph node and edge CRUD endpoints for the cockpit.
 
@@ -135,6 +135,7 @@ async def _build_followup_config(
     task_id: str,
     owner_user_id: str,
     assignee_id: str | None,
+    caller_context: Any | None = None,
 ) -> Any:
     """Build FollowupConfig inputs from user/resource graph context.
 
@@ -148,7 +149,7 @@ async def _build_followup_config(
     recency_bonus = 0.0
 
     try:
-        owner_raw = await graph_store.get_node(owner_user_id)
+        owner_raw = await graph_store.get_node(owner_user_id, caller_context=caller_context)
         if owner_raw:
             prefs = _decode_json_like(owner_raw.get("preferences"))
             if isinstance(prefs, dict):
@@ -163,7 +164,7 @@ async def _build_followup_config(
 
     if assignee_id:
         try:
-            assignee_raw = await graph_store.get_node(assignee_id)
+            assignee_raw = await graph_store.get_node(assignee_id, caller_context=caller_context)
             if assignee_raw:
                 reliability = _decode_json_like(assignee_raw.get("reliability"))
                 if isinstance(reliability, dict):
@@ -296,6 +297,7 @@ class CreateEdgeRequest(BaseModel):
 async def list_goals(
     user_id: CurrentUserDep,
     graph_store: GraphStoreDep,
+    caller_context: CallerContextDep,
     org_id: str | None = Query(default=None, description="Filter by organisation ID"),
     state: str | None = Query(default=None, description="Filter by GoalState value"),
     cursor: str | None = Query(default=None),
@@ -309,7 +311,7 @@ async def list_goals(
     if state:
         filters["state"] = state
 
-    nodes = await graph_store.list_nodes("GoalNode", filters)
+    nodes = await graph_store.list_nodes("GoalNode", filters, caller_context=caller_context)
     # Sort newest first so freshly created goals appear at the top of the list.
     nodes.sort(key=lambda n: n.get("created_at") or "", reverse=True)
     # Simple cursor: treat cursor as an offset index encoded as a string int.
@@ -335,10 +337,11 @@ async def get_goal_tree(
     user_id: CurrentUserDep,
     graph_store: GraphStoreDep,
     query_engine: QueryEngineDep,
+    caller_context: CallerContextDep,
     depth: int = Query(default=3, ge=1, le=10),
 ) -> GoalTreeResponse:
     """Return the subtree rooted at *goal_id*."""
-    goal = await graph_store.get_node(goal_id)
+    goal = await graph_store.get_node(goal_id, caller_context=caller_context)
     if goal is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"Goal '{goal_id}' not found"
@@ -346,7 +349,7 @@ async def get_goal_tree(
 
     # Gather tasks belonging to this goal
     task_filters: dict[str, Any] = {"parent_goal_id": goal_id}
-    tasks = await graph_store.list_nodes("TaskNode", task_filters)
+    tasks = await graph_store.list_nodes("TaskNode", task_filters, caller_context=caller_context)
 
     # Collect all edges incident to goal + each task
     all_node_ids = [goal_id] + [t["id"] for t in tasks if "id" in t]
@@ -383,6 +386,7 @@ async def get_goal_tree(
 async def list_tasks(
     user_id: CurrentUserDep,
     graph_store: GraphStoreDep,
+    caller_context: CallerContextDep,
     state: str | None = Query(default=None, description="TaskState filter"),
     assignee_id: str | None = Query(default=None),
     org_id: str | None = Query(default=None),
@@ -404,7 +408,7 @@ async def list_tasks(
     if task_type:
         filters["task_type"] = task_type
 
-    nodes = await graph_store.list_nodes("TaskNode", filters)
+    nodes = await graph_store.list_nodes("TaskNode", filters, caller_context=caller_context)
     # Sort newest first so freshly created tasks appear at the top of the list.
     nodes.sort(key=lambda n: n.get("created_at") or "", reverse=True)
     start = int(cursor) if cursor and cursor.isdigit() else 0
@@ -425,9 +429,10 @@ async def get_task(
     task_id: str,
     user_id: CurrentUserDep,
     graph_store: GraphStoreDep,
+    caller_context: CallerContextDep,
 ) -> TaskDetailResponse:
     """Return task detail for *task_id*."""
-    task = await graph_store.get_node(task_id)
+    task = await graph_store.get_node(task_id, caller_context=caller_context)
     if task is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"Task '{task_id}' not found"
@@ -484,7 +489,7 @@ async def create_task(
     )
 
     if body.parent_goal_id:
-        parent_node = await graph_store.get_node(body.parent_goal_id)
+        parent_node = await graph_store.get_node(body.parent_goal_id, caller_context=caller_context)
         if parent_node is None:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -587,6 +592,7 @@ async def create_task(
                 task_id=task_id,
                 owner_user_id=user_id,
                 assignee_id=body.assignee_id,
+                caller_context=caller_context,
             )
         except Exception as exc:  # noqa: BLE001
             logger.debug("graph: follow-up config build failed for %s: %s", task_id, exc)
@@ -671,10 +677,11 @@ async def update_task(
     body: UpdateTaskRequest,
     user_id: CurrentUserDep,
     graph_store: GraphStoreDep,
+    caller_context: CallerContextDep,
     broker: BrokerDep,
 ) -> dict[str, Any]:
     """Partial-update a TaskNode."""
-    existing = await graph_store.get_node(task_id)
+    existing = await graph_store.get_node(task_id, caller_context=caller_context)
     if existing is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"Task '{task_id}' not found"
@@ -730,9 +737,10 @@ async def delete_task(
     task_id: str,
     user_id: CurrentUserDep,
     graph_store: GraphStoreDep,
+    caller_context: CallerContextDep,
 ) -> None:
     """Delete *task_id* from the graph."""
-    existing = await graph_store.get_node(task_id)
+    existing = await graph_store.get_node(task_id, caller_context=caller_context)
     if existing is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"Task '{task_id}' not found"
@@ -794,6 +802,7 @@ async def list_resources(
 async def list_edges(
     user_id: CurrentUserDep,
     graph_store: GraphStoreDep,
+    caller_context: CallerContextDep,
     edge_type: str | None = Query(default=None, description="Edge type (e.g. DEPENDS_ON, BLOCKS)"),
     source_id: str | None = Query(default=None, description="Source node ID"),
     target_id: str | None = Query(default=None, description="Target node ID"),
@@ -808,7 +817,9 @@ async def list_edges(
         raw_edges = await graph_store.get_edges(anchor_id, direction=direction, edge_type=edge_type)
     else:
         # No anchor — return edges incident to any task owned by this user.
-        tasks = await graph_store.list_nodes("TaskNode", {"owned_by": user_id})
+        tasks = await graph_store.list_nodes(
+            "TaskNode", {"owned_by": user_id}, caller_context=caller_context
+        )
         seen: set[str] = set()
         raw_edges = []
         for task in tasks[:20]:  # Cap at 20 tasks to avoid N+1 explosion
@@ -844,16 +855,17 @@ async def create_edge(
     body: CreateEdgeRequest,
     user_id: CurrentUserDep,
     graph_store: GraphStoreDep,
+    caller_context: CallerContextDep,
 ) -> dict[str, Any]:
     """Create a directed edge from ``source_id`` to ``target_id``."""
     # Validate both nodes exist.
-    src = await graph_store.get_node(body.source_id)
+    src = await graph_store.get_node(body.source_id, caller_context=caller_context)
     if src is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Source node '{body.source_id}' not found",
         )
-    tgt = await graph_store.get_node(body.target_id)
+    tgt = await graph_store.get_node(body.target_id, caller_context=caller_context)
     if tgt is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

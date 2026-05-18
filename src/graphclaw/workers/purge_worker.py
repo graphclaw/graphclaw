@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """graphclaw.workers.purge_worker — Scheduled purge worker (FR-DEL-005).
 
@@ -40,7 +40,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from pydantic import BaseModel
 
@@ -48,6 +48,8 @@ from graphclaw.audit.immutable_log import AuditEventType, AuditLog
 from graphclaw.workers.heartbeat import WorkerHeartbeat
 
 logger = logging.getLogger(__name__)
+
+UTC = timezone.utc
 
 _WORKER_NAME = "purge_worker"
 _LOCK_KEY = "worker:lock:purge_worker"

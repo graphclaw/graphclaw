@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """graphclaw.audit.immutable_log — Append-only audit log (FR-DEL-006/007).
 
@@ -35,7 +35,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from datetime import UTC, date, datetime
+from datetime import date, datetime, timezone
 from enum import Enum
 from typing import Any
 
@@ -44,6 +44,8 @@ from pydantic import BaseModel, Field
 from graphclaw.infra.storage import StorageClient
 
 logger = logging.getLogger(__name__)
+
+UTC = timezone.utc
 
 # ---------------------------------------------------------------------------
 # Event type catalogue

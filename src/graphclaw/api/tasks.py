@@ -1,10 +1,10 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """graphclaw.api.tasks — Inbound/outbound communication log endpoints."""
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -12,6 +12,8 @@ from pydantic import BaseModel
 
 from graphclaw.api.deps import CurrentUserDep, StorageClientDep
 from graphclaw.storage.minio_log_reader import MinioLogReader, parse_record_timestamp
+
+UTC = timezone.utc
 
 router = APIRouter(prefix="/tasks", tags=["app-api"])
 

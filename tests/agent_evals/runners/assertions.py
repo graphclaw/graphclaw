@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """
 Behavioral assertion vocabulary for agent eval turn results.
@@ -6,6 +6,7 @@ Behavioral assertion vocabulary for agent eval turn results.
 Each assertion function maps one TurnAssert spec entry to a pytest-compatible
 assertion. Failures include human-readable messages so test output is self-explanatory.
 """
+
 from __future__ import annotations
 
 import re
@@ -70,15 +71,13 @@ def run_turn_assertions(assert_specs: list[TurnAssert], result: TurnResult) -> N
         # ── response_contains ────────────────────────────────────────────────
         for fragment in spec.response_contains:
             assert fragment.lower() in result.agent.lower(), (
-                f"Expected response to contain {fragment!r}\n"
-                f"Response: {result.agent[:300]}"
+                f"Expected response to contain {fragment!r}\nResponse: {result.agent[:300]}"
             )
 
         # ── response_does_not_contain ─────────────────────────────────────────
         for fragment in spec.response_does_not_contain:
             assert fragment.lower() not in result.agent.lower(), (
-                f"Expected response NOT to contain {fragment!r}\n"
-                f"Response: {result.agent[:300]}"
+                f"Expected response NOT to contain {fragment!r}\nResponse: {result.agent[:300]}"
             )
 
         # ── response_matches_regex ────────────────────────────────────────────

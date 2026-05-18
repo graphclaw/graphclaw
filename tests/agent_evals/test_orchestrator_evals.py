@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """
 GC-A-ORC-W12-001 — Orchestrator behavioral eval suite
@@ -27,6 +27,7 @@ Notes:
 - Full suite runs nightly at 02:00 UTC via .github/workflows/nightly-evals.yml
 - Budget: $0.50 per nightly run, $0.05 per canary subset run
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -47,6 +48,7 @@ pytestmark = [pytest.mark.agent_eval, pytest.mark.slow]
 def _canary_id(scenario_path: Path) -> bool:
     """Return True if this scenario is marked canary=true in YAML."""
     import yaml
+
     raw = yaml.safe_load(scenario_path.read_text(encoding="utf-8"))
     return bool(raw.get("canary", False))
 

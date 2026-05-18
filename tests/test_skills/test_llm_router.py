@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """tests.test_skills.test_llm_router — Unit tests for graphclaw.skills.llm_router.LLMRouter.
 

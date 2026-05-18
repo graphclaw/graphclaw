@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """
 Multi-turn chat session driver for agent evals.
@@ -6,6 +6,7 @@ Multi-turn chat session driver for agent evals.
 Loads YAML scenario files and drives the real orchestrator chat loop,
 capturing tool calls and response text for assertion.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -15,6 +16,7 @@ from typing import Any
 import yaml
 
 # ── Scenario schema ───────────────────────────────────────────────────────────
+
 
 @dataclass
 class TurnAssert:
@@ -78,19 +80,23 @@ def load_scenario(path: Path) -> Scenario:
     turns = []
     for t in raw.get("turns", []):
         asserts = []
-        for a in t.get("assert", []) if isinstance(t.get("assert"), list) else (
-            [t["assert"]] if isinstance(t.get("assert"), dict) else []
+        for a in (
+            t.get("assert", [])
+            if isinstance(t.get("assert"), list)
+            else ([t["assert"]] if isinstance(t.get("assert"), dict) else [])
         ):
-            asserts.append(TurnAssert(
-                tool_called=a.get("tool_called"),
-                tool_not_called=a.get("tool_not_called"),
-                tool_args_match=a.get("tool_args_match", {}),
-                response_contains=a.get("response_contains", []),
-                response_does_not_contain=a.get("response_does_not_contain", []),
-                response_matches_regex=a.get("response_matches_regex"),
-                latency_ms_under=a.get("latency_ms_under"),
-                cost_usd_under=a.get("cost_usd_under"),
-            ))
+            asserts.append(
+                TurnAssert(
+                    tool_called=a.get("tool_called"),
+                    tool_not_called=a.get("tool_not_called"),
+                    tool_args_match=a.get("tool_args_match", {}),
+                    response_contains=a.get("response_contains", []),
+                    response_does_not_contain=a.get("response_does_not_contain", []),
+                    response_matches_regex=a.get("response_matches_regex"),
+                    latency_ms_under=a.get("latency_ms_under"),
+                    cost_usd_under=a.get("cost_usd_under"),
+                )
+            )
         turns.append(Turn(user=t["user"], assert_=asserts))
 
     rubric = None
@@ -121,6 +127,7 @@ def load_scenario(path: Path) -> Scenario:
 
 
 # ── Session driver ────────────────────────────────────────────────────────────
+
 
 @dataclass
 class TurnResult:
@@ -153,6 +160,7 @@ class EvalSession:
     async def send(self, user_message: str) -> TurnResult:
         """Send one user turn and return the result."""
         import time
+
         start = time.perf_counter()
 
         response = await self.llm_client.send_message(

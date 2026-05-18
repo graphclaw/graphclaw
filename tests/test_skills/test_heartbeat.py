@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """tests.test_skills.test_heartbeat — Unit tests for graphclaw.skills.heartbeat.HeartbeatMonitor.
 

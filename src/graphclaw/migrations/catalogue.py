@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """graphclaw.migrations.catalogue — Forward-only migration history.
 
@@ -724,6 +724,42 @@ MIGRATIONS: list[Migration] = [
             DO $$ BEGIN
               IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'admin_principal') THEN
                 GRANT SELECT, INSERT, UPDATE, DELETE ON agent_session_log TO admin_principal;
+              END IF;
+            END $$;
+        """,
+    ),
+    Migration(
+        version="0024",
+        name="wave9_notifications",
+        description=(
+            "Wave 9 (FR-NOTIF-001): Create notifications table for persistent "
+            "per-user UI notifications with soft-delete and unread tracking."
+        ),
+        sql_up="""
+            CREATE TABLE IF NOT EXISTS notifications (
+                id           UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+                user_id      TEXT        NOT NULL,
+                event_type   TEXT        NOT NULL,
+                title        TEXT        NOT NULL,
+                body         TEXT        NOT NULL DEFAULT '',
+                metadata     JSONB       NOT NULL DEFAULT '{}',
+                is_read      BOOLEAN     NOT NULL DEFAULT FALSE,
+                read_at      TIMESTAMPTZ,
+                created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                dismissed_at TIMESTAMPTZ
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_notifications_user_created
+                ON notifications (user_id, created_at DESC)
+                WHERE dismissed_at IS NULL;
+
+            CREATE INDEX IF NOT EXISTS idx_notifications_user_unread
+                ON notifications (user_id, is_read)
+                WHERE dismissed_at IS NULL AND is_read = FALSE;
+
+            DO $$ BEGIN
+              IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'admin_principal') THEN
+                GRANT SELECT, INSERT, UPDATE, DELETE ON notifications TO admin_principal;
               END IF;
             END $$;
         """,

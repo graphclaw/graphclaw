@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """graphclaw.inbound.processor — Main inbound message processing pipeline.
 
@@ -53,6 +53,8 @@ from graphclaw.inbound.extractor import StatusExtractor
 from graphclaw.inbound.models import InboundResult, StatusSignal
 from graphclaw.inbound.resolver import TaskResolver
 from graphclaw.infra.broker import STATUS_UPDATES, MessageBroker
+from graphclaw.notifications.emit import emit_notification
+from graphclaw.notifications.models import NotificationEventType
 
 logger = logging.getLogger(__name__)
 
@@ -85,10 +87,14 @@ class InboundProcessor:
         resolver: TaskResolver,
         extractor: StatusExtractor,
         broker: MessageBroker | None = None,
+        pool: object | None = None,
+        redis: object | None = None,
     ) -> None:
         self._resolver = resolver
         self._extractor = extractor
         self._broker = broker
+        self._pool = pool
+        self._redis = redis
 
     async def process(
         self,
@@ -146,6 +152,21 @@ class InboundProcessor:
                 else "unmatched"
             )
             followup_needed = True  # Human routing required.
+
+            if action == "manual_match_required" and user_id:
+                await emit_notification(
+                    pool=self._pool,
+                    redis=self._redis,
+                    user_id=user_id,
+                    event_type=NotificationEventType.INBOUND_UNROUTED,
+                    title="Unrouted inbound message",
+                    body=f"A message on {channel} could not be matched to a task.",
+                    metadata={
+                        "message_id": message_id,
+                        "channel": channel,
+                        "session_id": session_id,
+                    },
+                )
 
         # Step 4: Log the outcome.
         logger.info(

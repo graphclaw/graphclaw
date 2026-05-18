@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """graphclaw.api.router — Aggregated /app/v1/ API router.
 
@@ -135,3 +135,8 @@ app_router.include_router(conversations_router)
 from graphclaw.api.user import router as user_router  # noqa: E402
 
 app_router.include_router(user_router)
+
+# Wave 9 — Notifications (FR-NOTIF-001)
+from graphclaw.api.notifications import router as notifications_router  # noqa: E402
+
+app_router.include_router(notifications_router)

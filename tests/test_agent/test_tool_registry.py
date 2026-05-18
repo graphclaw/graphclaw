@@ -1,4 +1,4 @@
-﻿# Copyright 2026 Abhishek Gupta
+# Copyright 2026 Abhishek Gupta
 # SPDX-License-Identifier: Apache-2.0
 """Tests for graphclaw.agent.tool_registry — ToolSetRegistry."""
 
@@ -180,7 +180,7 @@ class TestResetSession:
         registry.reset_session()
 
         names = _tool_names(registry.get_active_tools())
-        assert len(names) == 6  # exactly the 6 core tools
+        assert len(names) == 7  # exactly the 7 core tools
 
 
 # ---------------------------------------------------------------------------
