@@ -726,6 +726,12 @@ def _make_onboarding_tools() -> list[ToolDefinition]:
             required=["name"],
         ),
         _td(
+            "set_agent_name",
+            "Set the name the user wants to call the main orchestrator agent.",
+            {"agent_name": {"type": "string"}},
+            required=["agent_name"],
+        ),
+        _td(
             "set_user_persona",
             "Set the user's role and timezone during onboarding.",
             {

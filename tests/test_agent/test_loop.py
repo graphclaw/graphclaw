@@ -658,10 +658,10 @@ class TestSmartRetrievalBehaviors:
             dependent.id: dependent.model_dump(mode="json"),
         }
 
-        async def _get_node(node_id: str):
+        async def _get_node(node_id: str, **_kwargs: Any):
             return nodes.get(node_id)
 
-        async def _get_edges(node_id: str, direction: str, edge_type: str):
+        async def _get_edges(node_id: str, direction: str, edge_type: str, **_kwargs: Any):
             if node_id == child.id and direction == "in" and edge_type == "DEPENDS_ON":
                 return [{"_start_id": dependent.id}]
             if node_id == child.id and direction == "out" and edge_type == "PART_OF":
@@ -670,7 +670,7 @@ class TestSmartRetrievalBehaviors:
                 return [{"_start_id": child.id}]
             return []
 
-        async def _update_node(node_id: str, payload: dict[str, Any]):
+        async def _update_node(node_id: str, payload: dict[str, Any], **_kwargs: Any):
             existing = dict(nodes.get(node_id, {}))
             existing.update(payload)
             nodes[node_id] = existing
@@ -736,6 +736,76 @@ class TestToolCallLogging:
         assert getattr(record, "session_id", None) == "SES-tool-log"
         assert getattr(record, "task_id", None) == "TSK-123"
         assert getattr(record, "attempt", None) == 2
+
+
+class TestOnboardingToolDispatch:
+    @pytest.mark.asyncio
+    async def test_execute_tool_dispatches_set_agent_name(self):
+        loop, _repo, _engine = _make_loop()
+        loop._tool_set_agent_name = AsyncMock(  # type: ignore[method-assign]
+            return_value={"updated": True, "agent_name": "Max"}
+        )
+
+        result = await loop._execute_tool(
+            "USER-123",
+            "set_agent_name",
+            {"agent_name": "Max"},
+        )
+
+        assert result["updated"] is True
+        assert result["agent_name"] == "Max"
+        loop._tool_set_agent_name.assert_awaited_once_with("USER-123", {"agent_name": "Max"})
+
+    @pytest.mark.asyncio
+    async def test_tool_set_agent_name_persists_profile_frontmatter(self):
+        storage = MagicMock()
+        storage.read = AsyncMock(
+            return_value=(
+                b"---\n"
+                b"onboarding_complete: false\n"
+                b"onboarding_state: WELCOME\n"
+                b"---\n"
+            )
+        )
+        storage.write = AsyncMock()
+        loop, _repo, _engine = _make_loop(storage=storage)
+
+        result = await loop._tool_set_agent_name("USER-123", {"agent_name": "Nova"})
+
+        assert result["updated"] is True
+        assert result["agent_name"] == "Nova"
+
+        write_call = storage.write.await_args
+        assert write_call.args[0] == StoragePaths.agent_profile("USER-123", "main")
+        assert b"agent_name: Nova" in write_call.args[1]
+
+
+class TestScopedStorageWriteGuard:
+    @pytest.mark.asyncio
+    async def test_write_user_scoped_object_allows_user_prefix_path(self):
+        storage = MagicMock()
+        storage.write = AsyncMock()
+        loop, _repo, _engine = _make_loop(storage=storage)
+
+        profile_path = StoragePaths.agent_profile("USER-123", "main")
+        await loop._write_user_scoped_object("USER-123", profile_path, b"ok")
+
+        storage.write.assert_awaited_once_with(profile_path, b"ok", "text/plain")
+
+    @pytest.mark.asyncio
+    async def test_write_user_scoped_object_denies_system_path(self):
+        storage = MagicMock()
+        storage.write = AsyncMock()
+        loop, _repo, _engine = _make_loop(storage=storage)
+
+        with pytest.raises(PermissionError, match="Write denied"):
+            await loop._write_user_scoped_object(
+                "USER-123",
+                StoragePaths.system_prompt_header(),
+                b"bad",
+            )
+
+        storage.write.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from graphclaw.agent.onboarding import ONBOARDING_TOOL_ALLOWLIST, OnboardingState
 from graphclaw.agent.tool_registry import ToolSetRegistry
 from graphclaw.llm.base import ToolDefinition
 
@@ -127,6 +128,30 @@ class TestActivate:
 
         assert "delegate_to_agent" in names
         assert "create_agent" in names
+
+    def test_activate_onboarding_includes_agent_name_tool(self):
+        registry = ToolSetRegistry()
+        tools = registry.activate("onboarding")
+        names = _tool_names(tools)
+
+        assert "set_user_name" in names
+        assert "set_agent_name" in names
+
+    def test_onboarding_registry_covers_fsm_allowlist(self):
+        registry = ToolSetRegistry()
+        names = _tool_names(registry.activate("onboarding"))
+
+        allowed_names: set[str] = set()
+        for state, tools in ONBOARDING_TOOL_ALLOWLIST.items():
+            if state == OnboardingState.DONE:
+                continue
+            allowed_names.update(tools)
+
+        missing = sorted(allowed_names - names)
+        assert missing == [], (
+            "Onboarding FSM allowlist references tools missing in tool registry: "
+            + ", ".join(missing)
+        )
 
     def test_activate_unknown_set_returns_empty(self):
         registry = ToolSetRegistry()

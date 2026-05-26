@@ -1443,7 +1443,7 @@ class MainOrchestrator:
             helper = DistillationHelper(
                 llm=self._llm,
                 graph_repo=getattr(self, "_graph_repo", None),
-                storage=self._storage,
+                storage=self._user_write_scoped_storage(user_id),
             )
             inp = DistillationInput(
                 user_id=user_id,
@@ -2024,6 +2024,8 @@ class MainOrchestrator:
             # --- onboarding set (FR-ID-001) ---
             elif name == "set_user_name":
                 result = await self._tool_set_user_name(user_id, arguments)
+            elif name == "set_agent_name":
+                result = await self._tool_set_agent_name(user_id, arguments)
             elif name == "set_user_persona":
                 result = await self._tool_set_user_persona(user_id, arguments)
             elif name == "add_user_identity":
@@ -2083,6 +2085,27 @@ class MainOrchestrator:
         except (TypeError, ValueError):
             return 1
         return attempt if attempt > 0 else 1
+
+    def _user_write_scoped_storage(self, user_id: str) -> StorageClient | None:
+        """Return a storage proxy that allows reads but scopes writes to *user_id*."""
+        if self._storage is None:
+            return None
+        from graphclaw.infra.storage import UserWriteScopedStorageClient  # noqa: PLC0415
+
+        return UserWriteScopedStorageClient(self._storage, user_id)
+
+    async def _write_user_scoped_object(
+        self,
+        user_id: str,
+        path: str,
+        data: bytes,
+        content_type: str = "text/plain",
+    ) -> None:
+        """Write via user-scoped storage; deny paths outside the active user's prefix."""
+        scoped_storage = self._user_write_scoped_storage(user_id)
+        if scoped_storage is None:
+            raise RuntimeError("Storage not configured")
+        await scoped_storage.write(path, data, content_type)
 
     async def _tool_load_tool_set(self, args: dict[str, Any]) -> dict[str, Any]:
         """Activate a named tool set for the current session."""
@@ -2962,7 +2985,8 @@ class MainOrchestrator:
 
         if self._storage:
             try:
-                await self._storage.write(
+                await self._write_user_scoped_object(
+                    user_id,
                     self._plan_storage_path(user_id, plan_id),
                     json.dumps(plan_data).encode(),
                 )
@@ -3010,7 +3034,8 @@ class MainOrchestrator:
 
         if self._storage:
             try:
-                await self._storage.write(
+                await self._write_user_scoped_object(
+                    user_id,
                     self._goal_inference_storage_path(user_id, inference_id),
                     json.dumps(inference_data).encode(),
                 )
@@ -4210,7 +4235,11 @@ class MainOrchestrator:
                 f"- **Batch:** {batch_id}\n"
             )
             try:
-                await self._storage.write(context_path, delegation_ctx.encode())
+                await self._write_user_scoped_object(
+                    user_id,
+                    context_path,
+                    delegation_ctx.encode(),
+                )
             except Exception as exc:
                 logger.debug("AgentLoop: could not write delegation context: %s", exc)
 
@@ -4259,6 +4288,10 @@ class MainOrchestrator:
         if self._storage is None:
             return {"error": "Storage not configured — cannot create agents."}
 
+        scoped_storage = self._user_write_scoped_storage(user_id)
+        if scoped_storage is None:
+            return {"error": "Storage not configured — cannot create agents."}
+
         from graphclaw.infra.storage import StoragePaths
 
         # Accept both the current schema (name/purpose/skills) and legacy
@@ -4297,7 +4330,7 @@ class MainOrchestrator:
 
         # Idempotency check — return error if agent already exists.
         try:
-            if await self._storage.exists(profile_path) or await self._storage.exists(
+            if await scoped_storage.exists(profile_path) or await scoped_storage.exists(
                 manifest_path
             ):
                 return {"error": f"Agent '{agent_id}' already exists."}
@@ -4354,17 +4387,17 @@ class MainOrchestrator:
 
         knowledge_path = StoragePaths.agent_memory_semantic_topic(user_id, agent_id, "knowledge")
         try:
-            await self._storage.write(profile_path, profile_content.encode())
-            await self._storage.write(
+            await scoped_storage.write(profile_path, profile_content.encode())
+            await scoped_storage.write(
                 manifest_path,
                 json.dumps(manifest, indent=2).encode(),
                 content_type="application/json",
             )
-            await self._storage.write(config_path, json.dumps(config, indent=2).encode())
-            await self._storage.write(
+            await scoped_storage.write(config_path, json.dumps(config, indent=2).encode())
+            await scoped_storage.write(
                 context_path, b"# Working Context\n\nAgent initialised. Awaiting first task.\n"
             )
-            await self._storage.write(
+            await scoped_storage.write(
                 knowledge_path,
                 f"# Knowledge: {name}\n\nAdd agent-specific facts and knowledge here.\n".encode(),
                 content_type="text/markdown",
@@ -4558,7 +4591,7 @@ class MainOrchestrator:
             merge_id=args.get("merge_id", ""),
             canonical_name=args.get("canonical_name"),
             store=self._store,
-            storage=self._storage,
+            storage=self._user_write_scoped_storage(user_id),
             broker=getattr(self, "_broker", None),
         )
 
@@ -4577,6 +4610,16 @@ class MainOrchestrator:
         from graphclaw.agent.tools.onboarding_tools import set_user_name  # noqa: PLC0415
 
         return await set_user_name(user_id=user_id, name=args.get("name", ""), store=self._store)
+
+    async def _tool_set_agent_name(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
+        from graphclaw.agent.tools.onboarding_tools import set_agent_name  # noqa: PLC0415
+
+        return await set_agent_name(
+            user_id=user_id,
+            agent_name=args.get("agent_name", ""),
+            agent_id=self._agent_id,
+            storage=self._user_write_scoped_storage(user_id),
+        )
 
     async def _tool_set_user_persona(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
         from graphclaw.agent.tools.onboarding_tools import set_user_persona  # noqa: PLC0415
@@ -4631,7 +4674,7 @@ class MainOrchestrator:
             user_id=user_id,
             agent_id=self._agent_id,
             policy_name=args.get("policy_name", "delegation"),
-            storage=self._storage,
+            storage=self._user_write_scoped_storage(user_id),
         )
 
     async def _tool_complete_onboarding(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
@@ -4640,7 +4683,7 @@ class MainOrchestrator:
         return await complete_onboarding(
             user_id=user_id,
             agent_id=self._agent_id,
-            storage=self._storage,
+            storage=self._user_write_scoped_storage(user_id),
         )
 
 

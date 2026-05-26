@@ -25,11 +25,11 @@ Dependencies
 from __future__ import annotations
 
 from io import BytesIO
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from graphclaw.infra.storage import S3StorageClient
+from graphclaw.infra.storage import S3StorageClient, UserWriteScopedStorageClient
 
 
 def _make_client(mock_s3: MagicMock) -> S3StorageClient:
@@ -37,6 +37,16 @@ def _make_client(mock_s3: MagicMock) -> S3StorageClient:
     client = S3StorageClient(bucket="test-bucket", endpoint_url="http://localhost:9000")
     client._client = mock_s3  # inject pre-built mock
     return client
+
+
+def _make_base_storage() -> MagicMock:
+    storage = MagicMock()
+    storage.read = AsyncMock(return_value=b"ok")
+    storage.write = AsyncMock()
+    storage.delete = AsyncMock()
+    storage.list_objects = AsyncMock(return_value=[])
+    storage.exists = AsyncMock(return_value=True)
+    return storage
 
 
 # ---------------------------------------------------------------------------
@@ -168,3 +178,51 @@ async def test_exists_reraises_non_404_errors() -> None:
 
     with pytest.raises(ClientError):
         await client.exists("agents/user1/secret.json")
+
+
+# ---------------------------------------------------------------------------
+# UserWriteScopedStorageClient
+# ---------------------------------------------------------------------------
+
+
+async def test_user_write_scoped_storage_allows_user_prefix_write() -> None:
+    base = _make_base_storage()
+    scoped = UserWriteScopedStorageClient(base, "usr-123")
+
+    await scoped.write("usr-123/agents/main/profile.md", b"hello", content_type="text/markdown")
+
+    base.write.assert_awaited_once_with(
+        "usr-123/agents/main/profile.md",
+        b"hello",
+        "text/markdown",
+    )
+
+
+async def test_user_write_scoped_storage_denies_system_write() -> None:
+    base = _make_base_storage()
+    scoped = UserWriteScopedStorageClient(base, "usr-123")
+
+    with pytest.raises(PermissionError, match="Write denied"):
+        await scoped.write("system/prompts/system_header.md", b"nope")
+
+    base.write.assert_not_called()
+
+
+async def test_user_write_scoped_storage_denies_other_user_delete() -> None:
+    base = _make_base_storage()
+    scoped = UserWriteScopedStorageClient(base, "usr-123")
+
+    with pytest.raises(PermissionError, match="Write denied"):
+        await scoped.delete("usr-999/agents/main/profile.md")
+
+    base.delete.assert_not_called()
+
+
+async def test_user_write_scoped_storage_allows_system_reads() -> None:
+    base = _make_base_storage()
+    scoped = UserWriteScopedStorageClient(base, "usr-123")
+
+    result = await scoped.read("system/prompts/system_header.md")
+
+    assert result == b"ok"
+    base.read.assert_awaited_once_with("system/prompts/system_header.md")

@@ -75,11 +75,14 @@ data ever lives outside their own prefix.
 from __future__ import annotations
 
 import asyncio
+import logging
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     pass
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -831,6 +834,67 @@ class StorageClient(ABC):
         Args:
             path: Object key / path within the bucket.
         """
+
+
+class UserWriteScopedStorageClient(StorageClient):
+    """Storage proxy that restricts writes/deletes to one user's prefix.
+
+    Reads are intentionally unrestricted so orchestrator callers can continue
+    loading system-level prompt assets (e.g. ``system/prompts/...``), while
+    all mutating operations are fail-closed to ``{user_id}/``.
+    """
+
+    def __init__(self, base: StorageClient, user_id: str) -> None:
+        self._base = base
+        self._user_id = StoragePaths._validate_segment(user_id, "user_id")
+        self._user_root = StoragePaths.user_root(self._user_id)
+
+    @staticmethod
+    def _normalize(path: str) -> str:
+        normalized = str(path).strip().replace("\\", "/")
+        if not normalized:
+            raise ValueError("path cannot be empty")
+        return normalized
+
+    def _assert_write_scope(self, path: str) -> str:
+        normalized = self._normalize(path)
+        if normalized.startswith(self._user_root):
+            return normalized
+
+        logger.warning(
+            "storage.scope_write_denied",
+            extra={
+                "event_type": "storage.scope_write_denied",
+                "user_id": self._user_id,
+                "path": normalized,
+                "allowed_prefix": self._user_root,
+            },
+        )
+        raise PermissionError(
+            f"Write denied for path '{normalized}'; allowed prefix is '{self._user_root}'."
+        )
+
+    async def read(self, path: str) -> bytes:
+        return await self._base.read(self._normalize(path))
+
+    async def write(
+        self,
+        path: str,
+        data: bytes,
+        content_type: str = "text/plain",
+    ) -> None:
+        allowed = self._assert_write_scope(path)
+        await self._base.write(allowed, data, content_type)
+
+    async def delete(self, path: str) -> None:
+        allowed = self._assert_write_scope(path)
+        await self._base.delete(allowed)
+
+    async def list_objects(self, prefix: str) -> list[str]:
+        return await self._base.list_objects(self._normalize(prefix))
+
+    async def exists(self, path: str) -> bool:
+        return await self._base.exists(self._normalize(path))
 
 
 class S3StorageClient(StorageClient):

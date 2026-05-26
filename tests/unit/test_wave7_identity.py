@@ -120,13 +120,14 @@ class TestOnboardingFSM:
         assert "onboarding_complete: true" in written
 
     def test_get_allowed_tools_welcome_state(self):
-        """WELCOME state only allows set_user_name."""
+        """WELCOME state allows collecting both user and agent names."""
         from graphclaw.agent.onboarding import OnboardingFSM, OnboardingState
 
         storage = MagicMock()
         fsm = OnboardingFSM(storage)
         tools = fsm.get_allowed_tools(OnboardingState.WELCOME)
         assert "set_user_name" in tools
+        assert "set_agent_name" in tools
 
     def test_get_system_prompt_returns_string(self):
         """Active states return non-empty prompts; DONE may be empty."""

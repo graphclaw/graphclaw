@@ -11,7 +11,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from graphclaw.api.chat import _LLM_NOT_CONFIGURED_MESSAGE, _generate_agent_response, router as chat_router
+from graphclaw.api.chat import _LLM_NOT_CONFIGURED_MESSAGE, _generate_agent_response
+from graphclaw.api.chat import router as chat_router
 from graphclaw.api.deps import get_storage_client
 from graphclaw.auth.middleware import require_auth
 
