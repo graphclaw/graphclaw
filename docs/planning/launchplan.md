@@ -159,7 +159,7 @@ Document rules in this file under Wave 2; cannot apply until repos exist under t
 - [ ] `v0.0.1-rc.0` dry-run release succeeds end-to-end on both repos with signed GHCR images + SBOMs.
 - [ ] `grep -ri "Proprietary"` returns no hits in either repo.
 - [ ] `grep -ri "abhishekgupta86\|admin/admin\|graphclaw_dev"` returns only intentional placeholders.
-- [ ] Test PR with bad title + missing sign-off fails `conventional-title` + `dco` checks; clean PR passes.
+- [x] Test PR with bad title + missing sign-off fails `conventional-title` + `dco` checks; clean PR passes.
 - [ ] All four Open Questions above answered and resolved.
 
 ---
