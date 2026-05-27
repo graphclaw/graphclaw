@@ -43,8 +43,10 @@ class TestStartupProbe:
             async def __aexit__(self, *args):
                 pass
 
-        with patch("graphclaw.db.age.connection.get_connection", return_value=_MockCtx()):
-            # Should complete without raising.
+        with (
+            patch.dict("os.environ", {"AGENT_PRINCIPAL_DSN": "postgresql://probe-test"}),
+            patch("psycopg.AsyncConnection.connect", return_value=_MockCtx()),
+        ):
             await startup_assert_no_delete(mock_pool)
 
     async def test_probe_exits_when_delete_succeeds(self) -> None:
@@ -70,7 +72,10 @@ class TestStartupProbe:
             async def __aexit__(self, *args):
                 pass
 
-        with patch("graphclaw.db.age.connection.get_connection", return_value=_MockCtx()):
+        with (
+            patch.dict("os.environ", {"AGENT_PRINCIPAL_DSN": "postgresql://probe-test"}),
+            patch("psycopg.AsyncConnection.connect", return_value=_MockCtx()),
+        ):
             with pytest.raises(SystemExit) as exc_info:
                 await startup_assert_no_delete(mock_pool)
 
@@ -84,15 +89,13 @@ class TestStartupProbe:
 
         mock_pool = MagicMock()
 
-        class _ErrorCtx:
-            async def __aenter__(self):
-                raise psycopg.OperationalError("connection refused")
-
-            async def __aexit__(self, *args):
-                pass
-
-        with patch("graphclaw.db.age.connection.get_connection", return_value=_ErrorCtx()):
-            # Should not raise — just warn.
+        with (
+            patch.dict("os.environ", {"AGENT_PRINCIPAL_DSN": "postgresql://probe-test"}),
+            patch(
+                "psycopg.AsyncConnection.connect",
+                side_effect=psycopg.OperationalError("connection refused"),
+            ),
+        ):
             await startup_assert_no_delete(mock_pool)
 
 

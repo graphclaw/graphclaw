@@ -51,6 +51,7 @@ class MinioLogReader:
                 raise ValueError("Cursor file key is outside the current query window")
 
         items: list[dict[str, Any]] = []
+        next_cursor_candidate: str | None = None
         cursor_file_found = start_cursor is None
 
         for file_key in file_keys:
@@ -90,12 +91,15 @@ class MinioLogReader:
                 if not include_record(record):
                     continue
 
-                items.append(record)
-                if len(items) >= limit:
-                    next_cursor = encode_cursor(
-                        PageCursor(file_key=file_key, line_offset=index + 1)
-                    )
-                    return items, next_cursor
+                if len(items) < limit:
+                    items.append(record)
+                    if len(items) == limit:
+                        next_cursor_candidate = encode_cursor(
+                            PageCursor(file_key=file_key, line_offset=index + 1)
+                        )
+                    continue
+
+                return items, next_cursor_candidate
 
         return items, None
 
