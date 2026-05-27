@@ -140,7 +140,6 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=${{ steps.manual.outputs.version }},enable=${{ steps.manual.outputs.version != '' }}
 
       - name: Build & push image
         id: build
