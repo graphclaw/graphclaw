@@ -176,28 +176,27 @@ jobs:
   # ────────────────────────────────────────────────────────────────────────────
   # Publish to PyPI via Trusted Publishing (OIDC, no API token)
   # ────────────────────────────────────────────────────────────────────────────
-  # NOTE: kept disabled until Wave 7 (v0.1.0 launch). Uncomment when ready.
-  # publish-pypi:
-  #   name: Publish to PyPI
-  #   needs: [build-python, provenance-python, build-docker]
-  #   runs-on: ubuntu-latest
-  #   environment:
-  #     name: pypi
-  #     url: https://pypi.org/p/graphclaw
-  #   permissions:
-  #     id-token: write    # OIDC for PyPI Trusted Publishing
-  #   steps:
-  #     - name: Download dist artifacts
-  #       uses: actions/download-artifact@v4
-  #       with:
-  #         name: python-dist
-  #         path: dist/
-  #
-  #     - name: Publish to PyPI
-  #       uses: pypa/gh-action-pypi-publish@release/v1
-  #       with:
-  #         packages-dir: dist/
-  #         attestations: true
+  publish-pypi:
+    name: Publish to PyPI
+    needs: [build-python, provenance-python, build-docker]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/graphclaw
+    permissions:
+      id-token: write    # OIDC for PyPI Trusted Publishing
+    steps:
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: python-dist
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+          attestations: true
 
   # ────────────────────────────────────────────────────────────────────────────
   # Attach sdist + wheel to the GitHub Release that release-please created
