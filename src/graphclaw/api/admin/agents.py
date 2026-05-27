@@ -47,9 +47,8 @@ def _generate_agent_id(user_id: str, display_name: str) -> str:
     """Generate a deterministic but unique agent resource ID."""
     import hashlib  # noqa: PLC0415
 
-    suffix = hashlib.sha1(
+    suffix = hashlib.sha256(
         f"{user_id}:{display_name}:{_utcnow().isoformat()}".encode(),
-        usedforsecurity=False,
     ).hexdigest()[:8]
     slug = display_name.lower().replace(" ", "-")[:12]
     return f"RES-agent-{slug}-{suffix}"
