@@ -1,0 +1,27 @@
+name: stale
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@v9
+        with:
+          stale-issue-message: "This issue has been inactive for 60 days and is marked stale. Comment to keep it open."
+          stale-pr-message: "This PR has been inactive for 60 days and is marked stale. Comment or push changes to keep it open."
+          close-issue-message: "Closing as stale after 90 days of inactivity. Reopen if this is still relevant."
+          close-pr-message: "Closing as stale after 90 days of inactivity. Reopen when you are ready to continue."
+          days-before-stale: 60
+          days-before-close: 30
+          stale-issue-label: stale
+          stale-pr-label: stale
+          exempt-issue-labels: security,blocked
+          exempt-pr-labels: security,blocked
