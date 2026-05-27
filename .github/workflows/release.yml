@@ -18,6 +18,11 @@ on:
     tags:
       - "v*.*.*"
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing tag/release to publish assets to (example: v0.2.1)
+        required: false
+        type: string
 
 env:
   REGISTRY: ghcr.io
@@ -115,6 +120,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Resolve manual release version
+        id: manual
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "${{ inputs.release_tag }}" ]]; then
+            tag="${{ inputs.release_tag }}"
+            version="${tag#v}"
+            echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+            echo "version=${version}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Compute image metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -124,6 +140,7 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=${{ steps.manual.outputs.version }},enable=${{ steps.manual.outputs.version != '' }}
 
       - name: Build & push image
         id: build
@@ -219,4 +236,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload "${GITHUB_REF_NAME}" dist/* --clobber
+          TARGET_TAG="${GITHUB_REF_NAME}"
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "${{ inputs.release_tag }}" ]]; then
+            TARGET_TAG="${{ inputs.release_tag }}"
+          fi
+
+          if ! gh release view "${TARGET_TAG}" >/dev/null 2>&1; then
+            gh release create "${TARGET_TAG}" --generate-notes
+          fi
+
+          gh release upload "${TARGET_TAG}" dist/* --clobber
