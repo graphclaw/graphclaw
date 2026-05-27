@@ -9,6 +9,10 @@ on:
       release_tag:
         description: "Existing release tag for manual runs (example: v0.2.1)"
         required: false
+      publish_pypi:
+        description: "Set true to publish to PyPI on manual runs"
+        required: false
+        default: "false"
 
 env:
   REGISTRY: ghcr.io
@@ -158,6 +162,7 @@ jobs:
 
   publish-pypi:
     name: Publish to PyPI
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.publish_pypi == 'true' }}
     needs: [build-python, provenance-python, build-docker]
     runs-on: ubuntu-latest
     environment:
