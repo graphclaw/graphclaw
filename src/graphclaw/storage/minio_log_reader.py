@@ -101,7 +101,7 @@ class MinioLogReader:
 
                 return items, next_cursor_candidate
 
-        return items, next_cursor_candidate
+        return items, None
 
     async def _list_candidate_files(
         self,
