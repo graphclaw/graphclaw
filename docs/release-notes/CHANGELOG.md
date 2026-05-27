@@ -245,6 +245,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and
 
 ---
 
-[Unreleased]: https://github.com/abhishekgupta-myrepo/graphclaw/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/abhishekgupta-myrepo/graphclaw/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/abhishekgupta-myrepo/graphclaw/releases/tag/v0.1.0
+[Unreleased]: https://github.com/graphclaw/graphclaw/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/graphclaw/graphclaw/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/graphclaw/graphclaw/releases/tag/v0.1.0

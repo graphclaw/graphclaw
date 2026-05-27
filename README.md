@@ -4,7 +4,7 @@
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/)
 [![Tests](https://img.shields.io/badge/tests-485%2B%20passing-green)]()
 
-**Domain:** [graphclaw.ai](https://graphclaw.ai) | **GitHub:** [abhishekgupta-myrepo/graphclaw](https://github.com/abhishekgupta-myrepo/graphclaw)
+**Domain:** [graphclaw.ai](https://graphclaw.ai) | **GitHub:** [graphclaw/graphclaw](https://github.com/graphclaw/graphclaw)
 
 GraphClaw is an open-source graph-based task orchestration system where an AI agent manages tasks for humans and other agents via a property graph. Tasks, goals, constraints, and resources are modeled as graph nodes connected by typed edges (dependencies, assignments, blocking relationships). A 7-factor scoring algorithm continuously prioritizes the action queue, while a state machine enforces lifecycle invariants.
 
@@ -71,9 +71,10 @@ See [`docs/architecture.md`](../architecture.md) for the full design.
 ### 1. Clone and start the stack
 
 ```bash
-git clone https://github.com/abhishekgupta-myrepo/graphclaw
+git clone https://github.com/graphclaw/graphclaw
 cd graphclaw
 cp docker/.env.example docker/.env
+# Edit docker/.env and fill in real values (LLM keys, OAuth credentials, etc.)
 docker compose -f docker/docker-compose.yml up -d
 ```
 
@@ -95,7 +96,8 @@ pip install -e ".[dev]"
 pytest tests/ --ignore=tests/test_db -q
 
 # Integration tests (requires running DB)
-export TEST_DATABASE_URL=postgresql://graphclaw:graphclaw_dev@localhost:5432/graphclaw_test
+# Replace <your-db-password> with the value of DB_PASSWORD from docker/.env
+export TEST_DATABASE_URL=postgresql://graphclaw:<your-db-password>@localhost:5432/graphclaw_test
 pytest tests/test_db/ -m integration
 ```
 
@@ -215,11 +217,12 @@ See [`docs/skills-and-agents-roadmap.md`](../skills-and-agents-roadmap.md) for t
 
 ## Contributing
 
-Contributions are welcome! Please read [`CONTRIBUTING.md`](../governance/documentation-governance.md) and follow the code style conventions.
+Contributions are welcome! Please read [`CONTRIBUTING.md`](CONTRIBUTING.md) and our [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) before opening a pull request.
 
 - **License:** [Apache 2.0](https://www.apache.org/licenses/LICENSE-2.0)
-- **Issues:** Use GitHub Issues for bugs and feature requests
-- **PRs:** Target the `main` branch; include tests; ensure `pytest tests/` passes
+- **Security:** Report vulnerabilities privately — see [`SECURITY.md`](SECURITY.md)
+- **Issues:** Use GitHub Issues for bugs and feature requests; GitHub Discussions for questions
+- **PRs:** Target the `main` branch; include tests; ensure `pytest tests/` passes; sign off commits with `git commit -s` (DCO)
 
 ## Build System
 
@@ -231,26 +234,37 @@ This project is built using the **Claude Code multi-agent system**:
 
 See `.claude/` for agent definitions and custom skills used during the build.
 
-## Local Build Deployment and Testing
+## Local Development Tooling
 
-### Running the pgadmin client for accessing the postgress age running in local container.
-docker run -d --name pgadmin --network graphclaw-cockpit_default -e PGADMIN_DEFAULT_EMAIL=**********gmail.com -e PGADMIN_DEFAULT_PASSWORD=admin -p 5050:80 dpage/pgadmin4
+These steps are for contributors inspecting the local stack. Replace all `<placeholder>` values with the ones you configured in `docker/.env`.
 
-#### To log into the home page
-http://localhost:5050/login
-Login to pdAdmin: abhishekgupta86@gmail.com/admin
-connect to database: 
-Host: db
-Port: 5432
-Username: graphclaw
-Database: graphclaw
-Password: graphclaw_dev
+### Run pgAdmin against the local Postgres + AGE container
 
-### To Login into Minio for the object store inspection on local
-http://localhost:9001/login
-user id: graphclaw/ graphclaw_dev
+```bash
+docker run -d --name pgadmin \
+  --network graphclaw_default \
+  -e PGADMIN_DEFAULT_EMAIL=<your-email> \
+  -e PGADMIN_DEFAULT_PASSWORD=<your-pgadmin-password> \
+  -p 5050:80 \
+  dpage/pgadmin4
+```
 
+Then open <http://localhost:5050/login> and connect to the database with:
 
+- Host: `db`
+- Port: `5432`
+- Username: `graphclaw`
+- Database: `graphclaw`
+- Password: value of `DB_PASSWORD` from `docker/.env`
+
+### Access the MinIO console for object store inspection
+
+Open <http://localhost:9001/login> and sign in with:
+
+- Access Key: `graphclaw` (or value of `STORAGE_ACCESS_KEY` if overridden)
+- Secret Key: value of `MINIO_PASSWORD` from `docker/.env`
+
+See [`docs/how-to/self-host.md`](docs/how-to/self-host.md) for the full self-hosting guide.
 
 ## License
 

@@ -6,15 +6,17 @@ Run this script with the venv active and docker compose up:
     python scripts/setup_test_user.py
 
 Environment variables required (from docker/.env):
-    DATABASE_URL=postgresql://graphclaw:graphclaw@localhost:5432/graphclaw
+    DATABASE_URL=postgresql://graphclaw:<your-db-password>@localhost:5432/graphclaw
     STORAGE_BUCKET=graphclaw
     STORAGE_ENDPOINT_URL=http://localhost:9000
     AWS_ACCESS_KEY_ID=graphclaw
-    AWS_SECRET_ACCESS_KEY=graphclaw (or your MINIO_PASSWORD)
+    AWS_SECRET_ACCESS_KEY=<your MINIO_PASSWORD>
     ANTHROPIC_API_KEY=<your key>
-    GATEWAY_SMTP_USER=graphclaw26@gmail.com
+    GATEWAY_SMTP_USER=<your gateway sender email>
     GATEWAY_SMTP_PASS=<app password>
     TELEGRAM_BOT_TOKEN=<bot token>
+    TEST_USER_EMAIL=<your test user email>     # optional, default test-user@example.com
+    TEST_CONTACT_EMAIL=<external contact email> # optional, default contact@example.com
 """
 
 from __future__ import annotations
@@ -38,10 +40,11 @@ logger = logging.getLogger(__name__)
 # Configuration
 # ---------------------------------------------------------------------------
 
-TEST_USER_EMAIL = "abhishekgupta86@gmail.com"
-TEST_USER_NAME = "Abhishek"
-AGENT_NAME = "betty"
-AGENT_ID = "main"
+# Override via env: TEST_USER_EMAIL / TEST_USER_NAME / AGENT_NAME / AGENT_ID
+TEST_USER_EMAIL = os.environ.get("TEST_USER_EMAIL", "test-user@example.com")
+TEST_USER_NAME = os.environ.get("TEST_USER_NAME", "Test User")
+AGENT_NAME = os.environ.get("AGENT_NAME", "betty")
+AGENT_ID = os.environ.get("AGENT_ID", "main")
 BRIEFING_TIMES = ["08:00", "13:00", "18:00"]
 
 # MinIO / S3 dev credentials
@@ -225,7 +228,7 @@ Agent {AGENT_NAME.title()} initialised for {TEST_USER_NAME} ({TEST_USER_EMAIL}).
 - **Key projects:** (to be learned from conversation)
 
 ## Known Contacts
-- Soni (nikhilgupta1611@gmail.com) — External contact, assessment follow-up pending
+- Soni ({TEST_CONTACT_EMAIL}) — External contact, assessment follow-up pending
 """
     await storage.write(user_topic_path, user_semantic.encode(), content_type="text/markdown")
     logger.info("Written: %s", user_topic_path)

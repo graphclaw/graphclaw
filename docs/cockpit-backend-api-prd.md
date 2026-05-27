@@ -1,7 +1,7 @@
 # Cockpit Backend API — Implementation Backlog
 
 **Version:** 1.0 | **Date:** 2026-03-21 | **Status:** Draft
-**Companion:** [graphclaw-cockpit PRD](https://github.com/abhishekgupta-myrepo/graphclaw-cockpit) — `docs/prd/11-api-contract.md`
+**Companion:** [graphclaw-cockpit PRD](https://github.com/graphclaw/graphclaw-cockpit) — `docs/prd/11-api-contract.md`
 
 ---
 

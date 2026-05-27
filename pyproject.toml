@@ -8,7 +8,7 @@ authors = [{name = "GraphClaw Contributors"}]
 readme = "README.md"
 keywords = ["task-management", "graph-database", "ai-agents", "orchestration", "apache-age"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -16,6 +16,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
 ]
 dependencies = [
     "anthropic>=0.40.0",
@@ -82,10 +83,10 @@ all = [
 
 [project.urls]
 Homepage = "https://graphclaw.ai"
-Repository = "https://github.com/abhishekgupta-myrepo/graphclaw"
+Repository = "https://github.com/graphclaw/graphclaw"
 Documentation = "https://graphclaw.ai/docs"
-"Bug Tracker" = "https://github.com/abhishekgupta-myrepo/graphclaw/issues"
-Changelog = "https://github.com/abhishekgupta-myrepo/graphclaw/blob/main/CHANGELOG.md"
+"Bug Tracker" = "https://github.com/graphclaw/graphclaw/issues"
+Changelog = "https://github.com/graphclaw/graphclaw/blob/main/CHANGELOG.md"
 
 [project.scripts]
 graphclaw = "graphclaw.cli.main:app"

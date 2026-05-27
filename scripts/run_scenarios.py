@@ -35,12 +35,16 @@ for _noisy in ("botocore", "boto3", "urllib3", "httpcore", "httpx", "aiosmtplib"
 
 # ── Configuration ──────────────────────────────────────────────────────────────
 
-USER_ID = os.environ.get("GRAPHCLAW_USER_ID", "USER-abhishek-0c3bfe")
+USER_ID = os.environ.get("GRAPHCLAW_USER_ID", "USER-test-000001")
 AGENT_ID = os.environ.get("GRAPHCLAW_AGENT_ID", "main")
 
-# External contact for Scenario 2
-SONI_EMAIL = "nikhilgupta1611@gmail.com"
-SONI_NAME = "Soni"
+# Primary test user (override via env)
+TEST_USER_EMAIL = os.environ.get("TEST_USER_EMAIL", "test-user@example.com")
+TEST_USER_NAME = os.environ.get("TEST_USER_NAME", "Test User")
+
+# External contact for Scenario 2 (override via env)
+SONI_EMAIL = os.environ.get("TEST_CONTACT_EMAIL", "contact@example.com")
+SONI_NAME = os.environ.get("TEST_CONTACT_NAME", "Soni")
 
 # Divider for readability
 _DIV = "─" * 70
@@ -94,7 +98,7 @@ async def run_scenario_1(agent_loop, dispatcher):
 
     messages = [
         "Hi Betty! I've just set up my account. I'd like to configure my communication channels.",
-        "My email is abhishekgupta86@gmail.com and I also use Telegram.",
+        f"My email is {TEST_USER_EMAIL} and I also use Telegram.",
         "Great! Now please set up my daily briefings — I want them at 8am, 1pm, and 6pm.",
         "Can you give me a quick briefing on what you can help me with?",
     ]
@@ -115,9 +119,9 @@ async def run_scenario_1(agent_loop, dispatcher):
     print("[Sending welcome briefing email to user...]")
     try:
         await dispatcher.send_email(
-            to="abhishekgupta86@gmail.com",
+            to=TEST_USER_EMAIL,
             subject="Your GraphClaw briefing — all set!",
-            body=f"Hi Abhishek,\n\nYou're all set up with GraphClaw!\n\nBetty is configured and ready. "
+            body=f"Hi {TEST_USER_NAME},\n\nYou're all set up with GraphClaw!\n\nBetty is configured and ready. "
                  f"Briefings are scheduled for 08:00, 13:00, and 18:00 UTC daily.\n\n"
                  f"Your conversation summary:\n\n{conversation[-1].get('content', '')}\n\n— Betty",
         )
@@ -169,7 +173,7 @@ async def run_scenario_2(agent_loop, dispatcher):
                  f"Whenever you're ready, just drop me a note and we'll schedule it.\n\n"
                  f"Also, I've been using GraphClaw (graphclaw.ai) to keep my projects and follow-ups "
                  f"organised — thought you might find it handy too if you're juggling a lot of things!\n\n"
-                 f"Best,\nAbhishek\n\n(Sent via GraphClaw AI Agent — Betty)",
+                 f"Best,\n{TEST_USER_NAME}\n\n(Sent via GraphClaw AI Agent — Betty)",
         )
         print(f"[✓] Follow-up email sent to {SONI_EMAIL}.\n")
     except Exception as exc:
@@ -216,9 +220,9 @@ async def run_scenario_3(agent_loop, dispatcher):
     try:
         final_reply = conversation[-1].get("content", "") if conversation else ""
         await dispatcher.send_email(
-            to="abhishekgupta86@gmail.com",
+            to=TEST_USER_EMAIL,
             subject="Birthday party plan — tasks created in GraphClaw",
-            body=f"Hi Abhishek,\n\n"
+            body=f"Hi {TEST_USER_NAME},\n\n"
                  f"I've created all the birthday party tasks in your task graph!\n\n"
                  f"Summary from our chat:\n\n{final_reply[:1000]}\n\n"
                  f"You can review all tasks in your GraphClaw dashboard.\n\n— Betty",
@@ -271,9 +275,9 @@ async def run_scenario_4(agent_loop, dispatcher):
     try:
         final_reply = conversation[-1].get("content", "") if conversation else ""
         await dispatcher.send_email(
-            to="abhishekgupta86@gmail.com",
+            to=TEST_USER_EMAIL,
             subject="Podcast Interview Pipeline — goals & tasks set up",
-            body=f"Hi Abhishek,\n\n"
+            body=f"Hi {TEST_USER_NAME},\n\n"
                  f"Your Podcast Interview Pipeline goal is live in GraphClaw!\n\n"
                  f"Betty's execution plan:\n\n{final_reply[:1500]}\n\n"
                  f"All tasks are tracked in your dashboard.\n\n— Betty",

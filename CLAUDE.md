@@ -6,7 +6,7 @@ Graph-based task orchestration system where an AI agent manages tasks for humans
 - Review notes: `docs/graphclaw-review-notes.md` (28 issues across 6 categories)
 - Build plan: `docs/planning/build-plan.md` (6 phases, 48 weeks)
 - Domain: graphclaw.ai
-- GitHub: https://github.com/abhishekgupta-myrepo/graphclaw
+- GitHub: https://github.com/graphclaw/graphclaw
 - License: Apache 2.0
 
 ## Build System

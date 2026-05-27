@@ -317,7 +317,7 @@ minio:
   ports: ["9000:9000", "9001:9001"]
   environment:
     MINIO_ROOT_USER: graphclaw
-    MINIO_ROOT_PASSWORD: graphclaw_dev
+    MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:-change-me}
   healthcheck:
     test: ["CMD", "mc", "ready", "local"]
 ```

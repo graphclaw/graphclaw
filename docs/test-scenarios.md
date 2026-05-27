@@ -9,7 +9,7 @@
 
 
 ## Scenario 2: User assigning the task of following up with another user
-- betty needs to setup the task based on the inputs from the user for setting up a followup with soni - nikhilgupta1611@gmail.com to check when is she ready for assessment.
+- betty needs to setup the task based on the inputs from the user for setting up a followup with soni - <contact-email@example.com> to check when is she ready for assessment.
 - betty will also ensure that when reaching out to the new user also invites the user to join the graphclaw platform. 
 - This is part of the original design where it is not only working on following up with the user but also doing soft outreach campaign to expand the network. this is to be included as part of the memory , context, persona, soul , heartbeat of the agent.
 
@@ -26,7 +26,7 @@
 
 ### Scenario 5: Inbound email reply is matched to the correct task node (Tier 1 — threading)
 
-**Preconditions:** Betty has sent an outbound email to Soni (nikhilgupta1611@gmail.com) in the context of task `TSK-AG-13860-DEL` (follow-up task). The original message ID and checkin node are stored in Redis and the graph.
+**Preconditions:** Betty has sent an outbound email to Soni (<contact-email@example.com>) in the context of task `TSK-AG-13860-DEL` (follow-up task). The original message ID and checkin node are stored in Redis and the graph.
 
 **Steps:**
 1. Soni replies to Betty's email with "Hi, I've uploaded the report to the shared folder. Please review."
@@ -62,7 +62,7 @@
 **Preconditions:** A fresh email arrives from an address that IS a known contact (exists as a `ResourceNode` in the graph) but contains no task ID and body does not match any task by vector search (similarity < 0.40).
 
 **Steps:**
-1. Send email to graphclaw26@gmail.com with subject "Planning meeting next week?" and body that has no connection to any active task.
+1. Send email to <gateway-inbox@example.com> with subject "Planning meeting next week?" and body that has no connection to any active task.
 
 **Expected outcomes:**
 - All three resolution tiers return no match
@@ -79,12 +79,12 @@
 
 **Steps:**
 1. Run `graphclaw agent chat "send soni a reminder about the deliverable"` with task context in scope.
-2. Betty sends email to `nikhilgupta1611@gmail.com`.
+2. Betty sends email to `<contact-email@example.com>`.
 3. Wait for Soni to reply (use test email account to reply manually or simulate).
 4. Check graph after both events.
 
 **Expected outcomes:**
-- After outbound: `TSK-AG-13860-DEL.intelligence` contains `[{today}] email | outbound | Sent "Reminder:…" to nikhilgupta1611@gmail.com`
+- After outbound: `TSK-AG-13860-DEL.intelligence` contains `[{today}] email | outbound | Sent "Reminder:…" to <contact-email@example.com>`
 - `CheckinNode` created in graph with `outbound_message` set, `inbound_response = null`, `REFERS_TO` edge to task
 - After inbound reply: `CheckinNode.inbound_response` populated
 - `TSK-AG-13860-DEL.intelligence` now has both outbound and inbound lines — full round-trip visible

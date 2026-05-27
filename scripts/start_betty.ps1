@@ -136,8 +136,9 @@ async def get_user_id():
     store = create_graph_store('age', pool=pool)
     nodes = await store.list_nodes('UserNode')
     await pool.close()
+    target_email = os.environ.get('TEST_USER_EMAIL', 'test-user@example.com')
     for n in nodes:
-        if n.get('email') == 'abhishekgupta86@gmail.com':
+        if n.get('email') == target_email:
             print(n['id'])
             return
     # fallback: print first user

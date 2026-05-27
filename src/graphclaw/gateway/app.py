@@ -801,7 +801,9 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
             "url": "https://graphclaw.ai",
         },
         license_info={
-            "name": "Proprietary",
+            "name": "Apache-2.0",
+            "identifier": "Apache-2.0",
+            "url": "https://www.apache.org/licenses/LICENSE-2.0",
         },
     )
 
