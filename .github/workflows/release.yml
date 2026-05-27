@@ -1,16 +1,3 @@
-# Release pipeline — triggered when release-please merges a release PR that creates a vX.Y.Z tag.
-#
-# Stages:
-#   1. Build Python sdist + wheel
-#   2. Build multi-arch Docker image (linux/amd64, linux/arm64) and push to GHCR
-#   3. Sign image with cosign (keyless via GitHub OIDC)
-#   4. Generate CycloneDX SBOM and attach as image attestation
-#   5. SLSA build provenance attestation
-#   6. Upload sdist/wheel + SBOM to GitHub Release
-#   7. (Wave 7) Publish to PyPI via Trusted Publishing
-#
-# Trusted Publisher (PyPI) is configured for:
-#   repo = graphclaw/graphclaw, workflow = release.yml, environment = pypi
 name: release
 
 on:
@@ -20,24 +7,21 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Existing tag/release to publish assets to (example: v0.2.1)
+        description: Existing release tag for manual runs (example: v0.2.1)
         required: false
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}            # graphclaw/graphclaw
+  IMAGE_NAME: ${{ github.repository }}
   PYTHON_VERSION: "3.12"
 
 jobs:
-  # ────────────────────────────────────────────────────────────────────────────
-  # Build Python distribution artifacts
-  # ────────────────────────────────────────────────────────────────────────────
   build-python:
     name: Build sdist + wheel
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write   # for SLSA provenance
+      id-token: write
     outputs:
       hashes: ${{ steps.hash.outputs.hashes }}
     steps:
@@ -75,9 +59,6 @@ jobs:
           path: dist/
           retention-days: 14
 
-  # ────────────────────────────────────────────────────────────────────────────
-  # SLSA Level 3 build provenance for Python artifacts
-  # ────────────────────────────────────────────────────────────────────────────
   provenance-python:
     name: SLSA provenance (python)
     needs: [build-python]
@@ -88,18 +69,15 @@ jobs:
     uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.0.0
     with:
       base64-subjects: ${{ needs.build-python.outputs.hashes }}
-      upload-assets: true   # attaches the .intoto.jsonl to the GitHub Release
+      upload-assets: true
 
-  # ────────────────────────────────────────────────────────────────────────────
-  # Build + push multi-arch Docker image to GHCR
-  # ────────────────────────────────────────────────────────────────────────────
   build-docker:
-    name: Build & push Docker image
+    name: Build and push Docker image
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-      id-token: write    # cosign keyless
+      id-token: write
       attestations: write
     outputs:
       digest: ${{ steps.build.outputs.digest }}
@@ -119,17 +97,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Resolve manual release version
-        id: manual
-        shell: bash
-        run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "${{ inputs.release_tag }}" ]]; then
-            tag="${{ inputs.release_tag }}"
-            version="${tag#v}"
-            echo "tag=${tag}" >> "$GITHUB_OUTPUT"
-            echo "version=${version}" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Compute image metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -140,7 +107,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Build & push image
+      - name: Build and push image
         id: build
         uses: docker/build-push-action@v5
         with:
@@ -189,9 +156,6 @@ jobs:
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
 
-  # ────────────────────────────────────────────────────────────────────────────
-  # Publish to PyPI via Trusted Publishing (OIDC, no API token)
-  # ────────────────────────────────────────────────────────────────────────────
   publish-pypi:
     name: Publish to PyPI
     needs: [build-python, provenance-python, build-docker]
@@ -200,7 +164,7 @@ jobs:
       name: pypi
       url: https://pypi.org/p/graphclaw
     permissions:
-      id-token: write    # OIDC for PyPI Trusted Publishing
+      id-token: write
     steps:
       - name: Download dist artifacts
         uses: actions/download-artifact@v4
@@ -214,9 +178,6 @@ jobs:
           packages-dir: dist/
           attestations: true
 
-  # ────────────────────────────────────────────────────────────────────────────
-  # Attach sdist + wheel to the GitHub Release that release-please created
-  # ────────────────────────────────────────────────────────────────────────────
   attach-release-assets:
     name: Attach Python artifacts to GitHub Release
     needs: [build-python, build-docker]
