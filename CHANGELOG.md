@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.2.2](https://github.com/graphclaw/graphclaw/compare/v0.2.1...v0.2.2) (2026-05-27)
+
+
+### Bug Fixes
+
+* **release:** set explicit GH_REPO in release asset upload job ([ff78e78](https://github.com/graphclaw/graphclaw/commit/ff78e7856f18376f261faf10a621086a255895c1))
+
+
+### Documentation
+
+* add fallback issue template ([250b82c](https://github.com/graphclaw/graphclaw/commit/250b82c8f7e2036b999c216b05b868c18c8ad3e9))
+* add root issue template for community profile ([faf93f1](https://github.com/graphclaw/graphclaw/commit/faf93f119767400991903caf6bbdbbb95cd92143))
+* adopt contributor covenant 2.1 ([c02bedd](https://github.com/graphclaw/graphclaw/commit/c02beddbf2c425c8ec2221260c30180aff871c35))
+* **launch:** mark PR gate validation complete ([0346730](https://github.com/graphclaw/graphclaw/commit/0346730152e362561af709aa073ad47a5e0bea31))
+* **launch:** update wave 0 progress status ([e182915](https://github.com/graphclaw/graphclaw/commit/e18291525b622a4e19c7d2f9a6c257a92d76d706))
+
 ## [0.2.1](https://github.com/graphclaw/graphclaw/compare/v0.2.0...v0.2.1) (2026-05-27)
 
 
