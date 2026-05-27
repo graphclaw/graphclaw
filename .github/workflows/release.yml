@@ -1,0 +1,222 @@
+# Release pipeline — triggered when release-please merges a release PR that creates a vX.Y.Z tag.
+#
+# Stages:
+#   1. Build Python sdist + wheel
+#   2. Build multi-arch Docker image (linux/amd64, linux/arm64) and push to GHCR
+#   3. Sign image with cosign (keyless via GitHub OIDC)
+#   4. Generate CycloneDX SBOM and attach as image attestation
+#   5. SLSA build provenance attestation
+#   6. Upload sdist/wheel + SBOM to GitHub Release
+#   7. (Wave 7) Publish to PyPI via Trusted Publishing
+#
+# Trusted Publisher (PyPI) is configured for:
+#   repo = graphclaw/graphclaw, workflow = release.yml, environment = pypi
+name: release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}            # graphclaw/graphclaw
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────────────
+  # Build Python distribution artifacts
+  # ────────────────────────────────────────────────────────────────────────────
+  build-python:
+    name: Build sdist + wheel
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # for SLSA provenance
+    outputs:
+      hashes: ${{ steps.hash.outputs.hashes }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install build tooling
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build twine
+
+      - name: Build sdist + wheel
+        run: python -m build --sdist --wheel --outdir dist/
+
+      - name: Validate distribution metadata
+        run: python -m twine check dist/*
+
+      - name: Compute SHA256 hashes for SLSA
+        id: hash
+        working-directory: dist
+        shell: bash
+        run: |
+          echo "hashes=$(sha256sum * | base64 -w0)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload dist artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-dist
+          path: dist/
+          retention-days: 14
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # SLSA Level 3 build provenance for Python artifacts
+  # ────────────────────────────────────────────────────────────────────────────
+  provenance-python:
+    name: SLSA provenance (python)
+    needs: [build-python]
+    permissions:
+      actions: read
+      id-token: write
+      contents: write
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.0.0
+    with:
+      base64-subjects: ${{ needs.build-python.outputs.hashes }}
+      upload-assets: true   # attaches the .intoto.jsonl to the GitHub Release
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Build + push multi-arch Docker image to GHCR
+  # ────────────────────────────────────────────────────────────────────────────
+  build-docker:
+    name: Build & push Docker image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write    # cosign keyless
+      attestations: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build & push image
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: true
+          sbom: true
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Cosign sign image (keyless)
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          for tag in $TAGS; do
+            cosign sign --yes "${tag}@${DIGEST}"
+          done
+
+      - name: Generate CycloneDX SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          format: cyclonedx-json
+          output-file: sbom.cyclonedx.json
+          upload-artifact: true
+          upload-release-assets: true
+
+      - name: Attest SBOM to image
+        uses: actions/attest-sbom@v1
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          sbom-path: sbom.cyclonedx.json
+          push-to-registry: true
+
+      - name: Attest build provenance to image
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Publish to PyPI via Trusted Publishing (OIDC, no API token)
+  # ────────────────────────────────────────────────────────────────────────────
+  # NOTE: kept disabled until Wave 7 (v0.1.0 launch). Uncomment when ready.
+  # publish-pypi:
+  #   name: Publish to PyPI
+  #   needs: [build-python, provenance-python, build-docker]
+  #   runs-on: ubuntu-latest
+  #   environment:
+  #     name: pypi
+  #     url: https://pypi.org/p/graphclaw
+  #   permissions:
+  #     id-token: write    # OIDC for PyPI Trusted Publishing
+  #   steps:
+  #     - name: Download dist artifacts
+  #       uses: actions/download-artifact@v4
+  #       with:
+  #         name: python-dist
+  #         path: dist/
+  #
+  #     - name: Publish to PyPI
+  #       uses: pypa/gh-action-pypi-publish@release/v1
+  #       with:
+  #         packages-dir: dist/
+  #         attestations: true
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Attach sdist + wheel to the GitHub Release that release-please created
+  # ────────────────────────────────────────────────────────────────────────────
+  attach-release-assets:
+    name: Attach Python artifacts to GitHub Release
+    needs: [build-python, build-docker]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: python-dist
+          path: dist/
+
+      - name: Upload to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${GITHUB_REF_NAME}" dist/* --clobber

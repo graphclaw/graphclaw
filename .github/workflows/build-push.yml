@@ -1,8 +1,8 @@
-name: Build & Push
+name: Build & Push (internal AWS ECR)
 
+# Internal-only deploy pipeline targeting AWS ECR. Manual trigger only
+# so OSS forks / contributors don't attempt to push to ECR with secrets they don't have.
 on:
-  push:
-    branches: ["master", "main"]
   workflow_dispatch:
 
 env:
