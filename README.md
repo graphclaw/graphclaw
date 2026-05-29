@@ -6,6 +6,10 @@
 
 **Domain:** [graphclaw.ai](https://graphclaw.ai) | **GitHub:** [graphclaw/graphclaw](https://github.com/graphclaw/graphclaw)
 
+**Docs Hub:** [docs/README.md](docs/README.md) | **Public Roadmap:** [docs/planning/public-roadmap.md](docs/planning/public-roadmap.md)
+
+**Distribution Expansion Criteria:** [docs/planning/distribution-expansion-criteria.md](docs/planning/distribution-expansion-criteria.md)
+
 GraphClaw is an open-source graph-based task orchestration system where an AI agent manages tasks for humans and other agents via a property graph. Tasks, goals, constraints, and resources are modeled as graph nodes connected by typed edges (dependencies, assignments, blocking relationships). A 7-factor scoring algorithm continuously prioritizes the action queue, while a state machine enforces lifecycle invariants.
 
 ## Architecture
