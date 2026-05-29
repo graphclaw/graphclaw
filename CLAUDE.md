@@ -131,3 +131,14 @@ To add a new backend: implement the ABC, drop it in the subfolder, register in t
 Phases 0–4 complete. Phase 4.5 (Intelligence Layer) complete. Phase 5 (Sub-Agent Parallel Orchestration) is active.
 
 **Phase 5 (active):** Sub-agent parallel orchestration. New files: `agent/sub_agent_runner.py`, `agent/sub_agent_pool.py`, `agent/dispatch_planner.py`, `agent/health_monitor.py`. Modified: `agent/main_orchestrator.py` (`_tool_delegate_to_agent`), `agent/event_consumer.py` (third background task), `infra/broker.py` (new queues), `infra/config.py` (new env vars), `gateway/app.py` (lifespan wiring). See `docs/planning/build-plan.md` Phase 5 section.
+
+## Lifecycle Guardrails (Mandatory)
+
+For all subsequent development waves and releases, enforce:
+
+- `.github/copilot-instructions.md` as the operational Do/Do Not policy.
+- PR-first delivery only (no direct development commits to `main`).
+- Issue-linked PRs with evidence-backed closeout notes.
+- Required quality gates and release automation discipline.
+
+When instructions conflict, apply the stricter rule that preserves branch protection intent, CI quality gates, and release traceability.
