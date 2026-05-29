@@ -1,0 +1,35 @@
+name: Docs Link Check
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "README.md"
+      - "docs/**"
+      - "**/*.md"
+  workflow_dispatch:
+
+jobs:
+  link-check:
+    name: Docs Link Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate markdown links
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: >
+            --verbose
+            --no-progress
+            --accept 200,206,301,302,403,429
+            --max-retries 2
+            --retry-wait-time 2
+            --timeout 20
+            --exclude-mail
+            --exclude '^https?://localhost'
+            --exclude '^https?://127\\.0\\.0\\.1'
+            --exclude '^https?://0\\.0\\.0\\.0'
+            README.md docs/**/*.md
+          fail: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
