@@ -8,6 +8,7 @@ build/
 *.egg
 .env
 .venv/
+.venv*/
 venv/
 env/
 *.db
@@ -17,6 +18,7 @@ htmlcov/
 
 # Test artifacts — never commit these
 tests/agent_evals/reports/
+test-results/
 
 # Local structured log artifacts (including DEBUG LLM traces)
 logs/
