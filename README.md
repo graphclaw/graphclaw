@@ -6,9 +6,11 @@
 
 **Domain:** [graphclaw.ai](https://graphclaw.ai) | **GitHub:** [graphclaw/graphclaw](https://github.com/graphclaw/graphclaw)
 
-**Docs Hub:** [docs/README.md](docs/README.md) | **Public Roadmap:** [docs/planning/public-roadmap.md](docs/planning/public-roadmap.md)
+**Docs Hub:** [docs/README.md](docs/README.md)
 
-**Distribution Expansion Criteria:** [docs/planning/distribution-expansion-criteria.md](docs/planning/distribution-expansion-criteria.md)
+**Self-Host Deployment Guide:** [docs/how-to/self-host.md](docs/how-to/self-host.md)
+
+Versioning and release compatibility guidance lives in [docs/explanation/versioning.md](docs/explanation/versioning.md) and [docs/how-to/self-host.md](docs/how-to/self-host.md).
 
 GraphClaw is an open-source graph-based task orchestration system where an AI agent manages tasks for humans and other agents via a property graph. Tasks, goals, constraints, and resources are modeled as graph nodes connected by typed edges (dependencies, assignments, blocking relationships). A 7-factor scoring algorithm continuously prioritizes the action queue, while a state machine enforces lifecycle invariants.
 
@@ -48,7 +50,7 @@ GraphClaw is designed as a **pluggable 4-layer system**. Every infrastructure co
 | **LLM** | `LLMClient` | Implement ABC, place in `src/graphclaw/llm/<name>/` |
 | **Infra** | `StorageClient`, `MessageBroker`, `SecretsClient` | Implement ABC, register in factory |
 
-See [`docs/architecture.md`](../architecture.md) for the full design.
+See [`docs/architecture.md`](docs/architecture.md) for the full design.
 
 ## Tech Stack
 
@@ -202,22 +204,11 @@ PENDING → ACTIVE → IN_PROGRESS → COMPLETE (terminal)
         → INACTIVE_PENDING → ACTIVE (on predecessor completion)
 ```
 
-## License
+## Delivery Status
 
-Copyright 2026 Abhishek Gupta. Licensed under the [Apache License 2.0](LICENSE).
+Current phase, wave, and execution status are maintained in [docs/planning/build-plan.md](docs/planning/build-plan.md).
 
-## Build Phases
-
-| Phase | Weeks | Status | Focus |
-|-------|-------|--------|-------|
-| **Phase 0** | 1–4 | ✅ Complete | Core Loop Proof (graph model, scoring, state machine, CLI) |
-| **Phase 1** | 5–12 | ✅ Complete | Single-User System (gateway, email, triggers, skills, inbound, infra) |
-| **Phase 2** | 13–20 | Next | Multi-Channel + Organizations (WhatsApp, Telegram, org workspaces) |
-| Phase 3 | 21–28 | Planned | Multi-User + Security (OAuth 2.0, JWT, IAM, A2A delegation) |
-| Phase 4 | 29–36 | Planned | Visual Interface + Advanced Skills (React UI, calendar, import) |
-| Phase 5 | 37–48 | Planned | Enterprise + Observability (Slack, Teams, GDPR, SOC 2) |
-
-See [`docs/skills-and-agents-roadmap.md`](../skills-and-agents-roadmap.md) for the full skills/agents/channels roadmap.
+Roadmap context for skills, agents, and channels is maintained in [docs/skills-and-agents-roadmap.md](docs/skills-and-agents-roadmap.md).
 
 ## Contributing
 
@@ -227,16 +218,6 @@ Contributions are welcome! Please read [`CONTRIBUTING.md`](CONTRIBUTING.md) and 
 - **Security:** Report vulnerabilities privately — see [`SECURITY.md`](SECURITY.md)
 - **Issues:** Use GitHub Issues for bugs and feature requests; GitHub Discussions for questions
 - **PRs:** Target the `main` branch; include tests; ensure `pytest tests/` passes; sign off commits with `git commit -s` (DCO)
-
-## Build System
-
-This project is built using the **Claude Code multi-agent system**:
-
-- **Opus** — Architecture decisions, planning, complex reasoning, code review
-- **Sonnet** — Code generation, implementation, testing, refactoring
-- **Haiku** — Quick lookups, formatting, simple edits
-
-See `.claude/` for agent definitions and custom skills used during the build.
 
 ## Local Development Tooling
 
