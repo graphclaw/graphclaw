@@ -4,7 +4,7 @@ Thank you for contributing to GraphClaw.
 
 ## Quick Start
 
-1. Fork the repository and create a branch from `master`.
+1. Fork the repository and create a branch from `main`.
 2. Make focused changes with tests.
 3. Open a pull request using a Conventional Commit style title.
 4. Add a DCO sign-off to every commit.
