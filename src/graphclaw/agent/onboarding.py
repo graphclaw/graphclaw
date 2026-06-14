@@ -15,9 +15,13 @@ same state.
 Design Patterns
 ---------------
 - State Machine: ``OnboardingFSM`` transitions through ordered states.
-- Strategy: Each state has its own system-prompt variant (loaded from
-  ``gateway/prompts/onboarding/`` on first use).
-- Graceful degradation: missing profile.md defaults to ``onboarding_complete: true``
+- Strategy: Each state has its own system-prompt variant, externalized as an
+  ``## STATE`` section in ``system/prompts/onboarding.md`` (object storage) and
+  loaded with a 1-hour in-process TTL cache.
+- Fail-fast: a missing onboarding.md file or a missing state section raises
+  rather than silently degrading, so the caller can tell the user the system is
+  temporarily unavailable (no hardcoded fallback prompts).
+- Migration safety: missing profile.md defaults to ``onboarding_complete: true``
   so existing users are never forced through onboarding (FR-ID-001 AC4).
 
 Public API
@@ -33,6 +37,8 @@ Public API
 from __future__ import annotations
 
 import logging
+import re
+import time
 from enum import Enum
 
 import yaml
@@ -40,6 +46,23 @@ import yaml
 from graphclaw.infra.storage import StoragePaths
 
 logger = logging.getLogger(__name__)
+
+# In-process TTL for the cached onboarding.md file (matches system_header cache).
+_PROMPT_CACHE_TTL_SECONDS: float = 3600.0  # 1 hour
+
+# ---------------------------------------------------------------------------
+# Exceptions
+# ---------------------------------------------------------------------------
+
+
+class OnboardingPromptUnavailableError(RuntimeError):
+    """Raised when onboarding prompts cannot be loaded for a user who needs them.
+
+    Signals a fail-fast condition (missing/unreadable ``onboarding.md`` or a
+    missing state section).  Chat entrypoints catch this and return a
+    user-facing "please retry" message instead of proceeding without guidance.
+    """
+
 
 # ---------------------------------------------------------------------------
 # State enum
@@ -81,32 +104,6 @@ ONBOARDING_TOOL_ALLOWLIST: dict[OnboardingState, list[str]] = {
     OnboardingState.DONE: [],
 }
 
-# Default system prompt body (minimal fallback when prompt file not found)
-_DEFAULT_PROMPTS: dict[OnboardingState, str] = {
-    OnboardingState.WELCOME: (
-        "You are greeting a brand-new user for the very first time. This is your only chance to make "
-        "a great first impression — be warm, enthusiastic, and personal.\n\n"
-        "In your opening message you MUST do ALL of the following in this order:\n"
-        "1. Welcome the user with genuine warmth (2-3 sentences). Express excitement to work together.\n"
-        "2. Ask for their name: 'First, what's your name?' (keep it short and friendly)\n"
-        "3. Ask what they'd like to call you: 'And what would you like to call me? "
-        "I'll go by whatever feels right to you — you can always change it later in Settings.'\n\n"
-        "Do NOT ask about tasks, projects, or the task graph yet. Focus entirely on the personal "
-        "greeting and the two questions above. Use a conversational, friendly tone — not formal or robotic."
-    ),
-    OnboardingState.PERSONA: ("Ask the user to describe their role and work style."),
-    OnboardingState.CHANNELS: (
-        "Ask which communication channels the user prefers (email, Telegram, WhatsApp…)."
-    ),
-    OnboardingState.WORKING_HOURS: ("Ask for the user's working hours and timezone."),
-    OnboardingState.PREFERENCES: ("Ask about briefing style preferences and follow-up cadence."),
-    OnboardingState.POLICIES: (
-        "Explain delegation and escalation policies. Offer to seed defaults."
-    ),
-    OnboardingState.DONE: "",
-}
-
-
 # ---------------------------------------------------------------------------
 # FSM
 # ---------------------------------------------------------------------------
@@ -123,6 +120,8 @@ class OnboardingFSM:
 
     def __init__(self, storage: object) -> None:
         self._storage = storage
+        # Cache for the full onboarding.md file: (content, monotonic_timestamp).
+        self._prompts_file_cache: tuple[str, float] | None = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -170,9 +169,53 @@ class OnboardingFSM:
         """Write ``onboarding_complete: true`` to profile.md (FR-ID-001 AC3)."""
         await self._save_state(user_id, agent_id, OnboardingState.DONE, mark_complete=True)
 
-    def get_system_prompt(self, state: OnboardingState) -> str:
-        """Return the system prompt body for *state*."""
-        return _DEFAULT_PROMPTS.get(state, "")
+    async def get_system_prompt(self, state: OnboardingState) -> str:
+        """Return the system prompt body for *state* from ``onboarding.md``.
+
+        Loads the entire onboarding prompts file from object storage once into a
+        1-hour in-process TTL cache, then extracts the ``## STATE`` section for
+        the requested state.
+
+        Fail-fast: any storage error propagates and a missing section raises
+        ``ValueError`` — there are no hardcoded fallback prompts.  Callers should
+        catch these and tell the user the system is temporarily unavailable.
+
+        Raises
+        ------
+        RuntimeError
+            If no storage client is configured.
+        FileNotFoundError
+            If ``onboarding.md`` does not exist in storage.
+        ValueError
+            If the requested state's section is missing from the file.
+        """
+        full_content = await self._load_prompts_file()
+
+        # Extract the section body: from "## STATE" to the next "---"/"##" or EOF.
+        pattern = rf"^##[ \t]+{re.escape(state.value)}[ \t]*\n(.*?)(?=\n---|\n##|\Z)"
+        match = re.search(pattern, full_content, re.DOTALL | re.MULTILINE)
+        if match is None:
+            raise ValueError(
+                f"Onboarding prompt section '{state.value}' not found in onboarding.md"
+            )
+        return match.group(1).strip()
+
+    async def _load_prompts_file(self) -> str:
+        """Return the cached onboarding.md content, refreshing after the TTL."""
+        now = time.monotonic()
+        if self._prompts_file_cache is not None:
+            content, cached_at = self._prompts_file_cache
+            if now - cached_at < _PROMPT_CACHE_TTL_SECONDS:
+                return content
+
+        if self._storage is None:
+            raise RuntimeError("Storage client not configured — cannot load onboarding prompts")
+
+        path = StoragePaths.system_onboarding_prompts()
+        raw = await self._storage.read(path)  # FileNotFoundError propagates (fail-fast)
+        content = raw.decode("utf-8", errors="replace")
+        self._prompts_file_cache = (content, now)
+        return content
 
     def get_allowed_tools(self, state: OnboardingState) -> list[str]:
         """Return the tool allow-list for *state*."""
