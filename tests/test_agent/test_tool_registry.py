@@ -28,13 +28,14 @@ class TestCoreTools:
         tools = registry.get_active_tools()
         names = _tool_names(tools)
 
-        # The 6 expected core tools
+        # The expected core tools
         assert "list_tasks" in names
         assert "get_task_details" in names
         assert "update_task_state" in names
         assert "list_available_agents" in names
         assert "load_tool_set" in names
         assert "read_knowledge" in names
+        assert "update_profile_from_conversation" in names
 
     def test_core_tools_present_without_optional_deps(self):
         registry = ToolSetRegistry(has_skill_registry=False, has_mcp_registry=False)
@@ -205,7 +206,7 @@ class TestResetSession:
         registry.reset_session()
 
         names = _tool_names(registry.get_active_tools())
-        assert len(names) == 7  # exactly the 7 core tools
+        assert len(names) == 8  # exactly the 8 core tools
 
 
 # ---------------------------------------------------------------------------
