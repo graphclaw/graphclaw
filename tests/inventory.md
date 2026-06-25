@@ -20,10 +20,14 @@
 | TODO | (no header) test_loop | [test_agent/test_loop.py](test_agent/test_loop.py) |
 | TODO | (no header) test_loop_new_tools_integration | [test_agent/test_loop_new_tools_integration.py](test_agent/test_loop_new_tools_integration.py) |
 | TODO | (no header) test_loop_stream_integration | [test_agent/test_loop_stream_integration.py](test_agent/test_loop_stream_integration.py) |
+| TODO | (no header) test_onboarding_prompts | [test_agent/test_onboarding_prompts.py](test_agent/test_onboarding_prompts.py) |
+| TODO | (no header) test_onboarding_prompts_asset | [test_agent/test_onboarding_prompts_asset.py](test_agent/test_onboarding_prompts_asset.py) |
 | TODO | (no header) test_orchestrator_cache | [test_agent/test_orchestrator_cache.py](test_agent/test_orchestrator_cache.py) |
 | TODO | (no header) test_outbound_agent | [test_agent/test_outbound_agent.py](test_agent/test_outbound_agent.py) |
 | TODO | (no header) test_plan_lifecycle | [test_agent/test_plan_lifecycle.py](test_agent/test_plan_lifecycle.py) |
 | TODO | (no header) test_policy_files | [test_agent/test_policy_files.py](test_agent/test_policy_files.py) |
+| TODO | (no header) test_profile_synthesis | [test_agent/test_profile_synthesis.py](test_agent/test_profile_synthesis.py) |
+| TODO | (no header) test_profile_tools | [test_agent/test_profile_tools.py](test_agent/test_profile_tools.py) |
 | TODO | (no header) test_run_events | [test_agent/test_run_events.py](test_agent/test_run_events.py) |
 | TODO | (no header) test_sub_agent_orchestration | [test_agent/test_sub_agent_orchestration.py](test_agent/test_sub_agent_orchestration.py) |
 | TODO | (no header) test_tool_registry | [test_agent/test_tool_registry.py](test_agent/test_tool_registry.py) |

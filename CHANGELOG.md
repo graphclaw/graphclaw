@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.2.3](https://github.com/graphclaw/graphclaw/compare/v0.2.2...v0.2.3) (2026-06-25)
+
+
+### Features
+
+* **agent:** externalize onboarding prompts and synthesize behavioral profile ([#34](https://github.com/graphclaw/graphclaw/issues/34)) ([aeea30b](https://github.com/graphclaw/graphclaw/commit/aeea30b1c9a5f8ea1883fcb3b11f3fa8bf638fb0))
+
+
+### Documentation
+
+* **launch:** publish roadmap and distribution criteria ([#27](https://github.com/graphclaw/graphclaw/issues/27)) ([e4494a9](https://github.com/graphclaw/graphclaw/commit/e4494a9b82692b128bfc4db06b46322f4a30d796))
+* **process:** add lifecycle guardrails for future waves ([#28](https://github.com/graphclaw/graphclaw/issues/28)) ([e0e39c3](https://github.com/graphclaw/graphclaw/commit/e0e39c3da4c724a07767bee5e5094a1f35e1f7f4))
+* **security:** refresh policy metadata for profile sync ([#22](https://github.com/graphclaw/graphclaw/issues/22)) ([9edb5fd](https://github.com/graphclaw/graphclaw/commit/9edb5fde04deaa8e48aed427b17f706e4a548f98))
+
+## [0.2.2](https://github.com/graphclaw/graphclaw/compare/v0.2.1...v0.2.2) (2026-05-28)
+
+
+### Bug Fixes
+
+* **release:** set explicit GH_REPO in release asset upload job ([ff78e78](https://github.com/graphclaw/graphclaw/commit/ff78e7856f18376f261faf10a621086a255895c1))
+
+
+### Documentation
+
+* add fallback issue template ([250b82c](https://github.com/graphclaw/graphclaw/commit/250b82c8f7e2036b999c216b05b868c18c8ad3e9))
+* add root issue template for community profile ([faf93f1](https://github.com/graphclaw/graphclaw/commit/faf93f119767400991903caf6bbdbbb95cd92143))
+* adopt contributor covenant 2.1 ([c02bedd](https://github.com/graphclaw/graphclaw/commit/c02beddbf2c425c8ec2221260c30180aff871c35))
+* **launch:** mark PR gate validation complete ([0346730](https://github.com/graphclaw/graphclaw/commit/0346730152e362561af709aa073ad47a5e0bea31))
+* **launch:** update wave 0 progress status ([e182915](https://github.com/graphclaw/graphclaw/commit/e18291525b622a4e19c7d2f9a6c257a92d76d706))
+
 ## [0.2.1](https://github.com/graphclaw/graphclaw/compare/v0.2.0...v0.2.1) (2026-05-27)
 
 

@@ -1,0 +1,10 @@
+# Default owner for all files
+* @graphclaw/core-maintainers
+
+# Backend subsystems
+/src/graphclaw/agent/ @graphclaw/agent-maintainers
+/src/graphclaw/gateway/ @graphclaw/gateway-maintainers
+/src/graphclaw/triggers/ @graphclaw/core-maintainers
+/src/graphclaw/infra/ @graphclaw/infra-maintainers
+/tests/ @graphclaw/core-maintainers
+/docs/ @graphclaw/core-maintainers

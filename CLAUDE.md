@@ -63,33 +63,12 @@ Follow these phases in order for every development task, without skipping steps.
 20. Update docs/planning/build-plan.md and relevant docs to mark the wave/requirement complete.
 21. Git commit per requirement and per wave using the format: `feat(wave-N): description`.
 
-## Sub-Agent Orchestration Layer (Phase 5)
-The main `AgentLoop` orchestrates work by delegating tasks to sub-agents running in parallel background. Key components:
+## Orchestration Notes
 
-| Component | File | Purpose |
-|-----------|------|---------|
-| `SubAgentRunner` | `agent/sub_agent_runner.py` | Mini-AgentLoop: reads context from MinIO, calls LLM with `invoke_skill`/`call_mcp_tool`, emits typed events to `AGENT_UPDATES` |
-| `SubAgentPool` | `agent/sub_agent_pool.py` | Bounded pool of `SubAgentRunner` instances (max `GRAPHCLAW_MAX_CONCURRENT_AGENTS`); fan-in via `BatchCoordinator` |
-| `AgentDispatchPlanner` | `agent/dispatch_planner.py` | Topological sort over task `DEPENDS_ON` edges → ordered parallel dispatch tiers |
-| `AgentHealthMonitor` | `agent/health_monitor.py` | Tracks sub-agent heartbeats; marks task BLOCKED + escalates on timeout |
+Current orchestration implementation details evolve rapidly and should be treated as implementation docs, not stable agent instructions.
 
-**New broker queues:**
-
-| Queue | Publisher | Consumer |
-|-------|-----------|----------|
-| `agent_jobs` | `AgentLoop._tool_delegate_to_agent()` | `SubAgentPool` |
-| `agent_updates` | `SubAgentRunner` | `AgentEventConsumer._consume_agent_updates_loop()` |
-
-**New config env vars:**
-- `GRAPHCLAW_MAX_CONCURRENT_AGENTS` — max parallel sub-agents (default 4)
-- `GRAPHCLAW_SUBAGENT_WORKER_POOL_SIZE` — dedicated skill worker pool for sub-agents (default 4)
-- `GRAPHCLAW_AGENT_HEARTBEAT_INTERVAL_SECONDS` — heartbeat emit interval (default 60)
-- `GRAPHCLAW_AGENT_HEARTBEAT_TIMEOUT_SECONDS` — timeout before BLOCKED (default 300)
-
-**Design constraints:**
-- Delegation is flat (depth = 2): sub-agents cannot call `delegate_to_agent`
-- Sub-agents use a dedicated `WorkerPool` separate from the orchestrator's pool
-- On heartbeat timeout: mark task BLOCKED + escalate (no retry — prevents duplicate MCP writes)
+- Source of truth for active wave internals: `docs/planning/build-plan.md`
+- Source of truth for architecture patterns: `docs/architecture.md`
 
 ## Plugin Architecture (4 layers)
 All four infrastructure layers use ABC + Factory + Strategy pattern so backends are swappable:
@@ -115,9 +94,7 @@ To add a new backend: implement the ABC, drop it in the subfolder, register in t
 - Logging: Structured JSON, async buffered writes, session_id distributed tracing
 - IAM: One role per container, least-privilege, user-scoped S3 prefix conditions
 - Tests: pytest, run with `pytest tests/`
-- **Linting:** `ruff check src/ tests/` — must pass before any commit
-- **Formatting:** `ruff format src/ tests/` — must be applied before any commit
-- Run both together before committing: `ruff check --fix src/ tests/ && ruff format src/ tests/`
+- Quality-gate command is defined in Phase 5 above and is mandatory before commit.
 - CI enforces both; failing either blocks the build
 - Local dev: `docker compose up` (SECRETS_BACKEND=env_file)
 
@@ -128,6 +105,15 @@ To add a new backend: implement the ABC, drop it in the subfolder, register in t
 - Section 33: 58 Design Principles (14 new in v1.1: security, observability, deployment)
 
 ## Current Phase
-Phases 0–4 complete. Phase 4.5 (Intelligence Layer) complete. Phase 5 (Sub-Agent Parallel Orchestration) is active.
+Current phase and wave status are maintained in `docs/planning/build-plan.md`.
 
-**Phase 5 (active):** Sub-agent parallel orchestration. New files: `agent/sub_agent_runner.py`, `agent/sub_agent_pool.py`, `agent/dispatch_planner.py`, `agent/health_monitor.py`. Modified: `agent/main_orchestrator.py` (`_tool_delegate_to_agent`), `agent/event_consumer.py` (third background task), `infra/broker.py` (new queues), `infra/config.py` (new env vars), `gateway/app.py` (lifespan wiring). See `docs/planning/build-plan.md` Phase 5 section.
+## Lifecycle Guardrails (Mandatory)
+
+For all subsequent development waves and releases, enforce:
+
+- `.github/copilot-instructions.md` as the operational Do/Do Not policy.
+- PR-first delivery only (no direct development commits to `main`).
+- Issue-linked PRs with evidence-backed closeout notes.
+- Required quality gates and release automation discipline.
+
+When instructions conflict, apply the stricter rule that preserves branch protection intent, CI quality gates, and release traceability.

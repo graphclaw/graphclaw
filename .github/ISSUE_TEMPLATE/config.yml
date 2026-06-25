@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and Support
+    url: https://github.com/graphclaw/graphclaw/discussions
+    about: Please use Discussions for general help and Q&A.
+  - name: Security Report
+    url: mailto:security@graphclaw.ai
+    about: Please report vulnerabilities privately.

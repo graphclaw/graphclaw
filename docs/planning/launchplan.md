@@ -1,6 +1,6 @@
 # GraphClaw Open-Source Launch Plan
 
-**Status:** Draft — Wave 0 in progress
+**Status:** Active — Wave 0 implementation complete; exit criteria validation pending
 **Owner:** Core maintainers
 **Scope:** Pre-1.0 public open-source launch of `graphclaw` (backend) and `graphclaw-cockpit` (frontend) under a new GitHub organization, with `graphclaw.ai` serving as the public landing + docs portal.
 **Not in scope:** Hosted SaaS runtime. The runtime is self-host-only at launch; the existing ECS deploy pipeline stays gated to maintainers.
@@ -60,6 +60,12 @@
 **Goal:** Everything that must be true *before* the repos can be transferred and made public-facing.
 
 **Order:** 0.A first → (0.B ∥ 0.C) → 0.D → 0.E. 0.F is documentation only.
+
+**Progress update (2026-05-27):**
+- 0.A release plumbing implemented in both repos; backend manual rerun `26517827855` completed successfully (including `Attach Python artifacts to GitHub Release`).
+- 0.B and 0.C metadata/license/credential scrub completed for launch scope.
+- 0.D and 0.E governance docs, templates, and automation workflows are now present in both repos.
+- Remaining Wave 0 closure work is limited to exit-criteria validation and unresolved open questions.
 
 #### 0.A — Release plumbing dry-run
 
@@ -153,7 +159,7 @@ Document rules in this file under Wave 2; cannot apply until repos exist under t
 - [ ] `v0.0.1-rc.0` dry-run release succeeds end-to-end on both repos with signed GHCR images + SBOMs.
 - [ ] `grep -ri "Proprietary"` returns no hits in either repo.
 - [ ] `grep -ri "abhishekgupta86\|admin/admin\|graphclaw_dev"` returns only intentional placeholders.
-- [ ] Test PR with bad title + missing sign-off fails `conventional-title` + `dco` checks; clean PR passes.
+- [x] Test PR with bad title + missing sign-off fails `conventional-title` + `dco` checks; clean PR passes.
 - [ ] All four Open Questions above answered and resolved.
 
 ---

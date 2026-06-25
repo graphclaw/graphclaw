@@ -1,0 +1,14 @@
+name: Question
+description: Ask a usage or design question.
+title: "question: "
+labels: ["type:docs", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: "For Q&A, GitHub Discussions is preferred. If this is a bug, please use the Bug Report template."
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+    validations:
+      required: true

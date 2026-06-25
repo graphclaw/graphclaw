@@ -219,6 +219,31 @@ def _make_core_tools() -> list[ToolDefinition]:
             },
             required=["topic"],
         ),
+        _td(
+            "update_profile_from_conversation",
+            (
+                "Record a change in HOW the user wants you to behave (tone, verbosity, "
+                "proactivity, when to interrupt, what to surface first) into your profile so "
+                "it persists across sessions. Use ONLY for behavioral guidance, e.g. 'be more "
+                "concise', 'only interrupt me for urgent items', 'use a friendlier tone'. Do "
+                "NOT use this for structured facts like timezone, working hours, channels, or "
+                "briefing time — those have dedicated tools (set_preferences, set_working_hours, "
+                "set_user_persona, add_user_identity)."
+            ),
+            {
+                "instruction": {
+                    "type": "string",
+                    "description": "The behavioral preference to remember, as one short sentence.",
+                },
+                "section": {
+                    "type": "string",
+                    "description": "Where it belongs: working_style (how you operate) or "
+                    "preferences (tone / what to surface). Default: preferences.",
+                    "enum": ["working_style", "preferences"],
+                },
+            },
+            required=["instruction"],
+        ),
     ]
 
 

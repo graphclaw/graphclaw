@@ -1,0 +1,51 @@
+- name: good first issue
+  color: "7057ff"
+  description: Good first task for new contributors.
+- name: help wanted
+  color: "008672"
+  description: Maintainers welcome external help.
+- name: type:bug
+  color: "d73a4a"
+  description: Defect or regression.
+- name: type:feat
+  color: "1d76db"
+  description: New feature request.
+- name: type:docs
+  color: "0e8a16"
+  description: Documentation changes.
+- name: type:chore
+  color: "5319e7"
+  description: Maintenance and housekeeping.
+- name: area:agent
+  color: "c2e0c6"
+  description: Agent runtime and orchestration.
+- name: area:gateway
+  color: "fef2c0"
+  description: API gateway and channel adapters.
+- name: area:cockpit
+  color: "f9d0c4"
+  description: Cockpit frontend integration.
+- name: area:infra
+  color: "bfd4f2"
+  description: Infra, deployment, and CI/CD.
+- name: area:docs
+  color: "c5def5"
+  description: Docs architecture and content.
+- name: breaking
+  color: "b60205"
+  description: Breaking change for users/integrators.
+- name: needs-triage
+  color: "fbca04"
+  description: Awaiting maintainer triage.
+- name: blocked
+  color: "000000"
+  description: Blocked by an external dependency or decision.
+- name: stale
+  color: "ffffff"
+  description: No recent activity.
+- name: security
+  color: "ee0701"
+  description: Security-related issue.
+- name: dependencies
+  color: "0366d6"
+  description: Dependency updates.
