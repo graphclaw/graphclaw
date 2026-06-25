@@ -152,16 +152,17 @@ async def startup_assert_no_delete(pool: object) -> None:
     """
     import psycopg  # noqa: PLC0415  (deferred to keep import light)
 
-    agent_dsn = os.environ.get("AGENT_PRINCIPAL_DSN")
-    if not agent_dsn:
+    from graphclaw.db.age.connection import get_connection  # noqa: PLC0415
+
+    if pool is None:
         logger.warning(
-            "Startup probe skipped: AGENT_PRINCIPAL_DSN not set.",
+            "Startup probe skipped: DB pool not provided.",
             extra={"principal": Principal.AGENT.value},
         )
         return
 
     try:
-        async with await psycopg.AsyncConnection.connect(agent_dsn, autocommit=False) as conn:
+        async with get_connection(pool) as conn:
             try:
                 await conn.execute("SAVEPOINT probe_savepoint")
                 await conn.execute("DELETE FROM _principal_probe WHERE 1=0")

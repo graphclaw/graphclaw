@@ -50,13 +50,20 @@ interface and queue name constants.
 
 from __future__ import annotations
 
-from graphclaw.gateway.app import create_app
 from graphclaw.gateway.channel_base import ChannelAdapter
 from graphclaw.gateway.channel_registry import ChannelRegistry, build_registry
 from graphclaw.gateway.channels.email.normalizer import normalize_email
 from graphclaw.gateway.channels.email.poller import EmailPoller
 from graphclaw.gateway.channels.email.sender import EmailSender
 from graphclaw.gateway.schemas import InboundMessage, OutboundMessage
+
+
+def create_app(*args: object, **kwargs: object):
+    """Lazy import to avoid package init circular imports during test collection."""
+    from graphclaw.gateway.app import create_app as _create_app
+
+    return _create_app(*args, **kwargs)
+
 
 __all__ = [
     "create_app",

@@ -159,34 +159,29 @@ class OrgTaskIndex:
         if self._pool is None:
             return []
 
-        placeholders = ", ".join("%s" for _ in caller_org_ids)
-        params: list[Any] = [assignee_user_id]
-        params.extend(caller_org_ids)
-
-        extra_conditions = ""
-
-        if state_filter:
-            extra_conditions += " AND state = %s"
-            params.append(state_filter)
-
-        if deadline_before:
-            extra_conditions += " AND deadline < %s"
-            params.append(deadline_before)
-
-        if workspace_id:
-            extra_conditions += " AND workspace_id = %s"
-            params.append(workspace_id)
-
-        sql = f"""
+        sql = """
             SELECT *
             FROM org_task_index
             WHERE %s = ANY(assignee_linked_user_ids)
-              AND org_id IN ({placeholders})
+              AND org_id = ANY(%s)
               AND archived_at IS NULL
-              {extra_conditions}
+              AND (%s::text IS NULL OR state = %s)
+              AND (%s::timestamptz IS NULL OR deadline < %s)
+              AND (%s::text IS NULL OR workspace_id = %s)
             ORDER BY last_activity_at DESC NULLS LAST
-            LIMIT {int(limit)}
+            LIMIT %s
         """
+        params: list[Any] = [
+            assignee_user_id,
+            caller_org_ids,
+            state_filter,
+            state_filter,
+            deadline_before,
+            deadline_before,
+            workspace_id,
+            workspace_id,
+            int(limit),
+        ]
         try:
             rows = await self._pool.fetch(sql, *params)
             return [self._row_to_entry(r) for r in rows]

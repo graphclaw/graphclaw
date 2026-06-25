@@ -121,14 +121,12 @@ class UserDirectory:
         if self._pool is None:
             return []
 
-        # Build parameterised org-list placeholder  (%s, %s, …)
-        placeholders = ", ".join("%s" for _ in caller_org_ids)
-        sql = f"""
+        sql = """
             SELECT
                 user_id, org_id, display_name, emails, identities,
                 discoverable_aliases, visibility_policy, last_updated
             FROM user_directory
-            WHERE org_id IN ({placeholders})
+            WHERE org_id = ANY(%s)
               AND visibility_policy <> 'hidden'
               AND (
                   display_name ILIKE %s
@@ -137,12 +135,17 @@ class UserDirectory:
                   )
               )
             ORDER BY similarity(display_name, %s) DESC
-            LIMIT {int(limit)}
+            LIMIT %s
         """
         query_pattern = f"%{query}%"
         try:
             rows = await self._pool.fetch(
-                sql, *caller_org_ids, query_pattern, query_pattern, query_pattern
+                sql,
+                caller_org_ids,
+                query_pattern,
+                query_pattern,
+                query_pattern,
+                int(limit),
             )
             return [self._row_to_entry(r) for r in rows]
         except Exception as exc:  # noqa: BLE001
@@ -161,17 +164,16 @@ class UserDirectory:
         if self._pool is None:
             return []
 
-        placeholders = ", ".join("%s" for _ in caller_org_ids)
-        sql = f"""
+        sql = """
             SELECT
                 user_id, org_id, display_name, emails, identities,
                 discoverable_aliases, visibility_policy, last_updated
             FROM user_directory
             WHERE user_id = %s
-              AND org_id IN ({placeholders})
+              AND org_id = ANY(%s)
         """
         try:
-            rows = await self._pool.fetch(sql, user_id, *caller_org_ids)
+            rows = await self._pool.fetch(sql, user_id, caller_org_ids)
             return [self._row_to_entry(r) for r in rows]
         except Exception as exc:  # noqa: BLE001
             logger.warning("user_directory.get_by_user_id_failed: %s", exc)

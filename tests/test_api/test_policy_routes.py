@@ -51,7 +51,7 @@ class TestPolicyGet:
         data = r.json()
         assert data["frontmatter"]["accept_deadline_extension_max_days"] == 5
         assert "Body text here" in data["body"]
-        assert len(data["version"]) == 32  # MD5 etag
+        assert len(data["version"]) == 64  # SHA-256 etag
 
     def test_get_missing_closed_policy_returns_404(self) -> None:
         storage = FakeStorageClient()  # empty
@@ -97,7 +97,7 @@ class TestPolicyPut:
             )
         assert r.status_code == 200
         data = r.json()
-        assert len(data["version"]) == 32
+        assert len(data["version"]) == 64
 
         # Verify file was written.
         path = f"{_TEST_USER}/agents/main/policies/delegation.md"

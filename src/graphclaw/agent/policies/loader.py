@@ -183,7 +183,7 @@ class PolicyLoader:
         except Exception as exc:
             raise PolicyLoadError(f"Failed to parse policy {policy_name!r}: {exc}") from exc
 
-        etag = hashlib.md5(raw_bytes).hexdigest()  # noqa: S324 — non-crypto use
+        etag = hashlib.sha256(raw_bytes).hexdigest()
 
         # --- Cache write ---
         if self._redis is not None:

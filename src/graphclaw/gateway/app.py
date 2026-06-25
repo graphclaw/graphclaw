@@ -144,7 +144,9 @@ async def _read_first_available_secret(secrets_client: Any, keys: tuple[str, ...
     return None
 
 
-async def _select_startup_llm_provider_and_key(secrets_client: Any) -> tuple[str | None, str | None]:
+async def _select_startup_llm_provider_and_key(
+    secrets_client: Any,
+) -> tuple[str | None, str | None]:
     """Select startup LLM provider and API key using key-availability policy.
 
     Policy:

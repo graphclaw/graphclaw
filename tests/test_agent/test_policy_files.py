@@ -120,7 +120,7 @@ class TestPolicyLoader:
         loaded = await loader.load("USER-alice", "main", "delegation")
         assert loaded.etag != ""
         # Same bytes → same etag.
-        assert len(loaded.etag) == 32  # MD5 hex
+        assert len(loaded.etag) == 64  # SHA-256 hex
 
     async def test_cache_invalidation_called(self) -> None:
         redis = MagicMock()
