@@ -5,6 +5,7 @@
 Seeds the following objects into MinIO on gateway startup if they don't already exist:
 
   system/prompts/system_header.md     ← main agent system prompt header
+  system/prompts/onboarding.md        ← onboarding FSM prompts (per-state sections)
   system/knowledge/*.md               ← 6 domain knowledge files
   system/agents/comms/profile.md      ← comms agent persona
   system/agents/comms/manifest.json   ← comms agent manifest
@@ -96,6 +97,13 @@ async def seed_system_content(storage: StorageClient) -> None:
     await _seed(
         StoragePaths.system_prompt_header(),
         (_PROMPTS_DIR / "system_header.md").read_bytes(),
+        "text/markdown",
+    )
+
+    # 1a. Onboarding FSM prompts (single file, one H2 section per state)
+    await _seed(
+        StoragePaths.system_onboarding_prompts(),
+        (_PROMPTS_DIR / "onboarding.md").read_bytes(),
         "text/markdown",
     )
 

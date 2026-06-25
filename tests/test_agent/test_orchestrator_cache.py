@@ -339,3 +339,100 @@ class TestInvalidateUserProfile:
         r2 = await orch._load_agent_profile("usr-001")
         assert r2 == "# Updated Profile"
         storage.read.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Profile-mutating tools invalidate the cache (FR-ID-001)
+# ---------------------------------------------------------------------------
+
+
+class _FakeLLM:
+    def __init__(self, content: str = "", error: Exception | None = None) -> None:
+        self._content = content
+        self._error = error
+
+    async def complete(
+        self, messages, *, model=None, max_tokens=None, temperature=None, tools=None
+    ):  # noqa: ARG002
+        if self._error is not None:
+            raise self._error
+
+        class _Resp:
+            content = self._content
+
+        return _Resp()
+
+
+class TestProfileToolsInvalidateCache:
+    @pytest.mark.asyncio
+    async def test_complete_onboarding_synthesizes_and_invalidates(self):
+        from graphclaw.infra.storage import StoragePaths
+        from tests.test_api.conftest import FakeStorageClient
+
+        user = "USER-cache-001"
+        storage = FakeStorageClient()
+        await storage.write(
+            StoragePaths.agent_profile(user, "main"),
+            b"---\nonboarding_state: POLICIES\n---\n\n## Identity\n\n- Alex\n",
+            "text/markdown",
+        )
+        redis = _make_redis()
+        orch = _make_orchestrator(storage=storage, redis=redis)
+        orch._llm = _FakeLLM('{"working_style": ["Brief"], "preferences": ["Urgent only"]}')
+        orch._current_conversation_history = [{"role": "user", "content": "brief, urgent only"}]
+
+        result = await orch._tool_complete_onboarding(user, {})
+
+        assert result["completed"] is True
+        assert result["profile_synthesized"] is True
+        redis.delete.assert_called_once_with(f"{MainOrchestrator._USER_PROFILE_KEY_PREFIX}{user}")
+        written = (await storage.read(StoragePaths.agent_profile(user, "main"))).decode()
+        assert "onboarding_complete: true" in written
+        assert "## Working Style" in written
+
+    @pytest.mark.asyncio
+    async def test_failed_synthesis_does_not_invalidate(self):
+        from graphclaw.infra.storage import StoragePaths
+        from tests.test_api.conftest import FakeStorageClient
+
+        user = "USER-cache-002"
+        storage = FakeStorageClient()
+        await storage.write(
+            StoragePaths.agent_profile(user, "main"),
+            b"---\nonboarding_state: POLICIES\n---\n\nbody\n",
+            "text/markdown",
+        )
+        redis = _make_redis()
+        orch = _make_orchestrator(storage=storage, redis=redis)
+        orch._llm = _FakeLLM(error=RuntimeError("LLM down"))
+        orch._current_conversation_history = [{"role": "user", "content": "hi"}]
+
+        result = await orch._tool_complete_onboarding(user, {})
+
+        assert result["completed"] is False
+        redis.delete.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_update_profile_invalidates(self):
+        from graphclaw.infra.storage import StoragePaths
+        from tests.test_api.conftest import FakeStorageClient
+
+        user = "USER-cache-003"
+        storage = FakeStorageClient()
+        await storage.write(
+            StoragePaths.agent_profile(user, "main"),
+            b"---\nagent_name: Max\n---\n\n## Key Preferences\n\n- warm\n",
+            "text/markdown",
+        )
+        redis = _make_redis()
+        orch = _make_orchestrator(storage=storage, redis=redis)
+
+        result = await orch._tool_update_profile_from_conversation(
+            user, {"instruction": "be concise", "section": "working_style"}
+        )
+
+        assert result["updated"] is True
+        redis.delete.assert_called_once_with(f"{MainOrchestrator._USER_PROFILE_KEY_PREFIX}{user}")
+        written = (await storage.read(StoragePaths.agent_profile(user, "main"))).decode()
+        assert "## Working Style" in written
+        assert "- be concise" in written

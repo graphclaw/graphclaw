@@ -896,6 +896,11 @@ class MainOrchestrator:
         """
         # Store session_id for tool execution logging
         self._current_session_id = session_id
+        # Capture the full onboarding dialogue (prior turns + this message) so
+        # complete_onboarding can synthesize the behavioral profile from it.
+        self._current_conversation_history = (conversation_history or []) + [
+            {"role": "user", "content": text}
+        ]
         # Build CallerContext so agent tool calls satisfy ACL enforcement
         from graphclaw.cross_tenant.acl import CallerContext as _CallerContext  # noqa: PLC0415
 
@@ -917,7 +922,12 @@ class MainOrchestrator:
         self._tool_registry.reset_session()
 
         # Build system prompt (goal-first, user-scoped)
-        system_prompt = await self._build_system_prompt(user_id)
+        from graphclaw.agent.onboarding import OnboardingPromptUnavailableError  # noqa: PLC0415
+
+        try:
+            system_prompt = await self._build_system_prompt(user_id)
+        except OnboardingPromptUnavailableError as exc:
+            return str(exc)
 
         # Compress conversation history if context manager is available
         current_user_msg = LLMMessage(role="user", content=text)
@@ -1162,6 +1172,9 @@ class MainOrchestrator:
             # Reset tool registry
             self._tool_registry.reset_session()
             self._current_session_id = session_id
+            self._current_conversation_history = (conversation_history or []) + [
+                {"role": "user", "content": text}
+            ]
 
             system_prompt = await self._build_system_prompt(user_id)
 
@@ -1633,7 +1646,7 @@ class MainOrchestrator:
         """Build a system prompt combining header, agent profile, and graph summary."""
         import datetime as _dt
 
-        from graphclaw.agent.onboarding import OnboardingFSM
+        from graphclaw.agent.onboarding import OnboardingFSM, OnboardingPromptUnavailableError
 
         today = _dt.date.today().isoformat()
         date_line = f"\nToday's date is {today}. Use this as the reference for all scheduling and deadline reasoning."
@@ -1642,20 +1655,36 @@ class MainOrchestrator:
         header = await self._load_system_header()
         parts: list[str] = [header + date_line]
 
-        # 1a. Inject onboarding guidance when the user hasn't completed onboarding
+        # 1a. Inject onboarding guidance when the user hasn't completed onboarding.
+        # Prompt loading is fail-fast: if onboarding.md is missing/unreadable while
+        # the user genuinely needs onboarding, surface that instead of silently
+        # dropping the guidance (which would strand the user mid-onboarding).
         if self._storage is not None:
+            onboarding_needed = False
             try:
                 fsm = OnboardingFSM(storage=self._storage)
-                if await fsm.is_onboarding_needed(user_id):
-                    state = await fsm.get_state(user_id)
-                    onboarding_prompt = fsm.get_system_prompt(state)
-                    if onboarding_prompt:
-                        parts.append(
-                            f"\n## Onboarding Guidance (PRIORITY — follow these instructions now)\n"
-                            f"{onboarding_prompt}"
-                        )
+                onboarding_needed = await fsm.is_onboarding_needed(user_id)
             except Exception:  # noqa: BLE001
-                pass  # Never let onboarding check break the chat
+                onboarding_needed = False  # Never let the status check break the chat
+
+            if onboarding_needed:
+                state = await fsm.get_state(user_id)
+                try:
+                    onboarding_prompt = await fsm.get_system_prompt(state)
+                except (FileNotFoundError, ValueError, RuntimeError) as exc:
+                    logger.error(
+                        "orchestrator.onboarding_prompt_load_failed",
+                        extra={"user_id": user_id, "state": state.value, "error": str(exc)},
+                    )
+                    raise OnboardingPromptUnavailableError(
+                        "Onboarding resources are temporarily unavailable. Please wait a "
+                        "moment and try again, or contact support if this persists."
+                    ) from exc
+                if onboarding_prompt:
+                    parts.append(
+                        f"\n## Onboarding Guidance (PRIORITY — follow these instructions now)\n"
+                        f"{onboarding_prompt}"
+                    )
 
         # 2. Load user agent persona from profile.md
         persona = await self._load_agent_profile(user_id)
@@ -1966,6 +1995,8 @@ class MainOrchestrator:
                 result = await self._tool_load_tool_set(arguments)
             elif name == "read_knowledge":
                 result = await self._tool_read_knowledge(arguments)
+            elif name == "update_profile_from_conversation":
+                result = await self._tool_update_profile_from_conversation(user_id, arguments)
             # --- task_management set ---
             elif name == "create_goal":
                 result = await self._tool_create_goal(user_id, arguments)
@@ -4680,11 +4711,38 @@ class MainOrchestrator:
     async def _tool_complete_onboarding(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
         from graphclaw.agent.tools.onboarding_tools import complete_onboarding  # noqa: PLC0415
 
-        return await complete_onboarding(
+        result = await complete_onboarding(
             user_id=user_id,
             agent_id=self._agent_id,
             storage=self._user_write_scoped_storage(user_id),
+            llm_client=self._llm,
+            conversation_history=getattr(self, "_current_conversation_history", None),
         )
+        # Profile.md changed (synthesis) — evict the cached copy so the next turn
+        # loads the freshly synthesized behavioral guidance.
+        if result.get("completed"):
+            await self.invalidate_user_profile(user_id)
+        return result
+
+    async def _tool_update_profile_from_conversation(
+        self, user_id: str, args: dict[str, Any]
+    ) -> dict[str, Any]:
+        from graphclaw.agent.tools.profile_tools import (  # noqa: PLC0415
+            update_profile_from_conversation,
+        )
+
+        result = await update_profile_from_conversation(
+            user_id=user_id,
+            instruction=args.get("instruction", ""),
+            section=args.get("section", "preferences"),
+            agent_id=self._agent_id,
+            storage=self._user_write_scoped_storage(user_id),
+        )
+        # Behavioral guidance changed — evict the cached profile so the next turn
+        # reflects the update immediately.
+        if result.get("updated"):
+            await self.invalidate_user_profile(user_id)
+        return result
 
 
 def _deserialise_graph_props(props: dict) -> dict:

@@ -129,17 +129,64 @@ class TestOnboardingFSM:
         assert "set_user_name" in tools
         assert "set_agent_name" in tools
 
-    def test_get_system_prompt_returns_string(self):
-        """Active states return non-empty prompts; DONE may be empty."""
+    async def test_get_system_prompt_returns_string(self):
+        """Active states return non-empty prompts loaded from onboarding.md."""
         from graphclaw.agent.onboarding import OnboardingFSM, OnboardingState
 
-        storage = MagicMock()
+        onboarding_md = textwrap.dedent(
+            """\
+            # Onboarding Prompts
+
+            ## WELCOME
+            Welcome the user warmly and ask their name.
+
+            ---
+
+            ## PERSONA
+            Ask about role and work style.
+
+            ---
+
+            ## CHANNELS
+            Ask which channels they prefer.
+
+            ---
+
+            ## WORKING_HOURS
+            Ask for working hours and timezone.
+
+            ---
+
+            ## PREFERENCES
+            Ask about briefing style and cadence.
+
+            ---
+
+            ## POLICIES
+            Explain delegation and escalation; offer defaults.
+
+            ---
+
+            ## DONE
+            Onboarding complete.
+            """
+        )
+        storage = self._make_storage(onboarding_md)
         fsm = OnboardingFSM(storage)
         active_states = [s for s in OnboardingState if s != OnboardingState.DONE]
         for state in active_states:
-            prompt = fsm.get_system_prompt(state)
+            prompt = await fsm.get_system_prompt(state)
             assert isinstance(prompt, str)
             assert len(prompt) > 0, f"State {state} has empty prompt"
+
+    async def test_get_system_prompt_missing_file_raises(self):
+        """Fail-fast: a missing onboarding.md propagates rather than degrading."""
+        from graphclaw.agent.onboarding import OnboardingFSM, OnboardingState
+
+        storage = self._make_storage_not_found()
+        fsm = OnboardingFSM(storage)
+        with pytest.raises(FileNotFoundError):
+            await fsm.get_system_prompt(OnboardingState.WELCOME)
 
 
 # ---------------------------------------------------------------------------
