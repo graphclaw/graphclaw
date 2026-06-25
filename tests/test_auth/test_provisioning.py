@@ -93,8 +93,8 @@ class TestProvisionNewUser:
             provider="google",
         )
         assert mock_storage.write.called
-        args = mock_storage.write.call_args[0]
-        assert ".keep" in args[0]
+        keys = [call.args[0] for call in mock_storage.write.call_args_list if call.args]
+        assert any(".keep" in str(key) for key in keys)
 
     @pytest.mark.asyncio
     async def test_new_user_creates_workspace_node(self, svc, mock_graph):

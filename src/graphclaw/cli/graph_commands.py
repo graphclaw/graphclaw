@@ -54,6 +54,39 @@ _TASK_LABELS = [
     "CheckinNode",
 ]
 
+_RESET_QUERIES: dict[str, str] = {
+    "TaskNode": (
+        "SELECT * FROM cypher('graphclaw', $$ "
+        "MATCH (n:TaskNode) DETACH DELETE n RETURN count(n) "
+        "$$) as (deleted agtype)"
+    ),
+    "GoalNode": (
+        "SELECT * FROM cypher('graphclaw', $$ "
+        "MATCH (n:GoalNode) DETACH DELETE n RETURN count(n) "
+        "$$) as (deleted agtype)"
+    ),
+    "UserNode": (
+        "SELECT * FROM cypher('graphclaw', $$ "
+        "MATCH (n:UserNode) DETACH DELETE n RETURN count(n) "
+        "$$) as (deleted agtype)"
+    ),
+    "ResourceNode": (
+        "SELECT * FROM cypher('graphclaw', $$ "
+        "MATCH (n:ResourceNode) DETACH DELETE n RETURN count(n) "
+        "$$) as (deleted agtype)"
+    ),
+    "ConstraintNode": (
+        "SELECT * FROM cypher('graphclaw', $$ "
+        "MATCH (n:ConstraintNode) DETACH DELETE n RETURN count(n) "
+        "$$) as (deleted agtype)"
+    ),
+    "CheckinNode": (
+        "SELECT * FROM cypher('graphclaw', $$ "
+        "MATCH (n:CheckinNode) DETACH DELETE n RETURN count(n) "
+        "$$) as (deleted agtype)"
+    ),
+}
+
 
 # ---------------------------------------------------------------------------
 # Async helpers
@@ -87,16 +120,11 @@ async def _reset_async(labels: list[str]) -> None:
     async with cli_pool() as (pool, _):
         for label in labels:
             try:
+                query = _RESET_QUERIES.get(label)
+                if query is None:
+                    raise ValueError(f"Unsupported label: {label}")
                 async with get_connection(pool) as conn:
-                    await conn.execute(
-                        f"""
-                        SELECT * FROM cypher('graphclaw', $$
-                            MATCH (n:{label})
-                            DETACH DELETE n
-                            RETURN count(n)
-                        $$) as (deleted agtype)
-                        """
-                    )
+                    await conn.execute(query)
                 console.print(f"[green]✓[/green] Deleted all [bold]{label}[/bold] nodes")
             except Exception as exc:
                 err_console.print(f"Failed to delete {label}: {exc}")
@@ -168,6 +196,12 @@ def graph_reset(
     Use --label to target specific labels only.
     """
     targets = labels or ["TaskNode", "GoalNode"]
+    invalid = [label for label in targets if label not in _TASK_LABELS]
+    if invalid:
+        err_console.print(
+            f"Unsupported label(s): {', '.join(invalid)}. Allowed: {', '.join(_TASK_LABELS)}"
+        )
+        raise typer.Exit(code=1)
     if not yes:
         typer.confirm(
             f"This will DELETE ALL nodes with labels {targets}. Continue?",
