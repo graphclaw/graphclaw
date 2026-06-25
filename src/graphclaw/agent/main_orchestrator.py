@@ -52,6 +52,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import re
 import time
 import uuid
 from datetime import datetime, timezone
@@ -89,6 +91,20 @@ logger = logging.getLogger(__name__)
 
 # Sentinel agent_id used when no explicit agent_id is configured
 _DEFAULT_AGENT_ID = "main"
+
+
+def _env_int(name: str, default: int) -> int:
+    """Read an int from the environment, falling back to *default* on missing/invalid."""
+    raw = os.environ.get(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        logger.warning("main_orchestrator: invalid int for %s=%r; using %d", name, raw, default)
+        return default
+
+
 _PLAN_STATUS_DRAFT = "DRAFT"
 _PLAN_STATUS_APPROVED = "APPROVED"
 _PLAN_STATUS_EXECUTED = "EXECUTED"
@@ -170,6 +186,13 @@ class MainOrchestrator:
     _USER_PROFILE_REDIS_TTL: int = 900  # 15 minutes
     _USER_PROFILE_KEY_PREFIX = "graphclaw:profile:"
 
+    # Working-memory Redis cache (changes frequently — short TTL)
+    _WORKING_MEMORY_KEY_PREFIX = "graphclaw:wm:"
+    _WORKING_MEMORY_REDIS_TTL: int = 60  # 1 minute
+    # Semantic-memory index Redis cache (topics change infrequently)
+    _SEMANTIC_INDEX_KEY_PREFIX = "graphclaw:sm_index:"
+    _SEMANTIC_INDEX_REDIS_TTL: int = 300  # 5 minutes
+
     def __init__(
         self,
         graph_repo: GraphStore,
@@ -225,6 +248,13 @@ class MainOrchestrator:
         self._system_header: str | None = None
         self._system_header_at: float = 0.0
 
+        # --- Tiered-memory configuration (GRAPHCLAW_MEMORY_* env vars) ---
+        # Read at construction so deployments/tests can tune memory behaviour
+        # without code changes. Defaults preserve the prior hardcoded values.
+        self._memory_budget_chars = _env_int("GRAPHCLAW_MEMORY_BUDGET_CHARS", 80_000)
+        self._working_memory_char_cap = _env_int("GRAPHCLAW_MEMORY_WORKING_CHAR_CAP", 8_000)
+        self._compact_threshold_pct = _env_int("GRAPHCLAW_MEMORY_COMPACT_THRESHOLD_PCT", 60)
+
         # --- New intelligence components ---
         self._tool_registry = ToolSetRegistry(
             has_skill_registry=skill_registry is not None,
@@ -236,7 +266,14 @@ class MainOrchestrator:
                 storage_client, redis_client=redis_client
             )
             self._context_manager: ContextManager | None = (
-                ContextManager(llm_client) if llm_client is not None else None
+                ContextManager(
+                    llm_client,
+                    window_size=_env_int("GRAPHCLAW_MEMORY_WINDOW_SIZE", 20),
+                    summary_threshold=_env_int("GRAPHCLAW_MEMORY_SUMMARY_THRESHOLD", 30),
+                    budget_tokens=_env_int("GRAPHCLAW_MEMORY_BUDGET_TOKENS", 80_000),
+                )
+                if llm_client is not None
+                else None
             )
         else:
             self._knowledge_base = None
@@ -1700,6 +1737,16 @@ class MainOrchestrator:
             if kb_index:
                 parts.append(f"\n{kb_index}")
 
+        # 4a. Working memory (verbatim, capped) — the agent's live scratchpad.
+        working_memory = await self._load_working_memory(user_id)
+        if working_memory:
+            parts.append(f"\n## Working Memory\n{working_memory}")
+
+        # 4b. Semantic memory index (topics loaded on demand via read_memory).
+        semantic_index = await self._load_semantic_memory_index(user_id)
+        if semantic_index:
+            parts.append(f"\n{semantic_index}")
+
         # 5. Agent catalog (system + user agents available for delegation)
         if self._agent_catalog is not None:
             agent_catalog = await self._agent_catalog.get_compact_catalog(user_id)
@@ -1788,6 +1835,140 @@ class MainOrchestrator:
                 )
 
         return profile
+
+    async def _load_working_memory(self, user_id: str) -> str:
+        """Load the agent's working memory for injection into the system prompt.
+
+        Capped at ``GRAPHCLAW_MEMORY_WORKING_CHAR_CAP`` chars. When the agent's
+        total memory utilization exceeds ``GRAPHCLAW_MEMORY_COMPACT_THRESHOLD_PCT``,
+        a compaction hint is prepended so the agent self-manages its budget.
+        Cached in Redis with a short TTL (working memory changes frequently).
+        Never raises — returns empty string on any failure.
+        """
+        if self._storage is None:
+            return ""
+
+        from graphclaw.infra.storage import StoragePaths  # noqa: PLC0415
+
+        key = f"{self._WORKING_MEMORY_KEY_PREFIX}{user_id}:{self._agent_id}"
+        content: str | None = None
+        if self._redis is not None:
+            try:
+                content = await self._redis.get(key)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("orchestrator.working_memory.redis_get_failed: %s", exc)
+
+        if content is None:
+            try:
+                raw = await self._storage.read(
+                    StoragePaths.agent_memory_working(user_id, self._agent_id)
+                )
+                content = raw.decode(errors="replace")
+            except FileNotFoundError:
+                return ""
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("orchestrator.working_memory.read_failed: %s", exc)
+                return ""
+            if self._redis is not None:
+                try:
+                    await self._redis.setex(key, self._WORKING_MEMORY_REDIS_TTL, content)
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("orchestrator.working_memory.redis_set_failed: %s", exc)
+
+        if not content.strip():
+            return ""
+
+        # Compute the compaction hint against the *original* (pre-truncation) size
+        # so a large-but-truncated working memory still triggers the warning.
+        original_len = len(content)
+
+        cap = self._working_memory_char_cap
+        if cap > 0 and original_len > cap:
+            content = content[:cap] + "\n[... truncated. Call estimate_memory to check usage.]"
+
+        # Compaction hint: warn when working memory alone exceeds the configured
+        # share of the total budget, so the agent considers compact_memory.
+        budget = self._memory_budget_chars
+        if budget > 0 and self._compact_threshold_pct > 0:
+            util_pct = original_len / budget * 100
+            if util_pct >= self._compact_threshold_pct:
+                content = (
+                    f"[WARNING: working memory is ~{util_pct:.0f}% of budget — consider "
+                    f"calling estimate_memory then compact_memory.]\n\n{content}"
+                )
+
+        return content
+
+    async def _load_semantic_memory_index(self, user_id: str) -> str:
+        """Build the ``## Semantic Memory`` block listing available topics.
+
+        Reads ``_index.json`` (topic → description map) and renders a compact
+        list. Topics are loaded on demand via the ``read_memory`` tool. Cached
+        in Redis with a 5-minute TTL (topics change infrequently). Never raises.
+        """
+        if self._storage is None:
+            return ""
+
+        from graphclaw.infra.storage import StoragePaths  # noqa: PLC0415
+
+        key = f"{self._SEMANTIC_INDEX_KEY_PREFIX}{user_id}:{self._agent_id}"
+        raw_json: str | None = None
+        if self._redis is not None:
+            try:
+                raw_json = await self._redis.get(key)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("orchestrator.semantic_index.redis_get_failed: %s", exc)
+
+        if raw_json is None:
+            try:
+                raw = await self._storage.read(
+                    StoragePaths.agent_memory_semantic_index(user_id, self._agent_id)
+                )
+                raw_json = raw.decode(errors="replace")
+            except FileNotFoundError:
+                return ""
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("orchestrator.semantic_index.read_failed: %s", exc)
+                return ""
+            if self._redis is not None:
+                try:
+                    await self._redis.setex(key, self._SEMANTIC_INDEX_REDIS_TTL, raw_json)
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("orchestrator.semantic_index.redis_set_failed: %s", exc)
+
+        try:
+            index = json.loads(raw_json)
+        except (ValueError, TypeError):
+            return ""
+
+        # Accept either {topics: {name: desc}} / {topics: [{name, description}]}
+        # or a flat {name: desc} mapping.
+        topics_obj = index.get("topics", index) if isinstance(index, dict) else index
+        lines: list[str] = []
+        if isinstance(topics_obj, dict):
+            for name, desc in topics_obj.items():
+                if isinstance(desc, dict):
+                    desc = desc.get("description", "")
+                lines.append(f"- {name}: {desc}".rstrip(": ").rstrip())
+        elif isinstance(topics_obj, list):
+            for item in topics_obj:
+                if isinstance(item, dict):
+                    name = item.get("name") or item.get("topic") or ""
+                    desc = item.get("description", "")
+                    if name:
+                        lines.append(f"- {name}: {desc}".rstrip(": ").rstrip())
+                elif isinstance(item, str):
+                    lines.append(f"- {item}")
+
+        if not lines:
+            return ""
+
+        header = (
+            "## Semantic Memory\n"
+            "Call read_memory(topic) to load a topic's full content before using it.\n"
+            "Available topics:"
+        )
+        return header + "\n" + "\n".join(lines)
 
     async def invalidate_user_profile(self, user_id: str) -> None:
         """Evict the Redis cache entry for *user_id*'s agent profile.
@@ -1995,6 +2176,14 @@ class MainOrchestrator:
                 result = await self._tool_load_tool_set(arguments)
             elif name == "read_knowledge":
                 result = await self._tool_read_knowledge(arguments)
+            elif name == "read_memory":
+                result = await self._tool_read_memory(user_id, arguments)
+            elif name == "recall_episodic":
+                result = await self._tool_recall_episodic(user_id, arguments)
+            elif name == "compact_memory":
+                result = await self._tool_compact_memory(user_id, arguments)
+            elif name == "estimate_memory":
+                result = await self._tool_estimate_memory(user_id, arguments)
             elif name == "update_profile_from_conversation":
                 result = await self._tool_update_profile_from_conversation(user_id, arguments)
             # --- task_management set ---
@@ -2162,6 +2351,228 @@ class MainOrchestrator:
             return {"error": "Knowledge base not available (storage not configured)."}
         content = await self._knowledge_base.read(topic)
         return {"topic": topic, "content": content}
+
+    # ------------------------------------------------------------------
+    # Tiered memory tools (working / episodic / semantic)
+    # ------------------------------------------------------------------
+
+    async def _tool_read_memory(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
+        """Load a semantic memory topic file into context.
+
+        Mirrors ``SubAgentRunner._tool_read_memory`` so the orchestrator and its
+        sub-agents resolve semantic topics identically.
+        """
+        topic = str(args.get("topic", "")).strip()
+        if not topic:
+            return {"error": "topic must be a non-empty string"}
+        if self._storage is None:
+            return {"error": "Storage not available."}
+        from graphclaw.infra.storage import StoragePaths  # noqa: PLC0415
+
+        path = StoragePaths.agent_memory_semantic_topic(user_id, self._agent_id, topic)
+        try:
+            content = (await self._storage.read(path)).decode(errors="replace")
+        except FileNotFoundError:
+            return {"error": f"Semantic memory topic '{topic}' not found."}
+        return {"topic": topic, "content": content}
+
+    async def _tool_recall_episodic(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
+        """Search episodic memory (past session summaries) for relevant entries.
+
+        Keyword + recency scoring, no LLM call: episodic entries are named with
+        dates and labels, so filename matching plus a light content scan is
+        sufficient and fast.
+        """
+        query = str(args.get("query", "")).strip()
+        try:
+            limit = int(args.get("limit", 3))
+        except (TypeError, ValueError):
+            limit = 3
+        limit = max(1, min(limit, 10))
+        if not query:
+            return {"error": "query must be a non-empty string"}
+        if self._storage is None:
+            return {"error": "Storage not available."}
+
+        from graphclaw.infra.storage import StoragePaths  # noqa: PLC0415
+
+        active_prefix = StoragePaths.agent_memory_episodic_prefix(user_id, self._agent_id)
+        archive_prefix = StoragePaths.agent_memory_episodic_archive_prefix(user_id, self._agent_id)
+        try:
+            keys = await self._storage.list_objects(active_prefix)
+        except Exception as exc:  # noqa: BLE001
+            return {"error": f"Could not list episodic memory: {exc}"}
+
+        entries = [k for k in keys if k.endswith(".md") and not k.startswith(archive_prefix)]
+        if not entries:
+            return {"matches": [], "query": query}
+
+        keywords = [w for w in re.split(r"\W+", query.lower()) if len(w) >= 3]
+
+        # Stage 1 — score by filename (exact date match, keyword substrings)
+        scored: list[tuple[float, str]] = []
+        for key in entries:
+            name = key.rsplit("/", 1)[-1]
+            name_lower = name.lower()
+            score = 0.0
+            if query.lower() in name_lower:
+                score += 10.0
+            for kw in keywords:
+                if kw in name_lower:
+                    score += 5.0
+            scored.append((score, key))
+
+        # Stage 2 — read first 500 chars of the top 5 filename candidates and
+        # boost by keyword hits in the content.
+        scored.sort(key=lambda t: (t[0], t[1]), reverse=True)
+        top_candidates = [key for _, key in scored[:5]]
+        content_cache: dict[str, str] = {}
+        boosts: dict[str, float] = {}
+        for key in top_candidates:
+            try:
+                raw = await self._storage.read(key)
+                excerpt = raw.decode(errors="replace")[:500]
+            except FileNotFoundError:
+                excerpt = ""
+            content_cache[key] = excerpt
+            excerpt_lower = excerpt.lower()
+            boosts[key] = sum(3.0 for kw in keywords if kw in excerpt_lower)
+
+        rescored = [(score + boosts.get(key, 0.0), key) for score, key in scored]
+        # Tiebreak by filename descending (dates first → newest first).
+        rescored.sort(key=lambda t: (t[0], t[1]), reverse=True)
+
+        matches: list[dict[str, Any]] = []
+        for score, key in rescored[:limit]:
+            content = content_cache.get(key)
+            if content is None:
+                try:
+                    content = (await self._storage.read(key)).decode(errors="replace")
+                except FileNotFoundError:
+                    continue
+            matches.append({"name": key.rsplit("/", 1)[-1], "content": content, "score": score})
+        return {"matches": matches, "query": query}
+
+    async def _tool_compact_memory(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
+        """Archive working context to episodic memory and replace it with a summary.
+
+        Mirrors the ``POST .../memory/compact`` endpoint logic in ``api/intelligence.py``.
+        """
+        summary = str(args.get("summary", "")).strip()
+        if not summary:
+            return {"error": "summary must be a non-empty string"}
+        if self._storage is None:
+            return {"error": "Storage not available."}
+
+        from graphclaw.infra.storage import StoragePaths  # noqa: PLC0415
+
+        today = datetime.now(timezone.utc).date().isoformat()
+        session_label = str(args.get("session_label", "")).strip() or uuid.uuid4().hex[:8]
+        entry_name = f"{today}-compact-{session_label}.md"
+
+        working_path = StoragePaths.agent_memory_working(user_id, self._agent_id)
+        episodic_path = StoragePaths.agent_memory_episodic_entry(
+            user_id, self._agent_id, entry_name
+        )
+        working_archive_path = StoragePaths.agent_memory_working_archive_entry(
+            user_id, self._agent_id, entry_name
+        )
+
+        original_text = ""
+        try:
+            original_text = (await self._storage.read(working_path)).decode(errors="replace")
+        except FileNotFoundError:
+            original_text = ""
+        context_before_chars = len(original_text)
+
+        archive_content = (
+            f"# Compacted Context — {today}\n\n"
+            f"*Session: {session_label}*\n\n"
+            f"## Original Working Context\n\n"
+            f"{original_text if original_text else '_(empty)_'}"
+        )
+        await self._storage.write(
+            episodic_path, archive_content.encode(), content_type="text/markdown"
+        )
+        await self._storage.write(
+            working_archive_path, archive_content.encode(), content_type="text/markdown"
+        )
+        await self._storage.write(working_path, summary.encode(), content_type="text/markdown")
+
+        context_after_chars = len(summary)
+        reduction_pct = (
+            round((1 - context_after_chars / context_before_chars) * 100, 1)
+            if context_before_chars > 0
+            else 0.0
+        )
+        return {
+            "archived_as": entry_name,
+            "working_context_replaced": True,
+            "context_before_chars": context_before_chars,
+            "context_after_chars": context_after_chars,
+            "reduction_pct": reduction_pct,
+        }
+
+    async def _tool_estimate_memory(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
+        """Return per-tier character counts and overall utilization %.
+
+        Mirrors the ``GET .../memory/estimate`` endpoint logic in ``api/intelligence.py``.
+        """
+        if self._storage is None:
+            return {"error": "Storage not available."}
+
+        from graphclaw.infra.storage import StoragePaths  # noqa: PLC0415
+
+        budget_chars = self._memory_budget_chars
+
+        working_chars = 0
+        try:
+            raw = await self._storage.read(
+                StoragePaths.agent_memory_working(user_id, self._agent_id)
+            )
+            working_chars = len(raw.decode(errors="replace"))
+        except FileNotFoundError:
+            pass
+
+        episodic_chars = 0
+        active_prefix = StoragePaths.agent_memory_episodic_prefix(user_id, self._agent_id)
+        archive_prefix = StoragePaths.agent_memory_episodic_archive_prefix(user_id, self._agent_id)
+        try:
+            for key in await self._storage.list_objects(active_prefix):
+                if not key.endswith(".md") or key.startswith(archive_prefix):
+                    continue
+                try:
+                    raw = await self._storage.read(key)
+                    episodic_chars += len(raw.decode(errors="replace"))
+                except FileNotFoundError:
+                    pass
+        except Exception:  # noqa: BLE001
+            pass
+
+        semantic_chars = 0
+        semantic_prefix = StoragePaths.agent_memory_semantic_prefix(user_id, self._agent_id)
+        try:
+            for key in await self._storage.list_objects(semantic_prefix):
+                if not key.endswith(".md"):
+                    continue
+                try:
+                    raw = await self._storage.read(key)
+                    semantic_chars += len(raw.decode(errors="replace"))
+                except FileNotFoundError:
+                    pass
+        except Exception:  # noqa: BLE001
+            pass
+
+        total_chars = working_chars + episodic_chars + semantic_chars
+        utilization_pct = round(total_chars / budget_chars * 100, 1) if budget_chars > 0 else 0.0
+        return {
+            "working_chars": working_chars,
+            "episodic_chars": episodic_chars,
+            "semantic_chars": semantic_chars,
+            "total_chars": total_chars,
+            "budget_chars": budget_chars,
+            "utilization_pct": utilization_pct,
+        }
 
     async def _tool_list_available_agents(
         self, user_id: str, args: dict[str, Any]
