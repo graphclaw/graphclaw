@@ -14,7 +14,8 @@ Tool Set Layout
 ---------------
 Tier 1 — Core (always present):
   list_tasks, get_task_details, update_task_state,
-  list_available_agents, load_tool_set, read_knowledge
+  list_available_agents, load_tool_set, read_knowledge,
+  read_memory, recall_episodic, compact_memory, estimate_memory
 
 Tier 2 — Named sets (activated on demand):
   task_management  →  create_task, update_task, create_goal, update_goal
@@ -218,6 +219,55 @@ def _make_core_tools() -> list[ToolDefinition]:
                 },
             },
             required=["topic"],
+        ),
+        _td(
+            "recall_episodic",
+            (
+                "Search your episodic memory — past session summaries — for relevant history. "
+                "Call this when the user references something from a previous session, a date, or a "
+                "topic you may have discussed before. Returns the most relevant past entries."
+            ),
+            {
+                "query": {
+                    "type": "string",
+                    "description": "A date (YYYY-MM-DD), a keyword, or a topic to search past sessions for.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of matching entries to return (default 3).",
+                },
+            },
+            required=["query"],
+        ),
+        _td(
+            "compact_memory",
+            (
+                "Archive your current working context to episodic memory and replace it with a compact "
+                "summary. Use this when working memory has grown large or stale (check with "
+                "estimate_memory). The original is preserved in episodic memory before being replaced."
+            ),
+            {
+                "summary": {
+                    "type": "string",
+                    "description": "The compact summary that replaces the working context. Capture goals, "
+                    "decisions, open items, and key node IDs.",
+                },
+                "session_label": {
+                    "type": "string",
+                    "description": "Optional short label for the archived entry (e.g. 'sprint-planning').",
+                },
+            },
+            required=["summary"],
+        ),
+        _td(
+            "estimate_memory",
+            (
+                "Check how much of your memory budget is in use across all three tiers (working, "
+                "episodic, semantic). Returns per-tier character counts and overall utilization %. "
+                "Use this to decide whether to call compact_memory."
+            ),
+            {},
+            required=[],
         ),
         _td(
             "update_profile_from_conversation",
