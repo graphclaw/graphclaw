@@ -32,3 +32,5 @@ Please include:
 - Initial acknowledgment: within 5 business days.
 - Ongoing updates: provided as investigation progresses.
 - Coordinated disclosure target: within 90 days when feasible.
+
+_Last reviewed: 2026-05-29._

@@ -532,6 +532,14 @@ class StoragePaths:
         """Prefix to list all system prompt files."""
         return "system/prompts/"
 
+    @staticmethod
+    def system_onboarding_prompts() -> str:
+        """Onboarding FSM prompts file (one H2 section per state).
+
+        Example: ``system/prompts/onboarding.md``
+        """
+        return "system/prompts/onboarding.md"
+
     # ------------------------------------------------------------------
     # System knowledge paths
     # ------------------------------------------------------------------

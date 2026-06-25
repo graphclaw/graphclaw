@@ -2,12 +2,7 @@
 
 | ID | Scenario (1 line) | File |
 |---|---|---|
-| GC-U-API-W50-001 | The API should return active delegation rows from in-memory sub-agent runner ... | [test_api/test_agents_delegations_route.py](test_api/test_agents_delegations_route.py) |
-| GC-U-API-W50-002 | The activity API should return correctly filtered and paginated log events, a... | [test_api/test_agent_activity_api.py](test_api/test_agent_activity_api.py) |
-| GC-U-API-W50-003 | The comms summary endpoint should aggregate inbound/outbound counters for one... | [test_api/test_comms_summary_api.py](test_api/test_comms_summary_api.py) |
-| GC-U-API-W50-004 | Tasks comms log routes should return paginated user-scoped inbound and outbou... | [test_api/test_tasks_logs_api.py](test_api/test_tasks_logs_api.py) |
-| GC-U-INF-W50-001 | ObjectStorageHandler should batch writes correctly and generate race-safe per... | [test_infra/test_logging/test_object_storage_handler.py](test_infra/test_logging/test_object_storage_handler.py) |
-| GC-U-SCO-W50-001 | Score explanation should use persisted or fallback default factor weights. | [test_api/test_scoring_routes.py](test_api/test_scoring_routes.py) |
+| GC-U-SCO-W50-001 | Score explanation should return applied runtime weights when persisted, and d... | [test_api/test_scoring_routes.py](test_api/test_scoring_routes.py) |
 | TODO | (no header) test_a2a_routes | [test_a2a/test_a2a_routes.py](test_a2a/test_a2a_routes.py) |
 | TODO | (no header) test_key_manager | [test_a2a/test_key_manager.py](test_a2a/test_key_manager.py) |
 | TODO | (no header) test_activity_formatter | [test_agent/test_activity_formatter.py](test_agent/test_activity_formatter.py) |
@@ -25,33 +20,44 @@
 | TODO | (no header) test_loop | [test_agent/test_loop.py](test_agent/test_loop.py) |
 | TODO | (no header) test_loop_new_tools_integration | [test_agent/test_loop_new_tools_integration.py](test_agent/test_loop_new_tools_integration.py) |
 | TODO | (no header) test_loop_stream_integration | [test_agent/test_loop_stream_integration.py](test_agent/test_loop_stream_integration.py) |
+| TODO | (no header) test_onboarding_prompts | [test_agent/test_onboarding_prompts.py](test_agent/test_onboarding_prompts.py) |
+| TODO | (no header) test_onboarding_prompts_asset | [test_agent/test_onboarding_prompts_asset.py](test_agent/test_onboarding_prompts_asset.py) |
 | TODO | (no header) test_orchestrator_cache | [test_agent/test_orchestrator_cache.py](test_agent/test_orchestrator_cache.py) |
 | TODO | (no header) test_outbound_agent | [test_agent/test_outbound_agent.py](test_agent/test_outbound_agent.py) |
 | TODO | (no header) test_plan_lifecycle | [test_agent/test_plan_lifecycle.py](test_agent/test_plan_lifecycle.py) |
 | TODO | (no header) test_policy_files | [test_agent/test_policy_files.py](test_agent/test_policy_files.py) |
+| TODO | (no header) test_profile_synthesis | [test_agent/test_profile_synthesis.py](test_agent/test_profile_synthesis.py) |
+| TODO | (no header) test_profile_tools | [test_agent/test_profile_tools.py](test_agent/test_profile_tools.py) |
 | TODO | (no header) test_run_events | [test_agent/test_run_events.py](test_agent/test_run_events.py) |
 | TODO | (no header) test_sub_agent_orchestration | [test_agent/test_sub_agent_orchestration.py](test_agent/test_sub_agent_orchestration.py) |
 | TODO | (no header) test_tool_registry | [test_agent/test_tool_registry.py](test_agent/test_tool_registry.py) |
 | TODO | (no header) test_wave4_comms | [test_agent/test_wave4_comms.py](test_agent/test_wave4_comms.py) |
 | TODO | (no header) test_admin_routes | [test_api/test_admin/test_admin_routes.py](test_api/test_admin/test_admin_routes.py) |
+| TODO | (no header) test_agent_activity_api | [test_api/test_agent_activity_api.py](test_api/test_agent_activity_api.py) |
 | TODO | (no header) test_agent_routes | [test_api/test_agent_routes.py](test_api/test_agent_routes.py) |
+| TODO | (no header) test_agents_delegations_route | [test_api/test_agents_delegations_route.py](test_api/test_agents_delegations_route.py) |
 | TODO | (no header) test_agents_routes | [test_api/test_agents_routes.py](test_api/test_agents_routes.py) |
 | TODO | (no header) test_approval_routes | [test_api/test_approval_routes.py](test_api/test_approval_routes.py) |
 | TODO | (no header) test_chat_history_integration | [test_api/test_chat_history_integration.py](test_api/test_chat_history_integration.py) |
 | TODO | (no header) test_chat_stream | [test_api/test_chat_stream.py](test_api/test_chat_stream.py) |
+| TODO | (no header) test_chat_unconfigured | [test_api/test_chat_unconfigured.py](test_api/test_chat_unconfigured.py) |
+| TODO | (no header) test_comms_summary_api | [test_api/test_comms_summary_api.py](test_api/test_comms_summary_api.py) |
 | TODO | (no header) test_conversation_routes | [test_api/test_conversation_routes.py](test_api/test_conversation_routes.py) |
 | TODO | (no header) test_graph_access_control | [test_api/test_graph_access_control.py](test_api/test_graph_access_control.py) |
 | TODO | (no header) test_intelligence_routes | [test_api/test_intelligence_routes.py](test_api/test_intelligence_routes.py) |
 | TODO | (no header) test_lifecycle | [test_api/test_lifecycle.py](test_api/test_lifecycle.py) |
 | TODO | (no header) test_mcp_registry_extended_routes | [test_api/test_mcp_registry_extended_routes.py](test_api/test_mcp_registry_extended_routes.py) |
 | TODO | (no header) test_mcp_registry_routes | [test_api/test_mcp_registry_routes.py](test_api/test_mcp_registry_routes.py) |
+| TODO | (no header) test_notification_routes | [test_api/test_notification_routes.py](test_api/test_notification_routes.py) |
 | TODO | (no header) test_org_lifecycle | [test_api/test_org_lifecycle.py](test_api/test_org_lifecycle.py) |
 | TODO | (no header) test_policy_routes | [test_api/test_policy_routes.py](test_api/test_policy_routes.py) |
 | TODO | (no header) test_settings_extended_routes | [test_api/test_settings_extended_routes.py](test_api/test_settings_extended_routes.py) |
 | TODO | (no header) test_settings_routes | [test_api/test_settings_routes.py](test_api/test_settings_routes.py) |
 | TODO | (no header) test_skill_registry_extended_routes | [test_api/test_skill_registry_extended_routes.py](test_api/test_skill_registry_extended_routes.py) |
+| TODO | (no header) test_tasks_logs_api | [test_api/test_tasks_logs_api.py](test_api/test_tasks_logs_api.py) |
 | TODO | (no header) test_user_routes | [test_api/test_user_routes.py](test_api/test_user_routes.py) |
 | TODO | (no header) test_immutable_log | [test_audit/test_immutable_log.py](test_audit/test_immutable_log.py) |
+| TODO | (no header) test_callback_hardening | [test_auth/test_callback_hardening.py](test_auth/test_callback_hardening.py) |
 | TODO | (no header) test_jwt | [test_auth/test_jwt.py](test_auth/test_jwt.py) |
 | TODO | (no header) test_no_delete_probes | [test_auth/test_no_delete_probes.py](test_auth/test_no_delete_probes.py) |
 | TODO | (no header) test_oauth_redirect_validation | [test_auth/test_oauth_redirect_validation.py](test_auth/test_oauth_redirect_validation.py) |
@@ -79,6 +85,7 @@
 | TODO | (no header) test_context_cache | [test_gateway/test_context_cache.py](test_gateway/test_context_cache.py) |
 | TODO | (no header) test_email | [test_gateway/test_email.py](test_gateway/test_email.py) |
 | TODO | (no header) test_email_poller | [test_gateway/test_email_poller.py](test_gateway/test_email_poller.py) |
+| TODO | (no header) test_llm_provider_selector | [test_gateway/test_llm_provider_selector.py](test_gateway/test_llm_provider_selector.py) |
 | TODO | (no header) test_models | [test_gateway/test_models.py](test_gateway/test_models.py) |
 | TODO | (no header) test_normalizer | [test_gateway/test_normalizer.py](test_gateway/test_normalizer.py) |
 | TODO | (no header) test_rate_limiter | [test_gateway/test_rate_limiter.py](test_gateway/test_rate_limiter.py) |
@@ -117,6 +124,7 @@
 | TODO | (no header) test_formatter | [test_infra/test_logging/test_formatter.py](test_infra/test_logging/test_formatter.py) |
 | TODO | (no header) test_llm_trace | [test_infra/test_logging/test_llm_trace.py](test_infra/test_logging/test_llm_trace.py) |
 | TODO | (no header) test_middleware | [test_infra/test_logging/test_middleware.py](test_infra/test_logging/test_middleware.py) |
+| TODO | (no header) test_object_storage_handler | [test_infra/test_logging/test_object_storage_handler.py](test_infra/test_logging/test_object_storage_handler.py) |
 | TODO | (no header) test_observability | [test_infra/test_observability.py](test_infra/test_observability.py) |
 | TODO | (no header) test_redis_cluster | [test_infra/test_redis_cluster.py](test_infra/test_redis_cluster.py) |
 | TODO | (no header) test_scaling_profiles | [test_infra/test_scaling_profiles.py](test_infra/test_scaling_profiles.py) |
@@ -179,4 +187,4 @@
 | TODO | (no header) test_wave8_completion | [unit/test_wave8_completion.py](unit/test_wave8_completion.py) |
 | TODO | (no header) test_wave9_backend | [unit/test_wave9_backend.py](unit/test_wave9_backend.py) |
 
-_Last regenerated: 2026-05-05 by `scripts/regen_inventory.py`._
+_Last regenerated: 2026-06-14 by `scripts/regen_inventory.py`._

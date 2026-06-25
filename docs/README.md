@@ -10,6 +10,8 @@ This index is the entry point for backend documentation and follows the same tax
 4. Active requirement bundles: `docs/requirements/`
 5. Testing strategy: `docs/testing/master-strategy.md`
 6. A2A API-plane alignment spike: `docs/planning/a2a-api-plane-alignment-spike.md`
+7. Public roadmap (Now/Next/Later): `docs/planning/public-roadmap.md`
+8. Distribution expansion criteria: `docs/planning/distribution-expansion-criteria.md`
 
 ## Taxonomy
 
@@ -26,6 +28,8 @@ This index is the entry point for backend documentation and follows the same tax
 - Product behavior and constraints: `docs/graphclaw-requirements.md`
 - Delivery status and phase progression: `docs/planning/build-plan.md`
 - A2A plane canonicalization spike artifacts: `docs/planning/a2a-api-plane-alignment-spike.md`
+- Public roadmap and near-term priorities: `docs/planning/public-roadmap.md`
+- Distribution expansion checkpoints: `docs/planning/distribution-expansion-criteria.md`
 - System architecture and interfaces: `docs/architecture/`
 - Active implementation tasks: `docs/requirements/`
 - Testing conventions and gates: `docs/testing/master-strategy.md`

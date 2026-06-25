@@ -212,17 +212,87 @@ async def complete_onboarding(
     user_id: str,
     agent_id: str = "main",
     storage: Any = None,
+    llm_client: Any = None,
+    conversation_history: list[dict[str, Any]] | None = None,
     **_: Any,
 ) -> dict:
-    """Mark onboarding as complete in profile.md (FR-ID-001 AC3)."""
+    """Synthesize the user's behavioral profile, then mark onboarding complete.
+
+    Fail-fast ordering (FR-ID-001 AC3): synthesis runs FIRST.  If it fails, the
+    onboarding state is left untouched so the user can retry — no fallback
+    profile is written and ``onboarding_complete`` is not set.
+
+    When ``llm_client`` / ``conversation_history`` are unavailable, the profile
+    is not synthesized but onboarding is still completed (e.g. scripted flows).
+
+    Parameters
+    ----------
+    user_id, agent_id:
+        Owner and agent identifiers.
+    storage:
+        Write-scoped ``StorageClient`` for profile.md.
+    llm_client:
+        ``LLMClient`` for behavioral synthesis (optional).
+    conversation_history:
+        Ordered ``{"role", "content"}`` dicts from the onboarding chat (optional).
+    """
     if storage is None:
         return {"completed": False, "error": "storage not provided"}
-    try:
-        from graphclaw.agent.onboarding import OnboardingFSM  # noqa: PLC0415
 
-        fsm = OnboardingFSM(storage)
-        await fsm.complete(user_id, agent_id)
-        return {"completed": True}
+    from graphclaw.agent.onboarding import (  # noqa: PLC0415
+        OnboardingState,
+        _render_profile,
+        _split_frontmatter,
+    )
+    from graphclaw.infra.storage import StoragePaths  # noqa: PLC0415
+
+    synthesized = False
+    can_synthesize = llm_client is not None and bool(conversation_history)
+
+    try:
+        path = StoragePaths.agent_profile(user_id, agent_id)
+        try:
+            raw = await storage.read(path)
+            content = raw.decode("utf-8", errors="replace")
+        except Exception:  # noqa: BLE001 — missing profile.md is fine; start fresh
+            content = ""
+        frontmatter, body = _split_frontmatter(content)
+
+        # 1. Synthesize behavioral guidance FIRST (fail-fast).
+        if can_synthesize:
+            from graphclaw.agent.profile_synthesis import (  # noqa: PLC0415
+                ProfileSynthesisError,
+                ProfileSynthesizer,
+                merge_profile_body,
+            )
+
+            synthesizer = ProfileSynthesizer(llm_client)
+            try:
+                new_sections = await synthesizer.synthesize_from_onboarding(
+                    user_id=user_id,
+                    agent_id=agent_id,
+                    conversation_history=conversation_history or [],
+                )
+            except ProfileSynthesisError as exc:
+                # Do NOT mark complete — let the user retry.
+                logger.warning("complete_onboarding.synthesis_failed: %s", exc)
+                return {
+                    "completed": False,
+                    "error": (
+                        "I couldn't finish setting up your profile due to a system issue. "
+                        "Please wait a moment and try completing onboarding again."
+                    ),
+                }
+            body = merge_profile_body(body, new_sections)
+            synthesized = True
+
+        # 2. Mark complete in the SAME write so synthesis + completion are atomic.
+        frontmatter["onboarding_state"] = OnboardingState.DONE.value
+        frontmatter["onboarding_complete"] = True
+        new_content = _render_profile(frontmatter, body)
+        await storage.write(path, new_content.encode("utf-8"), "text/markdown")
+
+        return {"completed": True, "profile_synthesized": synthesized}
     except Exception as exc:  # noqa: BLE001
         return {"completed": False, "error": str(exc)}
 

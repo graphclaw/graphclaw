@@ -2,14 +2,14 @@ name: PR Checks
 
 on:
   pull_request:
-    branches: ["master", "main"]
+    branches: ["main"]
 
 jobs:
   size-check:
     name: PR Size Check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - name: Check PR diff size
@@ -26,8 +26,8 @@ jobs:
     name: Test Coverage
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
