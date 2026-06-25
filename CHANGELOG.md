@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.2.3](https://github.com/graphclaw/graphclaw/compare/v0.2.2...v0.2.3) (2026-06-25)
+
+
+### Features
+
+* **agent:** externalize onboarding prompts and synthesize behavioral profile ([#34](https://github.com/graphclaw/graphclaw/issues/34)) ([aeea30b](https://github.com/graphclaw/graphclaw/commit/aeea30b1c9a5f8ea1883fcb3b11f3fa8bf638fb0))
+
+
+### Documentation
+
+* **launch:** publish roadmap and distribution criteria ([#27](https://github.com/graphclaw/graphclaw/issues/27)) ([e4494a9](https://github.com/graphclaw/graphclaw/commit/e4494a9b82692b128bfc4db06b46322f4a30d796))
+* **process:** add lifecycle guardrails for future waves ([#28](https://github.com/graphclaw/graphclaw/issues/28)) ([e0e39c3](https://github.com/graphclaw/graphclaw/commit/e0e39c3da4c724a07767bee5e5094a1f35e1f7f4))
+* **security:** refresh policy metadata for profile sync ([#22](https://github.com/graphclaw/graphclaw/issues/22)) ([9edb5fd](https://github.com/graphclaw/graphclaw/commit/9edb5fde04deaa8e48aed427b17f706e4a548f98))
+
 ## [0.2.2](https://github.com/graphclaw/graphclaw/compare/v0.2.1...v0.2.2) (2026-05-28)
 
 
