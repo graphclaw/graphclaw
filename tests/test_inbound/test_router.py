@@ -283,9 +283,7 @@ class TestAgentChannelIdentityRegistry:
         reg = AgentChannelIdentityRegistry()
         import asyncio
 
-        result = asyncio.get_event_loop().run_until_complete(
-            reg.lookup(channel="telegram", account_id="missing")
-        )
+        result = asyncio.run(reg.lookup(channel="telegram", account_id="missing"))
         assert result is None
 
     def test_lookup_returns_entry(self) -> None:
@@ -293,9 +291,7 @@ class TestAgentChannelIdentityRegistry:
         reg = AgentChannelIdentityRegistry([entry])
         import asyncio
 
-        result = asyncio.get_event_loop().run_until_complete(
-            reg.lookup(channel="telegram", account_id="bot1")
-        )
+        result = asyncio.run(reg.lookup(channel="telegram", account_id="bot1"))
         assert result is not None
         assert result.user_id == "U1"
 
@@ -304,9 +300,7 @@ class TestAgentChannelIdentityRegistry:
         reg = AgentChannelIdentityRegistry([entry])
         import asyncio
 
-        result = asyncio.get_event_loop().run_until_complete(
-            reg.lookup(channel="telegram", account_id="bot1")
-        )
+        result = asyncio.run(reg.lookup(channel="telegram", account_id="bot1"))
         assert result is None
 
     def test_add_hot_reload(self) -> None:
@@ -331,7 +325,7 @@ class TestAgentChannelIdentityRegistry:
         reg = AgentChannelIdentityRegistry([entry])
         import asyncio
 
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             reg.is_owner_identity(user_id="U1", channel="telegram", sender_id="owner_id")
         )
         assert result is True
@@ -341,7 +335,7 @@ class TestAgentChannelIdentityRegistry:
         reg = AgentChannelIdentityRegistry([entry])
         import asyncio
 
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             reg.is_owner_identity(user_id="U1", channel="telegram", sender_id="stranger")
         )
         assert result is False
@@ -354,9 +348,7 @@ class TestAgentChannelIdentityRegistry:
         assert len(reg) == 1
         import asyncio
 
-        result = asyncio.get_event_loop().run_until_complete(
-            reg.lookup(channel="telegram", account_id="bot2")
-        )
+        result = asyncio.run(reg.lookup(channel="telegram", account_id="bot2"))
         assert result is not None
 
     def test_deactivate_via_add(self) -> None:
@@ -366,9 +358,7 @@ class TestAgentChannelIdentityRegistry:
         reg.add(disabled)
         import asyncio
 
-        result = asyncio.get_event_loop().run_until_complete(
-            reg.lookup(channel="telegram", account_id="bot1")
-        )
+        result = asyncio.run(reg.lookup(channel="telegram", account_id="bot1"))
         assert result is None
 
 

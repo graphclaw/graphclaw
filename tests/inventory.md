@@ -187,4 +187,4 @@
 | TODO | (no header) test_wave8_completion | [unit/test_wave8_completion.py](unit/test_wave8_completion.py) |
 | TODO | (no header) test_wave9_backend | [unit/test_wave9_backend.py](unit/test_wave9_backend.py) |
 
-_Last regenerated: 2026-06-14 by `scripts/regen_inventory.py`._
+_Last regenerated: 2026-05-27 by `scripts/regen_inventory.py`._

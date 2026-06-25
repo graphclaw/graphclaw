@@ -4,4 +4,4 @@
 |---|---|---|
 | TODO | (no header) test_orchestrator_evals | [test_orchestrator_evals.py](test_orchestrator_evals.py) |
 
-_Last regenerated: 2026-06-12 by `scripts/regen_inventory.py`._
+_Last regenerated: 2026-05-27 by `scripts/regen_inventory.py`._

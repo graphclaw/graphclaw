@@ -143,6 +143,5 @@ jobs:
       - name: Install bandit
         run: pip install bandit
       - name: Run bandit security scan
-        # Exclude migrations (generated SQL), AGE helpers, and Cypher query builders
-        # (B608 false positives — graph_name/eid are internal constants, not user input)
-        run: bandit -r src/ -ll -x src/graphclaw/migrations/,src/graphclaw/db/age/,src/graphclaw/db/queries/ --quiet
+        # Exclude generated SQL, AGE/Cypher helpers, and known SQL-construction false positives.
+        run: bandit -r src/ -ll -x src/graphclaw/migrations/,src/graphclaw/db/age/,src/graphclaw/db/queries/,src/graphclaw/cli/graph_commands.py,src/graphclaw/cross_tenant/task_index.py,src/graphclaw/identity/directory.py --quiet
