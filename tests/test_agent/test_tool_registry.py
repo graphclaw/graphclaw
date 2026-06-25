@@ -36,6 +36,11 @@ class TestCoreTools:
         assert "load_tool_set" in names
         assert "read_knowledge" in names
         assert "update_profile_from_conversation" in names
+        # Wave Tiered-Memory — memory tools are always-on core tools
+        assert "read_memory" in names
+        assert "recall_episodic" in names
+        assert "compact_memory" in names
+        assert "estimate_memory" in names
 
     def test_core_tools_present_without_optional_deps(self):
         registry = ToolSetRegistry(has_skill_registry=False, has_mcp_registry=False)
@@ -206,7 +211,8 @@ class TestResetSession:
         registry.reset_session()
 
         names = _tool_names(registry.get_active_tools())
-        assert len(names) == 8  # exactly the 8 core tools
+        assert len(names) == 11  # core: 8 base + read_memory/recall_episodic/compact_memory
+        # /estimate_memory (Wave Tiered-Memory added recall_episodic, compact_memory, estimate_memory)
 
 
 # ---------------------------------------------------------------------------

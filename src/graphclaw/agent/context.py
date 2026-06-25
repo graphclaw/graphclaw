@@ -10,13 +10,18 @@ grow long.
 
 Compression Pipeline (applied in order)
 ----------------------------------------
+0. Fast path — when ``len(history) <= window_size`` there is nothing to compress;
+   return the verbatim history immediately, skipping the summary and token-budget
+   API calls.
 1. Session entity extraction — scan history for node IDs (TSK-*, GOAL-*, MCP-*)
    and build a compact ``## Session State`` register.  Always included.
 2. Sliding window — keep the last ``window_size`` (default 20) turns verbatim.
 3. Tool-call collapse — for assistant+tool+result triples outside the window,
-   emit a single summary line: ``[tool: name(args) → result summary]``.
+   emit a single summary line.  Failed tool calls are preserved with a longer
+   excerpt and a ``[FAILED tool action: ...]`` prefix so the agent avoids repeats.
 4. Rolling LLM summary — when history older than the window exceeds
-   ``summary_threshold`` turns, make a cheap Haiku call to summarise them.
+   ``summary_threshold`` turns, make a cheap Haiku call to summarise them into
+   structured Goals/Progress/Blocking/Entities sections.
 5. Token budget check — use ``LLMClient.count_tokens()`` before the main call.
    If over ``budget_tokens`` (default 80 000), tighten ``window_size`` and retry.
 
@@ -142,6 +147,15 @@ class ContextManager:
         if not history:
             return result
 
+        # Fast path — when the whole history fits in the verbatim window there is
+        # nothing to compress: skip the rolling summary (Haiku call) and the token
+        # budget check (count_tokens call), saving ~200-500ms per short turn.
+        if len(history) <= self._window_size:
+            result.session_state_block = self._extract_entity_register(history)
+            result.recent_messages = self._to_llm_messages(history)
+            result.compressed_count = len(result.recent_messages)
+            return result
+
         # Step 1 — Session entity extraction
         result.session_state_block = self._extract_entity_register(history)
 
@@ -262,8 +276,17 @@ class ContextManager:
             lines.append(f"- {node_id}: {state}")
         return "\n".join(lines)
 
+    # Markers that indicate a tool call failed — failures are preserved with a
+    # longer excerpt so the agent can see past errors and avoid repeating them.
+    _FAILURE_MARKERS = ('"error"', "'error'", "failed", "[failed", "exception", "traceback")
+
     def _collapse_tool_calls(self, older: list[dict]) -> str:
-        """Summarise older turns into 1-line tool-call entries."""
+        """Summarise older turns into 1-line tool-call entries.
+
+        Failed tool calls are preserved with a longer excerpt (200 chars) and a
+        ``[FAILED tool action: ...]`` prefix — the agent needs to see prior
+        failures to avoid repeating them. Successful actions collapse to 120 chars.
+        """
         lines: list[str] = []
         for entry in older:
             role = entry.get("role", "user")
@@ -271,8 +294,12 @@ class ContextManager:
             if not content:
                 continue
             if role in ("agent", "assistant"):
-                # Try to detect tool calls in content summary
-                if "[tool:" in content or "tool_call" in content.lower():
+                content_lower = content.lower()
+                is_tool = "[tool:" in content or "tool_call" in content_lower
+                is_failure = any(m in content_lower for m in self._FAILURE_MARKERS)
+                if is_failure:
+                    lines.append(f"[FAILED tool action: {content[:200]}]")
+                elif is_tool:
                     lines.append(f"[tool action: {content[:120]}]")
                 else:
                     # Summarise as agent response
@@ -291,9 +318,14 @@ class ContextManager:
         )
 
         prompt = (
-            "Summarise the following conversation excerpt in 3-5 sentences. "
-            "Focus on: tasks created or updated, goals set, decisions made, "
-            "and any outstanding items. Be concise.\n\n"
+            "Summarise the following conversation excerpt using EXACTLY these four "
+            "markdown sections, each as a short bullet list (omit a bullet if nothing "
+            "applies, but keep all four headers):\n"
+            "## Goals\nActive objectives the user is pursuing.\n"
+            "## Progress\nTasks completed and decisions made.\n"
+            "## Blocking\nOutstanding blockers and unanswered questions.\n"
+            "## Entities\nKey node IDs (TSK-*, GOAL-*, MCP-*) and their current state.\n\n"
+            "Be concise — this is a memory aid for downstream reasoning, not prose.\n\n"
             f"{conversation_text}"
         )
 
@@ -303,7 +335,10 @@ class ContextManager:
             ]
             response = await self._llm.complete(
                 messages=summary_msgs,
-                system="You are a concise conversation summariser. Output only the summary.",
+                system=(
+                    "You are a structured conversation summariser. Output only the four "
+                    "requested markdown sections (Goals/Progress/Blocking/Entities)."
+                ),
                 max_tokens=512,
             )
             self._rolling_summary = response.content.strip()

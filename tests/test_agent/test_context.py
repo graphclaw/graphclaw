@@ -325,3 +325,84 @@ class TestBuildMessages:
         messages = cm.build_messages(ctx)
         contents = [m.content for m in messages]
         assert any("create_task" in (c or "") for c in contents)
+
+
+# ---------------------------------------------------------------------------
+# Fast path (history fits in window — Phase C1)
+# ---------------------------------------------------------------------------
+
+
+class TestFastPath:
+    @pytest.mark.asyncio
+    async def test_fast_path_short_history(self):
+        """History <= window_size skips summary and token-budget API calls."""
+        llm = _make_llm()
+        cm = ContextManager(llm, window_size=20)
+        history = _history(10)
+
+        ctx = await cm.compress(history, current_messages=[LLMMessage(role="user", content="hi")])
+
+        assert len(ctx.recent_messages) == 10
+        assert not ctx.compression_applied
+        # Fast path must avoid both the rolling-summary and count_tokens calls.
+        llm.complete.assert_not_called()
+        llm.count_tokens.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_fast_path_still_extracts_entities(self):
+        """Fast path keeps the always-on entity register."""
+        llm = _make_llm()
+        cm = ContextManager(llm, window_size=20)
+        history = [{"role": "agent", "content": "TSK-AB-001-AT is now COMPLETE."}]
+
+        ctx = await cm.compress(history)
+
+        assert "TSK-AB-001-AT" in ctx.session_state_block
+
+
+# ---------------------------------------------------------------------------
+# Structured rolling summary (Phase C2)
+# ---------------------------------------------------------------------------
+
+
+class TestStructuredSummary:
+    @pytest.mark.asyncio
+    async def test_structured_summary_sections(self):
+        """The summary prompt requests Goals/Progress/Blocking/Entities sections."""
+        llm = _make_llm()
+        cm = ContextManager(llm, window_size=5, summary_threshold=3)
+        history = _history(50)
+
+        await cm.compress(history)
+
+        llm.complete.assert_called_once()
+        prompt = llm.complete.call_args.kwargs["messages"][0].content
+        for header in ("## Goals", "## Progress", "## Blocking", "## Entities"):
+            assert header in prompt
+
+
+# ---------------------------------------------------------------------------
+# Context-sensitive tool-call collapse — preserve failures (Phase C3)
+# ---------------------------------------------------------------------------
+
+
+class TestErrorPreservingCollapse:
+    @pytest.mark.asyncio
+    async def test_tool_call_collapse_preserves_errors(self):
+        """Failed tool calls in older turns are flagged with a FAILED prefix."""
+        llm = _make_llm()
+        cm = ContextManager(llm, window_size=2, summary_threshold=100)
+        history = [
+            {"role": "user", "content": "Create the task"},
+            {"role": "agent", "content": '[tool: create_task] {"error": "boom failed"}'},
+            {"role": "user", "content": "filler 1"},
+            {"role": "agent", "content": "filler 2"},
+            {"role": "user", "content": "recent 1"},
+            {"role": "agent", "content": "recent 2"},
+        ]
+
+        ctx = await cm.compress(history)
+
+        assert "[FAILED tool action:" in ctx.collapsed_tool_calls
+        # Failure excerpt is longer (200) than the success excerpt (120).
+        assert "boom failed" in ctx.collapsed_tool_calls

@@ -462,6 +462,42 @@ Wave 4 (sequential): WS-P5-G (gateway wiring), WS-P5-H (tests)
 
 ---
 
+### Wave Tiered-Memory — Functional Three-Tier Agent Memory 🔄 IN PROGRESS (2026-06-24)
+
+**Goal:** Make the tiered memory system (working / episodic / semantic) functional end-to-end so the
+MainOrchestrator can autonomously read, recall, compact, and monitor its own memory. Working memory is
+injected into the system prompt, episodic memory is retrievable by relevance, semantic memory is loadable
+on demand, and all behaviour is tunable via `GRAPHCLAW_MEMORY_*` env vars.
+
+**Problem statement:** `read_memory` is defined in the core tool set but has **no dispatch branch** in
+`MainOrchestrator._execute_tool()` (falls through to "Unknown tool"); working memory is never injected
+into the system prompt; episodic memory has no retrieval tool; and all ContextManager configuration is
+hardcoded.
+
+**Phases:**
+
+| Phase | Scope | Key Files |
+|-------|-------|-----------|
+| A | Fix `read_memory` dispatch; add `recall_episodic`, `compact_memory`, `estimate_memory` tools (defs + handlers + dispatch) | `agent/main_orchestrator.py`, `agent/tool_registry.py` |
+| B | Inject `## Working Memory` (capped) + `## Semantic Memory` index into `_build_system_prompt()` | `agent/main_orchestrator.py` |
+| C | Compaction: fast-path short-circuit, structured rolling summary (Goals/Progress/Blocking/Entities), context-sensitive tool-call collapse (preserve failures) | `agent/context.py` |
+| D | Externalize config: `GRAPHCLAW_MEMORY_WINDOW_SIZE`, `_SUMMARY_THRESHOLD`, `_BUDGET_TOKENS`, `_BUDGET_CHARS`, `_WORKING_CHAR_CAP`, `_COMPACT_THRESHOLD_PCT` | `agent/main_orchestrator.py` |
+| E | (cockpit repo) Fix E2E `StoragePaths` mirror to include `/agents/{agentId}/` segment | `graphclaw-cockpit/e2e/helpers/minio.ts` |
+
+**Success criteria:** `read_memory` dispatched; working memory + semantic index in system prompt;
+`recall_episodic`/`compact_memory`/`estimate_memory` tools functional; compaction fast-path skips
+`count_tokens` for short history; structured summary sections; all config via env vars; existing tests
+pass; E2E memory-lifecycle Playwright suite green.
+
+**Tests:** `tests/test_agent/test_memory_tools.py` (NEW), `tests/test_agent/test_context.py` (+3),
+`tests/test_agent/test_system_prompt_memory.py` (NEW), `tests/test_agent/test_memory_integration.py`
+(NEW, `@pytest.mark.integration`); cockpit `e2e/memory/memory-lifecycle.spec.ts` (NEW, 4 scenarios).
+
+**Delivery:** PR-first on branch `feat/tiered-memory` (backend) — cockpit E2E slice tracked separately
+in `graphclaw-cockpit/docs/planning/build-plan.md`.
+
+---
+
 ## Agent Integration Recommendations
 
 ### Orchestrating Agent

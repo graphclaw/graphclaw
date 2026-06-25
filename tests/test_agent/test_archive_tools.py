@@ -144,13 +144,13 @@ class TestArchiveGoal:
 
 class TestStateMachineNoDeletion:
     def _make_task(self) -> object:
-        from datetime import UTC, datetime
+        from datetime import datetime, timezone
 
         from graphclaw.models.base import generate_task_id
         from graphclaw.models.enums import TaskState, TaskType
         from graphclaw.models.nodes import TaskNode
 
-        now = datetime.now(UTC)
+        now = datetime.now(timezone.utc)
         task_id = generate_task_id("AG", TaskType.ATOMIC)
         return TaskNode(
             id=task_id,
