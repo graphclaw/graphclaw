@@ -170,6 +170,8 @@ async def write_policy(
     loader = PolicyLoader(storage, redis_client=redis)
     await loader.invalidate(user_id, agent_id, policy_name)
 
-    etag = hashlib.md5(raw_bytes).hexdigest()  # noqa: S324 — non-crypto
+    etag = hashlib.md5(  # noqa: S324 — non-crypto etag
+        raw_bytes, usedforsecurity=False
+    ).hexdigest()
     logger.info("Policy %s written for user %s / agent %s", policy_name, user_id, agent_id)
     return PolicyWriteResponse(version=etag)

@@ -138,7 +138,7 @@ class UserDirectory:
               )
             ORDER BY similarity(display_name, %s) DESC
             LIMIT {int(limit)}
-        """
+        """  # nosec B608 — placeholders/LIMIT are %s markers & int(); values passed as params
         query_pattern = f"%{query}%"
         try:
             rows = await self._pool.fetch(
@@ -169,7 +169,7 @@ class UserDirectory:
             FROM user_directory
             WHERE user_id = %s
               AND org_id IN ({placeholders})
-        """
+        """  # nosec B608 — placeholders are %s markers; values passed as params
         try:
             rows = await self._pool.fetch(sql, user_id, *caller_org_ids)
             return [self._row_to_entry(r) for r in rows]

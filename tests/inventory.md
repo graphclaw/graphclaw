@@ -20,6 +20,8 @@
 | TODO | (no header) test_loop | [test_agent/test_loop.py](test_agent/test_loop.py) |
 | TODO | (no header) test_loop_new_tools_integration | [test_agent/test_loop_new_tools_integration.py](test_agent/test_loop_new_tools_integration.py) |
 | TODO | (no header) test_loop_stream_integration | [test_agent/test_loop_stream_integration.py](test_agent/test_loop_stream_integration.py) |
+| TODO | (no header) test_memory_integration | [test_agent/test_memory_integration.py](test_agent/test_memory_integration.py) |
+| TODO | (no header) test_memory_tools | [test_agent/test_memory_tools.py](test_agent/test_memory_tools.py) |
 | TODO | (no header) test_onboarding_prompts | [test_agent/test_onboarding_prompts.py](test_agent/test_onboarding_prompts.py) |
 | TODO | (no header) test_onboarding_prompts_asset | [test_agent/test_onboarding_prompts_asset.py](test_agent/test_onboarding_prompts_asset.py) |
 | TODO | (no header) test_orchestrator_cache | [test_agent/test_orchestrator_cache.py](test_agent/test_orchestrator_cache.py) |
@@ -30,6 +32,7 @@
 | TODO | (no header) test_profile_tools | [test_agent/test_profile_tools.py](test_agent/test_profile_tools.py) |
 | TODO | (no header) test_run_events | [test_agent/test_run_events.py](test_agent/test_run_events.py) |
 | TODO | (no header) test_sub_agent_orchestration | [test_agent/test_sub_agent_orchestration.py](test_agent/test_sub_agent_orchestration.py) |
+| TODO | (no header) test_system_prompt_memory | [test_agent/test_system_prompt_memory.py](test_agent/test_system_prompt_memory.py) |
 | TODO | (no header) test_tool_registry | [test_agent/test_tool_registry.py](test_agent/test_tool_registry.py) |
 | TODO | (no header) test_wave4_comms | [test_agent/test_wave4_comms.py](test_agent/test_wave4_comms.py) |
 | TODO | (no header) test_admin_routes | [test_api/test_admin/test_admin_routes.py](test_api/test_admin/test_admin_routes.py) |
@@ -187,4 +190,4 @@
 | TODO | (no header) test_wave8_completion | [unit/test_wave8_completion.py](unit/test_wave8_completion.py) |
 | TODO | (no header) test_wave9_backend | [unit/test_wave9_backend.py](unit/test_wave9_backend.py) |
 
-_Last regenerated: 2026-06-14 by `scripts/regen_inventory.py`._
+_Last regenerated: 2026-06-24 by `scripts/regen_inventory.py`._

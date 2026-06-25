@@ -14,16 +14,39 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+_PROBE_DSN = "postgresql://agent_principal@localhost:5432/graphclaw"
+
+
+def _patch_connect(mock_conn: object):
+    """Patch ``psycopg.AsyncConnection.connect`` to yield ``mock_conn``.
+
+    The probe does ``async with await psycopg.AsyncConnection.connect(...) as conn``,
+    so the awaited result must itself be an async context manager.
+    """
+
+    class _ConnCtx:
+        async def __aenter__(self):
+            return mock_conn
+
+        async def __aexit__(self, *args):
+            return False
+
+    async def _connect(*args, **kwargs):
+        return _ConnCtx()
+
+    return patch("psycopg.AsyncConnection.connect", new=_connect)
+
 
 class TestStartupProbe:
     """startup_assert_no_delete raises SystemExit on successful DELETE."""
 
-    async def test_probe_passes_on_insufficient_privilege(self) -> None:
+    async def test_probe_passes_on_insufficient_privilege(self, monkeypatch) -> None:
         """When DELETE raises InsufficientPrivilege, probe logs success and returns."""
         import psycopg.errors
 
         from graphclaw.auth.principals import startup_assert_no_delete
 
+        monkeypatch.setenv("AGENT_PRINCIPAL_DSN", _PROBE_DSN)
         mock_conn = AsyncMock()
         # SAVEPOINT succeeds; DELETE raises InsufficientPrivilege; ROLLBACK TO succeeds.
         mock_conn.execute = AsyncMock(
@@ -34,23 +57,15 @@ class TestStartupProbe:
             ]
         )
 
-        mock_pool = MagicMock()
-
-        class _MockCtx:
-            async def __aenter__(self):
-                return mock_conn
-
-            async def __aexit__(self, *args):
-                pass
-
-        with patch("graphclaw.db.age.connection.get_connection", return_value=_MockCtx()):
+        with _patch_connect(mock_conn):
             # Should complete without raising.
-            await startup_assert_no_delete(mock_pool)
+            await startup_assert_no_delete(MagicMock())
 
-    async def test_probe_exits_when_delete_succeeds(self) -> None:
+    async def test_probe_exits_when_delete_succeeds(self, monkeypatch) -> None:
         """When DELETE succeeds, probe calls SystemExit — agent must not start."""
         from graphclaw.auth.principals import startup_assert_no_delete
 
+        monkeypatch.setenv("AGENT_PRINCIPAL_DSN", _PROBE_DSN)
         mock_conn = AsyncMock()
         # SAVEPOINT succeeds; DELETE succeeds (wrong!) → probe fires SystemExit.
         mock_conn.execute = AsyncMock(
@@ -61,39 +76,34 @@ class TestStartupProbe:
             ]
         )
 
-        mock_pool = MagicMock()
-
-        class _MockCtx:
-            async def __aenter__(self):
-                return mock_conn
-
-            async def __aexit__(self, *args):
-                pass
-
-        with patch("graphclaw.db.age.connection.get_connection", return_value=_MockCtx()):
+        with _patch_connect(mock_conn):
             with pytest.raises(SystemExit) as exc_info:
-                await startup_assert_no_delete(mock_pool)
+                await startup_assert_no_delete(MagicMock())
 
         assert "FATAL" in str(exc_info.value)
 
-    async def test_probe_warns_on_missing_table(self) -> None:
+    async def test_probe_warns_on_missing_table(self, monkeypatch) -> None:
         """When probe table does not exist (DB error), warning is emitted but process continues."""
         import psycopg
 
         from graphclaw.auth.principals import startup_assert_no_delete
 
-        mock_pool = MagicMock()
+        monkeypatch.setenv("AGENT_PRINCIPAL_DSN", _PROBE_DSN)
 
-        class _ErrorCtx:
-            async def __aenter__(self):
-                raise psycopg.OperationalError("connection refused")
+        async def _connect(*args, **kwargs):
+            raise psycopg.OperationalError("connection refused")
 
-            async def __aexit__(self, *args):
-                pass
-
-        with patch("graphclaw.db.age.connection.get_connection", return_value=_ErrorCtx()):
+        with patch("psycopg.AsyncConnection.connect", new=_connect):
             # Should not raise — just warn.
-            await startup_assert_no_delete(mock_pool)
+            await startup_assert_no_delete(MagicMock())
+
+    async def test_probe_skipped_when_dsn_unset(self, monkeypatch) -> None:
+        """When AGENT_PRINCIPAL_DSN is unset, the probe is skipped (no raise)."""
+        from graphclaw.auth.principals import startup_assert_no_delete
+
+        monkeypatch.delenv("AGENT_PRINCIPAL_DSN", raising=False)
+        # Should return immediately without attempting a connection.
+        await startup_assert_no_delete(MagicMock())
 
 
 class TestMigration0008:

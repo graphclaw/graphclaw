@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
+from typing import Any
 
 from graphclaw.db.base import GraphStore
 from graphclaw.infra.storage import StorageClient
@@ -26,24 +27,28 @@ class FakeGraphStore(GraphStore):
         self._nodes.clear()
         self._edges.clear()
 
-    async def create_node(self, node) -> dict:
+    async def create_node(self, node, caller_context: Any | None = None) -> dict:
         d = node.model_dump(mode="json") if hasattr(node, "model_dump") else dict(node)
         self._nodes[d["id"]] = d
         return d
 
-    async def get_node(self, node_id: str) -> dict | None:
+    async def get_node(self, node_id: str, caller_context: Any | None = None) -> dict | None:
         return self._nodes.get(node_id)
 
-    async def update_node(self, node_id: str, updates: dict) -> dict | None:
+    async def update_node(
+        self, node_id: str, updates: dict, caller_context: Any | None = None
+    ) -> dict | None:
         if node_id not in self._nodes:
             return None
         self._nodes[node_id].update(updates)
         return self._nodes[node_id]
 
-    async def delete_node(self, node_id: str) -> None:
+    async def delete_node(self, node_id: str, caller_context: Any | None = None) -> None:
         self._nodes.pop(node_id, None)
 
-    async def list_nodes(self, label: str, filters: dict | None = None) -> list[dict]:
+    async def list_nodes(
+        self, label: str, filters: dict | None = None, caller_context: Any | None = None
+    ) -> list[dict]:
         results = list(self._nodes.values())
         if filters:
             for k, v in filters.items():
@@ -56,6 +61,7 @@ class FakeGraphStore(GraphStore):
         target_id: str,
         edge_type: str,
         properties: dict | None = None,
+        caller_context: Any | None = None,
     ) -> dict:
         edge: dict = {
             "id": f"edge-{len(self._edges)}",
@@ -72,6 +78,7 @@ class FakeGraphStore(GraphStore):
         node_id: str,
         direction: str = "out",
         edge_type: str | None = None,
+        caller_context: Any | None = None,
     ) -> list[dict]:
         if direction == "out":
             edges = [e for e in self._edges if e.get("source_id") == node_id]
@@ -87,7 +94,7 @@ class FakeGraphStore(GraphStore):
             edges = [e for e in edges if e.get("edge_type") == edge_type]
         return edges
 
-    async def delete_edge(self, edge_id: str) -> None:
+    async def delete_edge(self, edge_id: str, caller_context: Any | None = None) -> None:
         self._edges = [e for e in self._edges if e.get("id") != edge_id]
 
 

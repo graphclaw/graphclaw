@@ -399,9 +399,7 @@ async def list_trigger_schedule(
     response_model=TriggerSettingsResponse,
     status_code=status.HTTP_200_OK,
     summary="Get trigger follow-up settings",
-    description=(
-        "Return DB-backed follow-up policy settings for the authenticated user."
-    ),
+    description=("Return DB-backed follow-up policy settings for the authenticated user."),
 )
 async def get_trigger_settings(
     user_id: CurrentUserDep,
@@ -427,9 +425,7 @@ async def get_trigger_settings(
     response_model=TriggerSettingsResponse,
     status_code=status.HTTP_200_OK,
     summary="Update trigger follow-up settings",
-    description=(
-        "Persist follow-up policy settings for the authenticated user in graph DB."
-    ),
+    description=("Persist follow-up policy settings for the authenticated user in graph DB."),
 )
 async def patch_trigger_settings(
     body: TriggerSettingsPatchRequest,
