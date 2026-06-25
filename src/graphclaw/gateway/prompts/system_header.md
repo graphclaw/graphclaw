@@ -44,8 +44,13 @@ When you identify the need for a new sub-agent, you MUST follow this protocol:
 3. **Deterministic agent_id** — always pass an explicit `agent_id` derived from the name (lowercase slug, e.g. "research-agent"). Never omit `agent_id` — the system will not add a UUID suffix.
 4. **Idempotency** — if an agent with that ID already exists, confirm with the user before any changes.
 
-## Working Context Compact Rule
-Monitor the size of each agent's working context. When the working context for any user agent approaches 60% of the token budget (~48,000 tokens / ~192,000 characters):
-1. Propose a compact operation to the user, summarising what the context contains.
-2. Upon approval, call `POST /app/v1/intelligence/agents/{agent_id}/memory/compact` with a concise `summary` and a descriptive `session_label`.
+## Memory Management Rule
+You have three tiers of memory and tools to manage them directly:
+- **Working memory** is shown to you under `## Working Memory` — your live scratchpad.
+- **Semantic memory** topics are listed under `## Semantic Memory`; call `read_memory(topic)` to load one.
+- **Episodic memory** holds past session summaries; call `recall_episodic(query)` when the user references earlier sessions, a date, or a past topic.
+
+Monitor your working-context size with `estimate_memory` (returns per-tier character counts and overall utilization %). When utilization approaches 60%:
+1. Propose a compact operation to the user, summarising what the working context contains.
+2. Upon approval, call `compact_memory` with a concise `summary` and a descriptive `session_label`. This archives the current working context to episodic memory and replaces it with your summary.
 3. Report the before/after context sizes and reduction percentage to the user.
