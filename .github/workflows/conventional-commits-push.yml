@@ -25,11 +25,16 @@ jobs:
           REGEX='^(feat|fix|perf|revert|docs|build|ci|chore|style|refactor|test)(\([A-Za-z0-9._/-]+\))?(!)?: .+'
 
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            RANGE="$SHA"
+            COMMIT_LIST="$SHA"
           elif [[ "$BEFORE" == "$ZERO" ]]; then
-            RANGE="$SHA"
+            COMMIT_LIST="$SHA"
           else
-            RANGE="$BEFORE..$SHA"
+            COMMIT_LIST="$(git rev-list --no-merges "$BEFORE..$SHA")"
+          fi
+
+          if [[ -z "$COMMIT_LIST" ]]; then
+            echo "No commits to lint in this push range."
+            exit 0
           fi
 
           FAILED=0
@@ -39,7 +44,7 @@ jobs:
               echo "::error::Non-conventional commit message: $COMMIT_SHA $SUBJECT"
               FAILED=1
             fi
-          done < <(git rev-list --no-merges "$RANGE")
+          done <<< "$COMMIT_LIST"
 
           if [[ "$FAILED" -ne 0 ]]; then
             echo "Conventional commit lint failed. Use format: type(scope): Subject"
