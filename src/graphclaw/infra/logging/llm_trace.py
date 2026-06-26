@@ -49,10 +49,15 @@ def configure_llm_trace_logger(
     trace_logger.propagate = False  # MUST stay False — content must never reach stdout
 
     if trace_logger.handlers:
-        # Already has a handler (idempotent). Still record it as the active trace
-        # logger so get_llm_trace_logger() reflects the configured state.
-        _llm_trace_logger = trace_logger
-        return
+        existing = trace_logger.handlers[0]
+        if isinstance(
+            existing, logging.handlers.RotatingFileHandler
+        ) and existing.baseFilename == str(Path(trace_path).resolve()):
+            _llm_trace_logger = trace_logger
+            return
+        for h in list(trace_logger.handlers):
+            trace_logger.removeHandler(h)
+            h.close()
 
     handler = logging.handlers.RotatingFileHandler(
         filename=trace_path,
