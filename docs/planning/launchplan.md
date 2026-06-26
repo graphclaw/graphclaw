@@ -345,33 +345,37 @@ One full MINOR window of warnings before removal. Deprecations documented in `do
 
 ### Author requirements (enforced by CI)
 
-- **DCO sign-off** on every commit (`git commit -s`).
-- **Conventional Commits** PR title — release-please depends on this.
+- **Conventional Commits** in PR titles and direct-push commits — release-please depends on this.
+- DCO is optional in solo-maintainer mode; re-enable as required when multi-maintainer governance returns.
 - PR template filled in: what / why, linked issue, test plan, screenshots for UI, breaking-change callout.
 
 ### Required CI gates (branch protection on `main`)
 
 **Backend:**
 - `ruff check` + `ruff format --check`
-- `pytest` (unit + integration)
+- `pytest` (unit)
 - `bandit` (security)
-- Header / inventory checks
-- Link-check on changed docs
+- `gitleaks`
+
+Heavy checks (on-demand/release hardening):
+- integration tests
+- agent eval suite
+- link-check on changed docs
 
 **Cockpit:**
 - `eslint`
 - `tsc --noEmit`
-- `vitest` with coverage threshold
-- Contract test
-- Header / inventory checks
-- Playwright E2E on labeled or push
-- Link-check on changed docs
+- `vitest` (unit + component)
+- `gitleaks`
+
+Heavy checks (on-demand/release hardening):
+- Playwright E2E on `run-e2e` label or manual dispatch
+- link-check on changed docs
 
 **Both:**
-- DCO check
 - Conventional Commit title check
-- CODEOWNERS review (1 approval; 2 for `breaking`)
-- gitleaks (no secrets)
+- required approvals = 0 in solo mode
+- CODEOWNERS review required when multi-maintainer mode is restored
 
 ### Review process
 

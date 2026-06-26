@@ -1,0 +1,47 @@
+name: conventional-commits-push
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+jobs:
+  lint-commits:
+    name: Lint Conventional Commits (push)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Validate commit messages in push range
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BEFORE="${{ github.event.before }}"
+          SHA="${{ github.sha }}"
+          ZERO="0000000000000000000000000000000000000000"
+          REGEX='^(feat|fix|perf|revert|docs|build|ci|chore|style|refactor|test)(\([A-Za-z0-9._/-]+\))?(!)?: .+'
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            RANGE="$SHA"
+          elif [[ "$BEFORE" == "$ZERO" ]]; then
+            RANGE="$SHA"
+          else
+            RANGE="$BEFORE..$SHA"
+          fi
+
+          FAILED=0
+          while IFS= read -r COMMIT_SHA; do
+            SUBJECT="$(git log --format=%s -n 1 "$COMMIT_SHA")"
+            if [[ ! "$SUBJECT" =~ $REGEX ]]; then
+              echo "::error::Non-conventional commit message: $COMMIT_SHA $SUBJECT"
+              FAILED=1
+            fi
+          done < <(git rev-list --no-merges "$RANGE")
+
+          if [[ "$FAILED" -ne 0 ]]; then
+            echo "Conventional commit lint failed. Use format: type(scope): Subject"
+            exit 1
+          fi
