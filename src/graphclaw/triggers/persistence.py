@@ -41,7 +41,9 @@ class UserNodeNotFoundError(TriggerPersistenceError):
     """Raised when the target user node does not exist."""
 
 
-async def _get_user_node(store: Any, user_id: str, caller_context: Any | None = None) -> dict | None:
+async def _get_user_node(
+    store: Any, user_id: str, caller_context: Any | None = None
+) -> dict | None:
     if caller_context is None:
         return await store.get_node(user_id)
     try:

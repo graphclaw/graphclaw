@@ -86,8 +86,13 @@ async def _reset_async(labels: list[str]) -> None:
 
     async with cli_pool() as (pool, _):
         for label in labels:
+            if label not in _TASK_LABELS:
+                err_console.print(f"Unsupported label: {label}")
+                continue
             try:
                 async with get_connection(pool) as conn:
+                    # label is validated against the static _TASK_LABELS allowlist above,
+                    # so the interpolation below is not an injection vector.
                     await conn.execute(
                         f"""
                         SELECT * FROM cypher('graphclaw', $$
@@ -95,7 +100,7 @@ async def _reset_async(labels: list[str]) -> None:
                             DETACH DELETE n
                             RETURN count(n)
                         $$) as (deleted agtype)
-                        """
+                        """  # nosec B608 — label constrained to _TASK_LABELS allowlist
                     )
                 console.print(f"[green]✓[/green] Deleted all [bold]{label}[/bold] nodes")
             except Exception as exc:

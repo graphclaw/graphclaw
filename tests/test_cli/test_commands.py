@@ -389,9 +389,11 @@ class TestShowTaskAsyncHelper:
 
     @pytest.mark.asyncio
     async def test_show_task_not_found_exits_with_code_1(self):
-        import click
+        import typer
 
         mock_pool, mock_repo = _make_db_mocks(node=None)
+        # node=None must mean "task not found", so get_node returns None explicitly.
+        mock_repo.get_node = AsyncMock(return_value=None)
 
         with patch.dict("os.environ", {"DATABASE_URL": "postgresql://test"}):
             with patch(
@@ -404,8 +406,10 @@ class TestShowTaskAsyncHelper:
                 ):
                     from graphclaw.cli.task_commands import _show_task_async
 
-                    with pytest.raises((SystemExit, click.exceptions.Exit)):
+                    with pytest.raises((SystemExit, typer.Exit)) as exc_info:
                         await _show_task_async("TSK-XX-0001-ATM")
+
+        assert getattr(exc_info.value, "exit_code", 1) == 1
 
 
 class TestAgentScoreAsyncHelper:

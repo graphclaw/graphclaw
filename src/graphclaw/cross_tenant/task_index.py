@@ -186,7 +186,7 @@ class OrgTaskIndex:
               {extra_conditions}
             ORDER BY last_activity_at DESC NULLS LAST
             LIMIT {int(limit)}
-        """
+        """  # nosec B608 — placeholders/LIMIT are %s markers & int(); values passed as params
         try:
             rows = await self._pool.fetch(sql, *params)
             return [self._row_to_entry(r) for r in rows]

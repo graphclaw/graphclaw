@@ -23,7 +23,7 @@ class TestSessionIdContextVar:
             set_session_id("")
             assert get_session_id() == ""
 
-        asyncio.get_event_loop().run_until_complete(_check())
+        asyncio.run(_check())
 
     def test_set_and_get(self):
         set_session_id("SES-test-123")
@@ -48,7 +48,7 @@ class TestSessionIdContextVar:
         async def child():
             return get_session_id()
 
-        result = asyncio.get_event_loop().run_until_complete(parent())
+        result = asyncio.run(parent())
         assert result == "SES-parent"
 
     def test_child_task_inherits_context(self):
@@ -61,7 +61,7 @@ class TestSessionIdContextVar:
             task = asyncio.create_task(child_task())
             return await task
 
-        result = asyncio.get_event_loop().run_until_complete(run())
+        result = asyncio.run(run())
         assert result == "SES-from-request"
 
 

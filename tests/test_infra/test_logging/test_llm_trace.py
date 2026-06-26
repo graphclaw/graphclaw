@@ -18,11 +18,18 @@ from graphclaw.infra.logging.llm_trace import (
 
 @pytest.fixture(autouse=True)
 def reset_trace_logger():
+    def _reset() -> None:
+        logger = logging.getLogger("graphclaw.llm.trace")
+        for handler in list(logger.handlers):
+            logger.removeHandler(handler)
+            handler.close()
+        trace_mod._llm_trace_logger = None
+
+    # Reset before AND after so these tests are isolated from any handler left
+    # on the shared "graphclaw.llm.trace" logger by other tests in the suite.
+    _reset()
     yield
-    # Reset after each test
-    logger = logging.getLogger("graphclaw.llm.trace")
-    logger.handlers.clear()
-    trace_mod._llm_trace_logger = None
+    _reset()
 
 
 class TestLLMTraceLogger:

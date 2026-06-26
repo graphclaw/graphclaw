@@ -42,7 +42,9 @@ async def test_selects_openai_when_only_openai_key_present(monkeypatch: pytest.M
 
 
 @pytest.mark.asyncio
-async def test_selects_default_provider_when_both_keys_present_openai(monkeypatch: pytest.MonkeyPatch):
+async def test_selects_default_provider_when_both_keys_present_openai(
+    monkeypatch: pytest.MonkeyPatch,
+):
     monkeypatch.setenv("GRAPHCLAW_DEFAULT_LLM_PROVIDER", "openai")
     secrets = _FakeSecretsClient(
         {
@@ -58,7 +60,9 @@ async def test_selects_default_provider_when_both_keys_present_openai(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_selects_default_provider_when_both_keys_present_anthropic(monkeypatch: pytest.MonkeyPatch):
+async def test_selects_default_provider_when_both_keys_present_anthropic(
+    monkeypatch: pytest.MonkeyPatch,
+):
     monkeypatch.setenv("GRAPHCLAW_DEFAULT_LLM_PROVIDER", "anthropic")
     secrets = _FakeSecretsClient(
         {

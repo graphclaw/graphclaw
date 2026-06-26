@@ -760,12 +760,7 @@ class TestOnboardingToolDispatch:
     async def test_tool_set_agent_name_persists_profile_frontmatter(self):
         storage = MagicMock()
         storage.read = AsyncMock(
-            return_value=(
-                b"---\n"
-                b"onboarding_complete: false\n"
-                b"onboarding_state: WELCOME\n"
-                b"---\n"
-            )
+            return_value=(b"---\nonboarding_complete: false\nonboarding_state: WELCOME\n---\n")
         )
         storage.write = AsyncMock()
         loop, _repo, _engine = _make_loop(storage=storage)
