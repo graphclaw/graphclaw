@@ -49,3 +49,6 @@
 - name: dependencies
   color: "0366d6"
   description: Dependency updates.
+- name: run-integration
+  color: "1d76db"
+  description: Run backend integration tests on this pull request.

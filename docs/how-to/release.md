@@ -6,11 +6,14 @@ This guide defines the backend release flow for graphclaw.
 
 - You have maintainer write access to graphclaw/graphclaw.
 - Branch protection checks on main are green.
-- PR title and commits follow Conventional Commits + DCO.
+- PR title and commits follow Conventional Commits (DCO optional in solo mode).
 - Local quality gate passes:
   - ruff check --fix src/ tests/
   - ruff format src/ tests/
   - pytest tests/
+- Release hardening checks pass (manual or workflow-dispatched):
+  - integration tests (`tests/test_db/`)
+  - agent eval workflow (`.github/workflows/nightly-evals.yml`)
 
 ## Standard Release Flow
 
