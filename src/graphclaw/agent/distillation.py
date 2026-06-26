@@ -53,8 +53,8 @@ logger = logging.getLogger(__name__)
 _DEFAULT_MODEL = os.environ.get("GRAPHCLAW_DISTILLATION_MODEL", "claude-haiku-4-5")
 _MAX_TOKENS = 512
 _TEMPERATURE = 0.0
-_MAX_BODY_CHARS = 800
-_MAX_INTELLIGENCE_WORDS = 500
+_MAX_BODY_CHARS = int(os.environ.get("GRAPHCLAW_MEMORY_DISTILL_MAX_CHARS", "1500"))
+_MAX_INTELLIGENCE_WORDS = int(os.environ.get("GRAPHCLAW_MEMORY_INTELLIGENCE_MAX_WORDS", "500"))
 
 # Simple extraction prompt used when no task is referenced
 _GENERAL_DISTILLATION_PROMPT = """\

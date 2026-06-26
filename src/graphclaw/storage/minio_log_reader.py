@@ -53,7 +53,7 @@ class MinioLogReader:
         items: list[dict[str, Any]] = []
         cursor_file_found = start_cursor is None
 
-        for file_key in file_keys:
+        for file_index, file_key in enumerate(file_keys):
             if start_cursor and not cursor_file_found:
                 if file_key != start_cursor.file_key:
                     continue
@@ -92,12 +92,68 @@ class MinioLogReader:
 
                 items.append(record)
                 if len(items) >= limit:
-                    next_cursor = encode_cursor(
-                        PageCursor(file_key=file_key, line_offset=index + 1)
+                    has_more = await self._has_more_matching_records(
+                        file_keys=file_keys,
+                        start_file_index=file_index,
+                        start_line_offset=index + 1,
+                        from_dt=from_dt,
+                        to_dt=to_dt,
+                        include_record=include_record,
+                    )
+                    next_cursor = (
+                        encode_cursor(PageCursor(file_key=file_key, line_offset=index + 1))
+                        if has_more
+                        else None
                     )
                     return items, next_cursor
 
         return items, None
+
+    async def _has_more_matching_records(
+        self,
+        *,
+        file_keys: list[str],
+        start_file_index: int,
+        start_line_offset: int,
+        from_dt: datetime,
+        to_dt: datetime,
+        include_record: Callable[[dict[str, Any]], bool],
+    ) -> bool:
+        """Return True when at least one additional matching record exists after a cursor."""
+        for file_index in range(start_file_index, len(file_keys)):
+            file_key = file_keys[file_index]
+            raw = await self._storage.read(file_key)
+            lines = raw.decode("utf-8", errors="replace").splitlines()
+            lines.reverse()
+
+            line_offset = start_line_offset if file_index == start_file_index else 0
+
+            for index in range(line_offset, len(lines)):
+                line = lines[index].strip()
+                if not line:
+                    continue
+
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+
+                if not isinstance(record, dict):
+                    continue
+
+                timestamp = parse_record_timestamp(record)
+                if timestamp is None:
+                    continue
+
+                if timestamp < from_dt or timestamp >= to_dt:
+                    continue
+
+                if not include_record(record):
+                    continue
+
+                return True
+
+        return False
 
     async def _list_candidate_files(
         self,

@@ -76,6 +76,7 @@ Dependencies
 from __future__ import annotations
 
 import logging
+import os
 import re
 import uuid
 from datetime import datetime
@@ -728,7 +729,7 @@ async def estimate_context_usage(
     storage_client: StorageClientDep,
 ) -> ContextUsageResponse:
     """Sum active memory sizes across all three memory tiers."""
-    budget_chars = 80_000
+    budget_chars = int(os.environ.get("GRAPHCLAW_MEMORY_BUDGET_CHARS", "80000"))
 
     # Working context
     working_chars = 0

@@ -462,7 +462,7 @@ Wave 4 (sequential): WS-P5-G (gateway wiring), WS-P5-H (tests)
 
 ---
 
-### Wave Tiered-Memory — Functional Three-Tier Agent Memory 🔄 IN PROGRESS (2026-06-24)
+### Wave Tiered-Memory — Functional Three-Tier Agent Memory ✅ DONE (2026-06-25)
 
 **Goal:** Make the tiered memory system (working / episodic / semantic) functional end-to-end so the
 MainOrchestrator can autonomously read, recall, compact, and monitor its own memory. Working memory is
