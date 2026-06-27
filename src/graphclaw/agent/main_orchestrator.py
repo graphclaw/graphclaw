@@ -5052,7 +5052,12 @@ class MainOrchestrator:
     async def _tool_set_user_name(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
         from graphclaw.agent.tools.onboarding_tools import set_user_name  # noqa: PLC0415
 
-        return await set_user_name(user_id=user_id, name=args.get("name", ""), store=self._store)
+        return await set_user_name(
+            user_id=user_id,
+            name=args.get("name", ""),
+            store=self._store,
+            caller_context=self._current_caller_context,
+        )
 
     async def _tool_set_agent_name(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
         from graphclaw.agent.tools.onboarding_tools import set_agent_name  # noqa: PLC0415
@@ -5072,6 +5077,7 @@ class MainOrchestrator:
             role=args.get("role", ""),
             timezone=args.get("timezone", "UTC"),
             store=self._store,
+            caller_context=self._current_caller_context,
         )
 
     async def _tool_add_user_identity(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
@@ -5082,6 +5088,7 @@ class MainOrchestrator:
             channel=args.get("channel", ""),
             value=args.get("value", ""),
             store=self._store,
+            caller_context=self._current_caller_context,
         )
 
     async def _tool_set_working_hours(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
@@ -5092,6 +5099,7 @@ class MainOrchestrator:
             start=args.get("start", "09:00"),
             end=args.get("end", "18:00"),
             store=self._store,
+            caller_context=self._current_caller_context,
         )
 
     async def _tool_set_preferences(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
@@ -5104,6 +5112,7 @@ class MainOrchestrator:
             briefing_style=args.get("briefing_style", "summary"),
             default_follow_up_days=int(args.get("default_follow_up_days", 3)),
             store=self._store,
+            caller_context=self._current_caller_context,
         )
 
     async def _tool_seed_policy_from_template(

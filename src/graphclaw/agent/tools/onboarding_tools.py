@@ -34,10 +34,14 @@ async def set_user_name(
     user_id: str,
     name: str,
     store: Any,
+    caller_context: Any = None,
     **_: Any,
 ) -> dict:
     """Update the user's display name on their UserNode."""
-    await store.update_node(user_id, {"name": name})
+    if caller_context is not None:
+        await store.update_node(user_id, {"name": name}, caller_context=caller_context)
+    else:
+        await store.update_node(user_id, {"name": name})
     return {"updated": True, "name": name}
 
 
@@ -77,6 +81,7 @@ async def set_user_persona(
     role: str,
     timezone: str | None = None,
     store: Any = None,
+    caller_context: Any = None,
     **_: Any,
 ) -> dict:
     """Update role and optionally timezone on the user's UserNode."""
@@ -84,7 +89,10 @@ async def set_user_persona(
     if timezone:
         updates["timezone"] = timezone
     if store:
-        await store.update_node(user_id, updates)
+        if caller_context is not None:
+            await store.update_node(user_id, updates, caller_context=caller_context)
+        else:
+            await store.update_node(user_id, updates)
     return {"updated": True, "role": role, "timezone": timezone}
 
 
@@ -93,6 +101,7 @@ async def add_user_identity(
     channel: str,
     value: str,
     store: Any = None,
+    caller_context: Any = None,
     **_: Any,
 ) -> dict:
     """Add a channel identity entry to the user's UserNode.identities.
@@ -103,7 +112,10 @@ async def add_user_identity(
     if store is None:
         return {"updated": False, "error": "store not provided"}
     try:
-        node_raw = await store.get_node(user_id)
+        if caller_context is not None:
+            node_raw = await store.get_node(user_id, caller_context=caller_context)
+        else:
+            node_raw = await store.get_node(user_id)
         if node_raw is None:
             return {"updated": False, "error": "user not found"}
         identities = node_raw.get("identities", {}) if isinstance(node_raw, dict) else {}
@@ -127,7 +139,10 @@ async def add_user_identity(
         else:
             identities[key] = value
 
-        await store.update_node(user_id, {"identities": identities})
+        if caller_context is not None:
+            await store.update_node(user_id, {"identities": identities}, caller_context=caller_context)
+        else:
+            await store.update_node(user_id, {"identities": identities})
         return {"updated": True, "channel": channel, "value": value}
     except Exception as exc:  # noqa: BLE001
         logger.warning("add_user_identity failed: %s", exc)
@@ -139,12 +154,16 @@ async def set_working_hours(
     start: str,
     end: str,
     store: Any = None,
+    caller_context: Any = None,
     **_: Any,
 ) -> dict:
     """Update working hours on the user's UserNode."""
     if store is None:
         return {"updated": False}
-    await store.update_node(user_id, {"working_hours": {"start": start, "end": end}})
+    if caller_context is not None:
+        await store.update_node(user_id, {"working_hours": {"start": start, "end": end}}, caller_context=caller_context)
+    else:
+        await store.update_node(user_id, {"working_hours": {"start": start, "end": end}})
     return {"updated": True, "start": start, "end": end}
 
 
@@ -155,13 +174,17 @@ async def set_preferences(
     briefing_style: str | None = None,
     default_follow_up_days: int | None = None,
     store: Any = None,
+    caller_context: Any = None,
     **_: Any,
 ) -> dict:
     """Update UserPreferences on the user's UserNode."""
     if store is None:
         return {"updated": False}
     try:
-        node_raw = await store.get_node(user_id)
+        if caller_context is not None:
+            node_raw = await store.get_node(user_id, caller_context=caller_context)
+        else:
+            node_raw = await store.get_node(user_id)
         prefs = node_raw.get("preferences", {}) if isinstance(node_raw, dict) else {}
         if not isinstance(prefs, dict):
             prefs = {}
@@ -173,7 +196,10 @@ async def set_preferences(
             prefs["briefing_style"] = briefing_style
         if default_follow_up_days is not None:
             prefs["default_follow_up_days"] = default_follow_up_days
-        await store.update_node(user_id, {"preferences": prefs})
+        if caller_context is not None:
+            await store.update_node(user_id, {"preferences": prefs}, caller_context=caller_context)
+        else:
+            await store.update_node(user_id, {"preferences": prefs})
         return {"updated": True, "preferences": prefs}
     except Exception as exc:  # noqa: BLE001
         return {"updated": False, "error": str(exc)}
