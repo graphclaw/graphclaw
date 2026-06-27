@@ -213,6 +213,7 @@ class MainOrchestrator:
         db_pool: Any | None = None,
     ) -> None:
         self._repo = graph_repo
+        self._store = graph_repo
         # Wave 0 (FR-DEL-002): admin_principal store for archive operations.
         # Falls back to self._repo for backwards-compat tests; real deployments
         # must pass admin_repo so lifecycle-field writes succeed.
