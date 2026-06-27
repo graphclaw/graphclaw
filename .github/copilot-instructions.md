@@ -1,84 +1,87 @@
-# Copilot Instructions - GraphClaw Lifecycle Guardrails
+# Copilot Instructions - GraphClaw Fast-Lane Guardrails
 
-These instructions are mandatory for all future development waves, release cycles, and maintenance sessions.
+These instructions are mandatory for the current solo-maintainer development mode.
 
 ## Primary Objective
 
-Keep delivery consistent with the PR-first software lifecycle established during launch hardening:
+Deliver faster by shipping small, verified increments with clear traceability:
 
-- issue-driven planning
-- branch-based implementation
-- PR-only merge path to main
-- evidence-backed issue closeout
-- release discipline through automation
+- direct push is the default path for routine work
+- commit frequently in logical blocks
+- use PRs only when risk, scope, or collaboration requires it
+- keep release safety, security scanning, and automation intact
 
-## Solo-Maintainer Override (Current Operating Mode)
+## Active Operating Mode (Solo Maintainer)
 
-When the project is operated by a single active maintainer, apply this fast lane:
+While there is a single active maintainer:
 
 - direct pushes to `main` are allowed for the repo owner
-- DCO is not a required blocking check in branch protection
-- PRs remain recommended for risky, cross-cutting, or release-sensitive changes
-- release automation, secret scanning, and conventional commits remain mandatory
+- opening a PR for every request is not required
+- DCO is not a blocking branch-protection requirement
+- Conventional Commit messages remain mandatory
 
-Re-enable strict multi-maintainer policy (PR-only + required approvals + required DCO) when another active maintainer is onboarded.
+Re-enable strict multi-maintainer policy (PR-only, required approvals, and required DCO) when another active maintainer is onboarded.
+
+## Commit Cadence (Required)
+
+1. Commit after each completed logical block (one fix, one behavior change, or one coherent refactor).
+2. Prefer multiple small commits over one mixed-scope commit.
+3. Push frequently so GitHub history reflects real progress.
+4. If a request includes multiple independent blocks, use separate commits for each block.
 
 ## Do
 
-1. Use main as the only default integration branch.
-2. Start every non-trivial change from a tracked issue or wave item.
-3. Create short-lived branches from origin/main for all work.
-4. Use Conventional Commit style in PR titles and commits.
-5. Keep Conventional Commit messages for all changes; use `git commit -s` when contributing via PR or when legal provenance is needed.
-6. Direct pushes to `main` must use Conventional Commit messages; `.github/workflows/conventional-commits-push.yml` validates this on push.
-7. Use PRs for substantial, risky, or collaborative changes; direct push is allowed in solo fast-lane mode.
-8. Link each PR to its tracking issue and describe scope and validation.
-9. Run the backend quality gate before merge:
+1. Use `main` as the default integration branch.
+2. Start from a tracked issue or wave item when one exists; require issues for multi-PR efforts and long-running epics.
+3. Keep Conventional Commit style in all commits and PR titles.
+4. Run targeted checks for the changed area before each logical-block commit.
+5. Run the full backend quality gate for release-sensitive, cross-cutting, or high-risk changes:
    - `ruff check --fix src/ tests/ && ruff format src/ tests/ && pytest tests/`
-10. Keep launch/evidence docs synchronized with implementation changes when applicable.
-11. Verify required checks are green before merge.
-12. Use squash merge and delete feature branches after merge.
-13. Post evidence and resolution notes on issues before closing them.
-14. Record explicit waiver notes when closing with accepted exceptions.
-15. Use release-please and release workflows as the canonical release path.
-16. Validate release artifacts after publish (PyPI, GHCR, attestations, docs links as applicable).
+6. Use PRs for risky, cross-cutting, collaborative, or release-sensitive changes.
+7. Keep docs and evidence synchronized when behavior, contracts, or operations change.
+8. Use release-please and release workflows as the canonical release path.
+9. Validate published release artifacts (PyPI, GHCR, attestations, docs links).
 
 ## Do Not
 
 1. Do not force-push or rewrite `main` history.
-2. Do not use direct pushes for risky changes that should go through PR review.
-3. Do not use master for new work, workflow filters, or documentation references.
-4. Do not bypass PR checks unless there is a documented maintainer-approved emergency.
-5. Do not merge PRs with failing required checks.
-6. Do not close tracking issues without evidence, links, or explicit waiver rationale.
-7. Do not create ad-hoc release tags outside release automation unless emergency procedure is documented.
-8. Do not leave parent tracker issues stale after child issue state changes.
+2. Do not skip validation entirely; run at least targeted checks before pushing.
+3. Do not bundle unrelated work into one catch-all commit.
+4. Do not bypass required checks for PR-based risky work unless emergency procedure is documented.
+5. Do not create ad-hoc release tags outside release automation unless emergency procedure is documented.
+6. Do not close tracked issues without evidence and resolution notes.
 
-## Standard Delivery Flow
+## Fast Delivery Flow (Default)
 
-1. Confirm issue scope and done criteria.
-2. Branch from origin/main.
-3. Implement incrementally with tests.
-4. Update documentation and evidence in the same change set.
-5. Run local quality gate.
-6. Open PR with linked issue and validation notes.
-7. Wait for required checks.
-8. Merge through PR (squash), then delete branch.
-9. Add closeout comment to issue with links to PR, evidence, and any waivers.
-10. Close issue only after verified completion.
+1. Confirm scope and split work into logical blocks.
+2. Implement one logical block.
+3. Run targeted validation for that block.
+4. Commit immediately using Conventional Commit format.
+5. Push directly to `main` for routine solo work.
+6. Repeat per logical block until the request is complete.
+7. Open a PR only when risk, coordination, or release impact justifies review.
+
+## PR Decision Rule
+
+Open a PR when any of the following are true:
+
+- change is risky, cross-cutting, or hard to roll back
+- change affects release flow, security, auth, data migration, or public contracts
+- change needs asynchronous review from another maintainer
+
+Otherwise, direct push with logical-block commits is the expected fast path.
 
 ## Release Flow Requirements
 
-1. Release PRs are created/managed by release-please.
-2. Release publication occurs through release workflows.
-3. Post-release validation must include install and artifact checks.
+1. Release PRs are created and managed by release-please.
+2. Release publication happens through release workflows.
+3. Post-release validation must include install/runtime and artifact checks.
 4. Any release exception must be documented in issue comments and evidence docs.
 
 ## Conflict Rule
 
 If instructions conflict across docs, apply the stricter rule that preserves:
 
-- branch protection intent
-- PR-first workflow
-- test and quality gates
-- evidence-backed traceability
+- repository safety and traceability
+- test and quality standards
+- release integrity
