@@ -2259,6 +2259,31 @@ class MainOrchestrator:
                 result = await self._tool_seed_policy_from_template(user_id, arguments)
             elif name == "complete_onboarding":
                 result = await self._tool_complete_onboarding(user_id, arguments)
+
+            # Advance the onboarding FSM after each state-driving tool succeeds.
+            # Only advance when current state matches the tool's primary state to
+            # prevent skipping states on repeated calls.
+            _ONBOARDING_ADVANCE_MAP = {
+                "set_user_name": "WELCOME",
+                "set_user_persona": "PERSONA",
+                "add_user_identity": "CHANNELS",
+                "set_working_hours": "WORKING_HOURS",
+                "set_preferences": "PREFERENCES",
+            }
+            if (
+                name in _ONBOARDING_ADVANCE_MAP
+                and not result.get("error")
+                and self._storage is not None
+            ):
+                try:
+                    from graphclaw.agent.onboarding import OnboardingFSM  # noqa: PLC0415
+
+                    _fsm = OnboardingFSM(storage=self._storage)
+                    _cur = await _fsm.get_state(user_id)
+                    if _cur.value == _ONBOARDING_ADVANCE_MAP[name]:
+                        await _fsm.advance(user_id)
+                except Exception as _fsm_exc:  # noqa: BLE001
+                    logger.warning("onboarding FSM advance failed: %s", _fsm_exc)
             else:
                 result = {"error": f"Unknown tool: {name}"}
         except Exception as exc:  # noqa: BLE001
