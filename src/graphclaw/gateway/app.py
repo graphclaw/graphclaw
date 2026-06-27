@@ -592,11 +592,19 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
                         trigger_user_id = os.environ.get("GRAPHCLAW_USER_ID", "")
 
                         if trigger_user_id:
+                            from graphclaw.cross_tenant.acl import CallerContext as _CallerContext  # noqa: PLC0415
+
+                            _trigger_ctx = _CallerContext(
+                                user_id=trigger_user_id,
+                                org_id="default",
+                                principal="admin_principal",
+                            )
                             if app.state.graph_store is not None:
                                 persisted = await load_trigger_schedule(
                                     app.state.graph_store,
                                     trigger_user_id,
                                     agent_id=agent_id,
+                                    caller_context=_trigger_ctx,
                                 )
                                 for cfg in persisted:
                                     scheduler.register(cfg)
@@ -646,6 +654,7 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
                                         app.state.graph_store,
                                         trigger_user_id,
                                         list(getattr(scheduler, "_triggers", {}).values()),
+                                        caller_context=_trigger_ctx,
                                     )
                                     logger.info(
                                         "GraphClaw: imported trigger schedule into DB for user=%s",
@@ -695,6 +704,7 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
                                             app.state.graph_store,
                                             trigger_user_id,
                                             [fallback],
+                                            caller_context=_trigger_ctx,
                                         )
                                     except Exception as exc:  # noqa: BLE001
                                         logger.warning(
