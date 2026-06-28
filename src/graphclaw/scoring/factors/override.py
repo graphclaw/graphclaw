@@ -30,6 +30,8 @@ to ensure backward compatibility during the Phase 0 migration period.
 
 from __future__ import annotations
 
+import logging
+
 from graphclaw.models.enums import OverrideType
 
 # Mapping of override type to score adjustment.
@@ -45,6 +47,8 @@ _OVERRIDE_VALUES: dict[str, float | None] = {
     "WAIT": -0.3,
     "SNOOZED": None,
 }
+
+logger = logging.getLogger(__name__)
 
 
 def human_override_score(override_type: OverrideType | str) -> float | None:
@@ -62,7 +66,16 @@ def human_override_score(override_type: OverrideType | str) -> float | None:
         task should be excluded from the action queue entirely (SNOOZE).
     """
     key = override_type.value if hasattr(override_type, "value") else str(override_type)
-    return _OVERRIDE_VALUES.get(key, 0.0)
+    score = _OVERRIDE_VALUES.get(key, 0.0)
+    logger.debug(
+        "factor.w5.override",
+        extra={
+            "event_type": "factor.w5.override",
+            "override_type": key,
+            "raw_score": score,
+        },
+    )
+    return score
 
 
 __all__ = ["human_override_score"]

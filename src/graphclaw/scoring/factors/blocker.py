@@ -27,6 +27,8 @@ BLOCKS edge strength was retrieved from the AGE property graph.
 
 from __future__ import annotations
 
+import logging
+
 from graphclaw.models.enums import EdgeStrength
 
 _BLOCKER_SCORES: dict[str, float] = {
@@ -36,6 +38,8 @@ _BLOCKER_SCORES: dict[str, float] = {
     "SOFT": 0.6,
     "NONE": 0.0,
 }
+
+logger = logging.getLogger(__name__)
 
 
 def blocker_score(blocker_type: EdgeStrength | str) -> float:
@@ -60,7 +64,16 @@ def blocker_score(blocker_type: EdgeStrength | str) -> float:
     """
     key = blocker_type.value if hasattr(blocker_type, "value") else str(blocker_type or "NONE")
     key = key.strip().upper()
-    return _BLOCKER_SCORES.get(key, 0.0)
+    score = _BLOCKER_SCORES.get(key, 0.0)
+    logger.debug(
+        "factor.w4.blocker",
+        extra={
+            "event_type": "factor.w4.blocker",
+            "blocker_type": key,
+            "raw_score": score,
+        },
+    )
+    return score
 
 
 __all__ = ["blocker_score"]

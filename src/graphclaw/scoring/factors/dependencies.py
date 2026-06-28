@@ -28,6 +28,10 @@ scoring batch to keep scores comparable across graph sizes.
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def dependency_weight(direct_dependents: int, transitive_dependents: int) -> float:
     """Compute the dependency weight score for a task.
@@ -50,7 +54,17 @@ def dependency_weight(direct_dependents: int, transitive_dependents: int) -> flo
         Raw dependency weight.  Not bounded to [0, 1] — the engine
         normalises or caps as needed.
     """
-    return direct_dependents + (transitive_dependents * 0.5)
+    score = direct_dependents + (transitive_dependents * 0.5)
+    logger.debug(
+        "factor.w2.dependencies",
+        extra={
+            "event_type": "factor.w2.dependencies",
+            "direct_dependents": direct_dependents,
+            "transitive_dependents": transitive_dependents,
+            "raw_score": score,
+        },
+    )
+    return score
 
 
 __all__ = ["dependency_weight"]

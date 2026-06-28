@@ -610,6 +610,15 @@ class MainOrchestrator:
             scope,
             trigger_source,
         )
+        logger.info(
+            "scoring.cycle.start",
+            extra={
+                "event_type": "scoring.cycle.start",
+                "user_id": session_user_id,
+                "scope": scope,
+                "trigger_source": trigger_source,
+            },
+        )
 
         # Heartbeat runs skip work when no mutations have invalidated scores.
         if trigger_source == "heartbeat" and not self._score_cache_dirty:
@@ -640,6 +649,29 @@ class MainOrchestrator:
 
             # 2. Build scoring context.
             context = await self.build_scoring_context(tasks)
+            try:
+                from graphclaw.cross_tenant.acl import CallerContext  # noqa: PLC0415
+
+                repo_principal = str(getattr(self._repo, "principal_name", "agent_principal"))
+                context.caller_context = CallerContext(
+                    user_id=session_user_id,
+                    org_id="default",
+                    principal=repo_principal or "agent_principal",
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(
+                    "AgentLoop: could not attach scoring caller_context for persistence: %s",
+                    exc,
+                )
+            logger.info(
+                "scoring.context.ready",
+                extra={
+                    "event_type": "scoring.context.ready",
+                    "user_id": session_user_id,
+                    "task_count": len(tasks),
+                    "scope": scope,
+                },
+            )
 
             # 3. Score all tasks and return.
             cycle_engine = await self._build_cycle_scoring_engine(user_id)

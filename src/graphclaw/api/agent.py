@@ -269,7 +269,7 @@ async def get_action_queue(
 
     if agent_loop is not None and hasattr(agent_loop, "run_cycle"):
         try:
-            queue = await agent_loop.run_cycle()
+            queue = await agent_loop.run_cycle(user_id=user_id, trigger_source="on_demand")
         except Exception as exc:
             logger.warning("agent: run_cycle failed: %s", exc)
             queue = []

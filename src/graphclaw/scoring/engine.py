@@ -54,7 +54,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from graphclaw.models.enums import GoalPriority, OverrideType, TaskState
 from graphclaw.models.nodes import TaskNode
@@ -74,6 +74,11 @@ if TYPE_CHECKING:
     from graphclaw.db.base import GraphStore
 
 logger = logging.getLogger(__name__)
+
+
+def _task_user_id(task: TaskNode) -> str:
+    """Return a stable user identifier for scoring log correlation."""
+    return str(task.owned_by or "")
 
 
 # ---------------------------------------------------------------------------
@@ -121,6 +126,7 @@ class ScoringContext:
     task_resource_risk_signals: dict[str, float] = field(default_factory=dict)
     task_constraints: dict[str, list[dict]] = field(default_factory=dict)
     graph_repo: GraphStore | None = field(default=None, compare=False)
+    caller_context: Any | None = field(default=None, compare=False)
 
 
 # ---------------------------------------------------------------------------
@@ -231,6 +237,16 @@ class ScoringEngine:
         """
         cached = self.cache.get(task.id)
         if cached is not None:
+            logger.debug(
+                "scoring.cache.hit",
+                extra={
+                    "event_type": "scoring.cache.hit",
+                    "task_id": task.id,
+                    "user_id": _task_user_id(task),
+                    "cached_rank": cached.rank,
+                    "cached_score": cached.final_score,
+                },
+            )
             return cached
 
         now = datetime.now(timezone.utc)
@@ -248,12 +264,38 @@ class ScoringEngine:
 
         f1_raw = timeline_urgency(days_remaining, effort_days)
         f1_weighted = f1_raw * self.w1
+        logger.debug(
+            "factor.w1.timeline",
+            extra={
+                "event_type": "factor.w1.timeline",
+                "task_id": tid,
+                "user_id": _task_user_id(task),
+                "days_remaining": days_remaining,
+                "effort_days": effort_days,
+                "raw_score": f1_raw,
+                "weight": self.w1,
+                "weighted_score": f1_weighted,
+            },
+        )
 
         # --- Factor 2: Dependency Weight ---
         direct_deps = context.task_direct_dependents.get(tid, 0)
         trans_deps = context.task_transitive_dependents.get(tid, 0)
         f2_raw = dependency_weight(direct_deps, trans_deps)
         f2_weighted = f2_raw * self.w2
+        logger.debug(
+            "factor.w2.dependencies",
+            extra={
+                "event_type": "factor.w2.dependencies",
+                "task_id": tid,
+                "user_id": _task_user_id(task),
+                "direct_dependents": direct_deps,
+                "transitive_dependents": trans_deps,
+                "raw_score": f2_raw,
+                "weight": self.w2,
+                "weighted_score": f2_weighted,
+            },
+        )
 
         # --- Factor 3: Critical Path ---
         goal_priority_raw = context.task_goal_priority.get(tid, GoalPriority.P3)
@@ -269,11 +311,38 @@ class ScoringEngine:
             goal_priority = GoalPriority.P3
         f3_raw = critical_path_score(task.on_critical_path, goal_priority)
         f3_weighted = f3_raw * self.w3
+        logger.debug(
+            "factor.w3.critical_path",
+            extra={
+                "event_type": "factor.w3.critical_path",
+                "task_id": tid,
+                "user_id": _task_user_id(task),
+                "on_critical_path": task.on_critical_path,
+                "goal_priority": (
+                    goal_priority.value if hasattr(goal_priority, "value") else str(goal_priority)
+                ),
+                "raw_score": f3_raw,
+                "weight": self.w3,
+                "weighted_score": f3_weighted,
+            },
+        )
 
         # --- Factor 4: Blocker Score ---
         blocker_type = context.task_blocker_type.get(tid, "NONE")
         f4_raw = blocker_score(blocker_type)
         f4_weighted = f4_raw * self.w4
+        logger.debug(
+            "factor.w4.blocker",
+            extra={
+                "event_type": "factor.w4.blocker",
+                "task_id": tid,
+                "user_id": _task_user_id(task),
+                "blocker_type": blocker_type,
+                "raw_score": f4_raw,
+                "weight": self.w4,
+                "weighted_score": f4_weighted,
+            },
+        )
 
         # --- Factor 5: Human Override ---
         modifiers: list[ScoreModifier] = []
@@ -286,6 +355,23 @@ class ScoringEngine:
             else:
                 f5_raw = override_val
         f5_weighted = f5_raw * self.w5
+        logger.debug(
+            "factor.w5.override",
+            extra={
+                "event_type": "factor.w5.override",
+                "task_id": tid,
+                "user_id": _task_user_id(task),
+                "is_overridden": task.override.is_overridden,
+                "override_type": (
+                    task.override.override_type.value
+                    if task.override.override_type is not None
+                    else None
+                ),
+                "raw_score": f5_raw,
+                "weight": self.w5,
+                "weighted_score": f5_weighted,
+            },
+        )
 
         # --- Factor 6: Resource Risk ---
         reliability = context.task_resource_reliability.get(tid, 0.8)
@@ -293,12 +379,38 @@ class ScoringEngine:
         signals = context.task_resource_risk_signals.get(tid, 0.0)
         f6_raw = resource_risk(reliability, load, signals)
         f6_weighted = f6_raw * self.w6
+        logger.debug(
+            "factor.w6.resource_risk",
+            extra={
+                "event_type": "factor.w6.resource_risk",
+                "task_id": tid,
+                "user_id": _task_user_id(task),
+                "reliability": reliability,
+                "load_factor": load,
+                "risk_signals": signals,
+                "raw_score": f6_raw,
+                "weight": self.w6,
+                "weighted_score": f6_weighted,
+            },
+        )
 
         # --- Factor 7: Constraint Pressure ---
         constraints_raw = context.task_constraints.get(tid, [])
         constraints = constraints_raw if isinstance(constraints_raw, list) else []
         f7_raw = constraint_pressure(constraints)
         f7_weighted = f7_raw * self.w7
+        logger.debug(
+            "factor.w7.constraint",
+            extra={
+                "event_type": "factor.w7.constraint",
+                "task_id": tid,
+                "user_id": _task_user_id(task),
+                "constraint_count": len(constraints),
+                "raw_score": f7_raw,
+                "weight": self.w7,
+                "weighted_score": f7_weighted,
+            },
+        )
 
         # --- Final Score ---
         # Weighted sum of all 7 factors.  Weights sum to 1.0 so the baseline
@@ -316,6 +428,15 @@ class ScoringEngine:
         )
         if final_score < 0.0:
             final_score = 0.0
+        logger.info(
+            "scoring.final.computed",
+            extra={
+                "event_type": "scoring.final.computed",
+                "task_id": tid,
+                "user_id": _task_user_id(task),
+                "final_score": final_score,
+            },
+        )
 
         # Chain urgency rollup applied later by score_all; stored here from
         # task.scoring if it was pre-set.
@@ -477,6 +598,26 @@ class ScoringEngine:
             suppressed = await apply_sequential_suppression(scoreable, context.graph_repo)
             rollup_scores = await urgency_rollup(scoreable, context.graph_repo)
 
+        for task in scoreable:
+            logger.debug(
+                "scoring.topology.suppression",
+                extra={
+                    "event_type": "scoring.topology.suppression",
+                    "task_id": task.id,
+                    "user_id": _task_user_id(task),
+                    "suppressed": bool(suppressed.get(task.id, False)),
+                },
+            )
+            logger.debug(
+                "scoring.topology.rollup",
+                extra={
+                    "event_type": "scoring.topology.rollup",
+                    "task_id": task.id,
+                    "user_id": _task_user_id(task),
+                    "rollup_score": float(rollup_scores.get(task.id, 0.0)),
+                },
+            )
+
         # Apply rollup to task scoring blocks before scoring.
         for task in scoreable:
             rollup = rollup_scores.get(task.id, 0.0)
@@ -506,6 +647,7 @@ class ScoringEngine:
         # Persist scoring block to graph store.
         if context.graph_repo is not None:
             tasks_by_id = {t.id: t for t in scoreable}
+            caller_context = getattr(context, "caller_context", None)
             for expl in ranked_explanations:
                 task = tasks_by_id.get(expl.node_id)
                 if task is None:
@@ -516,15 +658,56 @@ class ScoringEngine:
                         if task.scoring.last_scored_at
                         else None
                     )
-                    await context.graph_repo.update_node(
-                        task.id,
-                        {
-                            "scoring": task.scoring.model_dump(mode="json"),
-                            "last_scored_at": scored_at_iso,
+                    updates = {
+                        "scoring": task.scoring.model_dump(mode="json"),
+                        "last_scored_at": scored_at_iso,
+                    }
+                    if caller_context is not None:
+                        try:
+                            await context.graph_repo.update_node(
+                                task.id,
+                                updates,
+                                caller_context=caller_context,
+                            )
+                        except TypeError:
+                            await context.graph_repo.update_node(task.id, updates)
+                    else:
+                        await context.graph_repo.update_node(task.id, updates)
+                    logger.info(
+                        "scoring.persist.success",
+                        extra={
+                            "event_type": "scoring.persist.success",
+                            "task_id": task.id,
+                            "user_id": _task_user_id(task),
+                            "final_score": expl.final_score,
                         },
                     )
                 except Exception as exc:
-                    logger.warning("score_all: could not persist score for %s: %s", task.id, exc)
+                    logger.warning(
+                        "score_all: could not persist score for %s: %s",
+                        task.id,
+                        exc,
+                        extra={
+                            "event_type": "scoring.persist.failure",
+                            "task_id": task.id,
+                            "user_id": _task_user_id(task),
+                        },
+                    )
+
+        for expl in ranked_explanations:
+            task = tasks_by_id.get(expl.node_id)
+            if task is None:
+                continue
+            logger.info(
+                "scoring.queue.rank_assigned",
+                extra={
+                    "event_type": "scoring.queue.rank_assigned",
+                    "task_id": expl.node_id,
+                    "user_id": _task_user_id(task),
+                    "rank": expl.rank,
+                    "final_score": expl.final_score,
+                },
+            )
 
         tasks_by_id = {t.id: t for t in scoreable}
         queue = build_action_queue([(tasks_by_id[e.node_id], e) for e in ranked_explanations])

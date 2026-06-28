@@ -29,6 +29,10 @@ load is secondary, and point-in-time risk signals are the weakest (most volatile
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def resource_risk(
     reliability: float,
@@ -62,8 +66,18 @@ def resource_risk(
     reliability_norm = _clamp01(reliability)
     load_factor_norm = _clamp01(load_factor)
     risk_signals_norm = _clamp01(risk_signals)
-
-    return (1.0 - reliability_norm) * 0.5 + load_factor_norm * 0.3 + risk_signals_norm * 0.2
+    score = (1.0 - reliability_norm) * 0.5 + load_factor_norm * 0.3 + risk_signals_norm * 0.2
+    logger.debug(
+        "factor.w6.resource_risk",
+        extra={
+            "event_type": "factor.w6.resource_risk",
+            "reliability": reliability_norm,
+            "load_factor": load_factor_norm,
+            "risk_signals": risk_signals_norm,
+            "raw_score": score,
+        },
+    )
+    return score
 
 
 __all__ = ["resource_risk"]

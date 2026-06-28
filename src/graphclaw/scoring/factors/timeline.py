@@ -36,6 +36,10 @@ more urgently than one with trivial remaining work.
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def timeline_urgency(days_remaining: float, estimated_effort_days: float) -> float:
     """Compute the timeline urgency score for a task.
@@ -74,6 +78,15 @@ def timeline_urgency(days_remaining: float, estimated_effort_days: float) -> flo
     elif slack < 1:
         base += 0.15
 
+    logger.debug(
+        "factor.w1.timeline",
+        extra={
+            "event_type": "factor.w1.timeline",
+            "days_remaining": days_remaining,
+            "estimated_effort_days": estimated_effort_days,
+            "raw_score": base,
+        },
+    )
     return base
 
 

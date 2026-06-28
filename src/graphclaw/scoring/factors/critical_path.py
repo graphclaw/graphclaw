@@ -28,6 +28,8 @@ depending on how the goal priority was retrieved from the graph.
 
 from __future__ import annotations
 
+import logging
+
 from graphclaw.models.enums import GoalPriority
 
 _PRIORITY_MULTIPLIER: dict[str, float] = {
@@ -35,6 +37,8 @@ _PRIORITY_MULTIPLIER: dict[str, float] = {
     GoalPriority.P2: 1.3,
     GoalPriority.P3: 1.1,
 }
+
+logger = logging.getLogger(__name__)
 
 
 def critical_path_score(on_critical_path: bool, goal_priority: GoalPriority | str) -> float:
@@ -55,12 +59,33 @@ def critical_path_score(on_critical_path: bool, goal_priority: GoalPriority | st
         ``1.0 * priority_multiplier`` (1.1 – 1.5).
     """
     if not on_critical_path:
+        logger.debug(
+            "factor.w3.critical_path",
+            extra={
+                "event_type": "factor.w3.critical_path",
+                "on_critical_path": on_critical_path,
+                "goal_priority": (
+                    goal_priority.value if hasattr(goal_priority, "value") else str(goal_priority)
+                ),
+                "raw_score": 0.0,
+            },
+        )
         return 0.0
 
     # Accept both enum and plain string values.
     priority_key = goal_priority.value if hasattr(goal_priority, "value") else str(goal_priority)
     multiplier = _PRIORITY_MULTIPLIER.get(priority_key, 1.0)
-    return 1.0 * multiplier
+    score = 1.0 * multiplier
+    logger.debug(
+        "factor.w3.critical_path",
+        extra={
+            "event_type": "factor.w3.critical_path",
+            "on_critical_path": on_critical_path,
+            "goal_priority": priority_key,
+            "raw_score": score,
+        },
+    )
+    return score
 
 
 __all__ = ["critical_path_score"]

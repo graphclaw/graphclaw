@@ -237,8 +237,17 @@ async def apply_sequential_suppression(
         if topology.is_sequential and not topology.is_first_actionable:
             suppressed[task.id] = True
             logger.debug(
-                "topology: suppressing %s (sequential chain, not first actionable)",
-                task.id,
+                "scoring.topology.suppression.decision",
+                extra={
+                    "event_type": "scoring.topology.suppression.decision",
+                    "task_id": task.id,
+                    "user_id": str(task.owned_by or ""),
+                    "is_sequential": topology.is_sequential,
+                    "is_first_actionable": topology.is_first_actionable,
+                    "chain_head_id": topology.chain_head_id,
+                    "chain_length": topology.chain_length,
+                    "suppressed": True,
+                },
             )
         else:
             suppressed[task.id] = False
@@ -304,9 +313,15 @@ async def urgency_rollup(
 
         rollup[task.id] = max_urgency
         logger.debug(
-            "topology: urgency rollup for chain head %s = %.3f",
-            task.id,
-            max_urgency,
+            "scoring.topology.rollup.computed",
+            extra={
+                "event_type": "scoring.topology.rollup.computed",
+                "task_id": task.id,
+                "user_id": str(task.owned_by or ""),
+                "chain_head": True,
+                "rollup_score": max_urgency,
+                "sibling_count": len(sibling_ids),
+            },
         )
 
     return rollup

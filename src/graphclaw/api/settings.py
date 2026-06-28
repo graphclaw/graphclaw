@@ -535,7 +535,14 @@ async def patch_scoring_weights(
             current[field] = value
     await _save_weights(user_id, storage_client, current)
     await _invalidate_scoring_after_weights_update(request, user_id)
-    logger.debug("settings: scoring weights updated for user_id=%s", user_id)
+    logger.info(
+        "settings.scoring_weights.updated",
+        extra={
+            "event_type": "settings.scoring_weights.updated",
+            "user_id": user_id,
+            **current,
+        },
+    )
     return ScoringWeightsResponse(**current)
 
 

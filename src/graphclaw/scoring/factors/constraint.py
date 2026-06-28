@@ -31,7 +31,11 @@ weight keeps the contribution to the final score small.
 
 from __future__ import annotations
 
+import logging
+
 from collections.abc import Mapping, Sequence
+
+logger = logging.getLogger(__name__)
 
 
 def constraint_pressure(constraints: Sequence[Mapping[str, object]] | None) -> float:
@@ -78,6 +82,14 @@ def constraint_pressure(constraints: Sequence[Mapping[str, object]] | None) -> f
             continue
         pressure = min(current_value / threshold, 1.0)
         total += max(0.0, pressure)
+    logger.debug(
+        "factor.w7.constraint",
+        extra={
+            "event_type": "factor.w7.constraint",
+            "constraint_count": len(constraints),
+            "raw_score": total,
+        },
+    )
     return total
 
 
