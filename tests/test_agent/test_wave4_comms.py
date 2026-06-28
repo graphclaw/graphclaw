@@ -231,6 +231,38 @@ class TestFRCA002:
         # memory write skipped, no crash
         assert result.action_taken in ("noop", "node_updated", "error")
 
+    @pytest.mark.asyncio
+    async def test_distillation_promotes_semantic_fact(self) -> None:
+        from graphclaw.infra.storage import StoragePaths
+
+        llm = FakeLLM(
+            '{"task_entry": null, "memory_note": null, '
+            '"semantic": {"topic": "owner-profile", "fact": "Abhi is the CEO."}}'
+        )
+        storage = FakeStorage()
+        helper = DistillationHelper(llm=llm, graph_repo=FakeGraphRepo(), storage=storage)
+        inp = DistillationInput(
+            user_id="U1", agent_id="A1", user_text="I'm the CEO", agent_reply="Noted."
+        )
+        result = await helper.distill(inp)
+
+        assert result.semantic_topic == "owner-profile"
+        topic_path = StoragePaths.agent_memory_semantic_topic("U1", "A1", "owner-profile")
+        index_path = StoragePaths.agent_memory_semantic_index("U1", "A1")
+        assert b"Abhi is the CEO." in storage._data[topic_path]
+        # Index lists the topic so it surfaces in the system prompt + read_memory.
+        assert b"owner-profile" in storage._data[index_path]
+
+    @pytest.mark.asyncio
+    async def test_distillation_no_semantic_when_null(self) -> None:
+        llm = FakeLLM('{"task_entry": null, "memory_note": "note", "semantic": null}')
+        storage = FakeStorage()
+        helper = DistillationHelper(llm=llm, graph_repo=FakeGraphRepo(), storage=storage)
+        inp = DistillationInput(user_id="U1", agent_id="A1", user_text="hi", agent_reply="hey")
+        result = await helper.distill(inp)
+        assert result.semantic_topic is None
+        assert not any("semantic" in k for k in storage._data)
+
 
 # ---------------------------------------------------------------------------
 # FR-CA-003: ToolSetRegistry mode gating + process_counterparty_turn

@@ -52,7 +52,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import re
 import time
 import uuid
@@ -63,6 +62,7 @@ from graphclaw.agent.catalog import AgentCatalog
 from graphclaw.agent.context import ContextManager
 from graphclaw.agent.knowledge import KnowledgeBase
 from graphclaw.agent.tool_registry import ToolSetRegistry
+from graphclaw.config import config
 from graphclaw.infra.logging.context import generate_session_id, get_session_id, set_session_id
 from graphclaw.infra.logging.events import AgentToolCallEvent
 from graphclaw.models.nodes import TaskNode
@@ -91,18 +91,6 @@ logger = logging.getLogger(__name__)
 
 # Sentinel agent_id used when no explicit agent_id is configured
 _DEFAULT_AGENT_ID = "main"
-
-
-def _env_int(name: str, default: int) -> int:
-    """Read an int from the environment, falling back to *default* on missing/invalid."""
-    raw = os.environ.get(name)
-    if raw is None or raw.strip() == "":
-        return default
-    try:
-        return int(raw)
-    except ValueError:
-        logger.warning("main_orchestrator: invalid int for %s=%r; using %d", name, raw, default)
-        return default
 
 
 _PLAN_STATUS_DRAFT = "DRAFT"
@@ -249,12 +237,13 @@ class MainOrchestrator:
         self._system_header: str | None = None
         self._system_header_at: float = 0.0
 
-        # --- Tiered-memory configuration (GRAPHCLAW_MEMORY_* env vars) ---
-        # Read at construction so deployments/tests can tune memory behaviour
-        # without code changes. Defaults preserve the prior hardcoded values.
-        self._memory_budget_chars = _env_int("GRAPHCLAW_MEMORY_BUDGET_CHARS", 80_000)
-        self._working_memory_char_cap = _env_int("GRAPHCLAW_MEMORY_WORKING_CHAR_CAP", 8_000)
-        self._compact_threshold_pct = _env_int("GRAPHCLAW_MEMORY_COMPACT_THRESHOLD_PCT", 60)
+        # --- Tiered-memory configuration (see graphclaw.config.MemoryConfig) ---
+        # Centralised so deployments/tests tune memory behaviour via env
+        # (.env → docker-compose) without code changes.
+        _mem_cfg = config.memory
+        self._memory_budget_chars = _mem_cfg.budget_chars
+        self._working_memory_char_cap = _mem_cfg.working_char_cap
+        self._compact_threshold_pct = _mem_cfg.compact_threshold_pct
 
         # --- New intelligence components ---
         self._tool_registry = ToolSetRegistry(
@@ -269,9 +258,9 @@ class MainOrchestrator:
             self._context_manager: ContextManager | None = (
                 ContextManager(
                     llm_client,
-                    window_size=_env_int("GRAPHCLAW_MEMORY_WINDOW_SIZE", 20),
-                    summary_threshold=_env_int("GRAPHCLAW_MEMORY_SUMMARY_THRESHOLD", 30),
-                    budget_tokens=_env_int("GRAPHCLAW_MEMORY_BUDGET_TOKENS", 80_000),
+                    window_size=_mem_cfg.window_size,
+                    summary_threshold=_mem_cfg.summary_threshold,
+                    budget_tokens=_mem_cfg.budget_tokens,
                 )
                 if llm_client is not None
                 else None
@@ -2259,6 +2248,8 @@ class MainOrchestrator:
                 result = await self._tool_seed_policy_from_template(user_id, arguments)
             elif name == "complete_onboarding":
                 result = await self._tool_complete_onboarding(user_id, arguments)
+            else:
+                result = {"error": f"Unknown tool: {name}"}
 
             # Advance the onboarding FSM after each state-driving tool succeeds.
             # Only advance when current state matches the tool's primary state to
@@ -2284,8 +2275,6 @@ class MainOrchestrator:
                         await _fsm.advance(user_id)
                 except Exception as _fsm_exc:  # noqa: BLE001
                     logger.warning("onboarding FSM advance failed: %s", _fsm_exc)
-            else:
-                result = {"error": f"Unknown tool: {name}"}
         except Exception as exc:  # noqa: BLE001
             logger.warning("AgentLoop: tool %s raised %s", name, exc)
             result = {"error": str(exc)}
@@ -2480,63 +2469,41 @@ class MainOrchestrator:
         return {"matches": matches, "query": query}
 
     async def _tool_compact_memory(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
-        """Archive working context to episodic memory and replace it with a summary.
+        """Archive working context and replace it with a compact summary.
 
-        Mirrors the ``POST .../memory/compact`` endpoint logic in ``api/intelligence.py``.
+        Delegates to :func:`graphclaw.agent.compaction.compact_working_memory`, the
+        same implementation backing the ``POST .../memory/compact`` endpoint.  When
+        the caller omits a summary, one is generated from the working context plus
+        recent chat history via the distillation LLM.
         """
-        summary = str(args.get("summary", "")).strip()
-        if not summary:
-            return {"error": "summary must be a non-empty string"}
         if self._storage is None:
             return {"error": "Storage not available."}
 
-        from graphclaw.infra.storage import StoragePaths  # noqa: PLC0415
+        from graphclaw.agent.compaction import compact_working_memory  # noqa: PLC0415
 
-        today = datetime.now(timezone.utc).date().isoformat()
-        session_label = str(args.get("session_label", "")).strip() or uuid.uuid4().hex[:8]
-        entry_name = f"{today}-compact-{session_label}.md"
-
-        working_path = StoragePaths.agent_memory_working(user_id, self._agent_id)
-        episodic_path = StoragePaths.agent_memory_episodic_entry(
-            user_id, self._agent_id, entry_name
+        result = await compact_working_memory(
+            storage=self._user_write_scoped_storage(user_id),
+            user_id=user_id,
+            agent_id=self._agent_id,
+            llm=self._llm,
+            summary=args.get("summary"),
+            session_label=args.get("session_label"),
         )
-        working_archive_path = StoragePaths.agent_memory_working_archive_entry(
-            user_id, self._agent_id, entry_name
-        )
-
-        original_text = ""
-        try:
-            original_text = (await self._storage.read(working_path)).decode(errors="replace")
-        except FileNotFoundError:
-            original_text = ""
-        context_before_chars = len(original_text)
-
-        archive_content = (
-            f"# Compacted Context — {today}\n\n"
-            f"*Session: {session_label}*\n\n"
-            f"## Original Working Context\n\n"
-            f"{original_text if original_text else '_(empty)_'}"
-        )
-        await self._storage.write(
-            episodic_path, archive_content.encode(), content_type="text/markdown"
-        )
-        await self._storage.write(
-            working_archive_path, archive_content.encode(), content_type="text/markdown"
-        )
-        await self._storage.write(working_path, summary.encode(), content_type="text/markdown")
-
-        context_after_chars = len(summary)
-        reduction_pct = (
-            round((1 - context_after_chars / context_before_chars) * 100, 1)
-            if context_before_chars > 0
-            else 0.0
-        )
+        if not result.working_context_replaced:
+            return {
+                "working_context_replaced": False,
+                "message": "Nothing to compact — working context and history are empty.",
+                "context_before_chars": result.context_before_chars,
+                "context_after_chars": result.context_after_chars,
+                "reduction_pct": result.reduction_pct,
+            }
         return {
-            "archived_as": entry_name,
+            "archived_as": result.archived_as,
             "working_context_replaced": True,
-            "context_before_chars": context_before_chars,
-            "context_after_chars": context_after_chars,
-            "reduction_pct": reduction_pct,
+            "context_before_chars": result.context_before_chars,
+            "context_after_chars": result.context_after_chars,
+            "reduction_pct": result.reduction_pct,
+            "summary_generated": result.summary_generated,
         }
 
     async def _tool_estimate_memory(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:

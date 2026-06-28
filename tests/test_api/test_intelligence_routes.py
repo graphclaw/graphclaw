@@ -666,8 +666,10 @@ def test_intelligence_paths_are_scoped_to_user(storage: FakeStorageClient) -> No
 # ---------------------------------------------------------------------------
 
 
-def test_estimate_context_usage_empty(client: TestClient) -> None:
+def test_estimate_context_usage_empty(client: TestClient, monkeypatch) -> None:
     """Estimate returns zeroes for a fresh agent with no memory."""
+    # Pin the budget so the test is deterministic regardless of the ambient .env.
+    monkeypatch.setenv("GRAPHCLAW_MEMORY_BUDGET_CHARS", "80000")
     r = client.get(f"/app/v1/intelligence/agents/{_AGENT_ID}/memory/estimate")
     assert r.status_code == 200
     body = r.json()
@@ -677,8 +679,9 @@ def test_estimate_context_usage_empty(client: TestClient) -> None:
     assert body["budget_chars"] == 80000
 
 
-def test_estimate_context_usage_counts_all_tiers(client: TestClient) -> None:
+def test_estimate_context_usage_counts_all_tiers(client: TestClient, monkeypatch) -> None:
     """Estimate sums working + episodic + semantic chars."""
+    monkeypatch.setenv("GRAPHCLAW_MEMORY_BUDGET_CHARS", "80000")
     agent_id = _AGENT_ID
 
     # Write working context (10 chars)

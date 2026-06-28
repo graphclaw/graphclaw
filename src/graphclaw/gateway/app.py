@@ -592,7 +592,9 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
                         trigger_user_id = os.environ.get("GRAPHCLAW_USER_ID", "")
 
                         if trigger_user_id:
-                            from graphclaw.cross_tenant.acl import CallerContext as _CallerContext  # noqa: PLC0415
+                            from graphclaw.cross_tenant.acl import (
+                                CallerContext as _CallerContext,  # noqa: PLC0415
+                            )
 
                             _trigger_ctx = _CallerContext(
                                 user_id=trigger_user_id,

@@ -140,7 +140,9 @@ async def add_user_identity(
             identities[key] = value
 
         if caller_context is not None:
-            await store.update_node(user_id, {"identities": identities}, caller_context=caller_context)
+            await store.update_node(
+                user_id, {"identities": identities}, caller_context=caller_context
+            )
         else:
             await store.update_node(user_id, {"identities": identities})
         return {"updated": True, "channel": channel, "value": value}
@@ -161,7 +163,9 @@ async def set_working_hours(
     if store is None:
         return {"updated": False}
     if caller_context is not None:
-        await store.update_node(user_id, {"working_hours": {"start": start, "end": end}}, caller_context=caller_context)
+        await store.update_node(
+            user_id, {"working_hours": {"start": start, "end": end}}, caller_context=caller_context
+        )
     else:
         await store.update_node(user_id, {"working_hours": {"start": start, "end": end}})
     return {"updated": True, "start": start, "end": end}

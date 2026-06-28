@@ -87,9 +87,16 @@ async def test_compact_creates_episodic_archive(memory_env):
     )
 
     assert result["working_context_replaced"] is True
-    episodic_key = StoragePaths.agent_memory_episodic_entry(user_id, _AGENT, result["archived_as"])
-    archived = await storage.read(episodic_key)
+    # Raw verbatim snapshot is preserved in the working archive.
+    archive_key = StoragePaths.agent_memory_working_archive_entry(
+        user_id, _AGENT, result["archived_as"]
+    )
+    archived = await storage.read(archive_key)
     assert b"X" * 2000 in archived
+    # Episodic holds the distilled summary (here the caller-supplied one).
+    episodic_key = StoragePaths.agent_memory_episodic_entry(user_id, _AGENT, result["archived_as"])
+    episodic = await storage.read(episodic_key)
+    assert b"Compact summary" in episodic
     replaced = await storage.read(working_path)
     assert replaced == b"Compact summary"
 

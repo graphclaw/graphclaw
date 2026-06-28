@@ -76,16 +76,16 @@ Dependencies
 from __future__ import annotations
 
 import logging
-import os
 import re
 import uuid
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, UploadFile, status
+from fastapi import APIRouter, HTTPException, Request, UploadFile, status
 from pydantic import BaseModel
 
 from graphclaw.api.deps import CurrentUserDep, StorageClientDep
+from graphclaw.config import config
 from graphclaw.infra.storage import StoragePaths
 from graphclaw.models.base import utcnow
 
@@ -96,10 +96,6 @@ router = APIRouter(prefix="/intelligence", tags=["intelligence"])
 
 def _utcnow_str() -> str:
     return utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def _today_str() -> str:
-    return utcnow().strftime("%Y-%m-%d")
 
 
 def _normalize_skill_id(value: str) -> str:
@@ -209,11 +205,14 @@ class SemanticMemoryIndex(BaseModel):
 class CompactRequest(BaseModel):
     """Request body for POST .../memory/compact.
 
-    The caller supplies the compacted summary.  The original working context
-    is archived to episodic memory before being replaced.
+    ``summary`` is optional.  When omitted (or blank), the server generates a
+    distilled summary from the working context plus recent chat history using the
+    distillation LLM.  The raw working context is archived to ``working/archive``
+    and the distilled summary to ``episodic`` before the working context is
+    replaced with the summary.
     """
 
-    summary: str
+    summary: str | None = None
     session_label: str | None = None
 
 
@@ -226,6 +225,7 @@ class CompactResponse(BaseModel):
     context_before_chars: int = 0
     context_after_chars: int = 0
     reduction_pct: float = 0.0
+    summary_generated: bool = False
 
 
 class AgentListEntry(BaseModel):
@@ -597,75 +597,64 @@ async def update_working_context(
     status_code=status.HTTP_200_OK,
     summary="Compact working context",
     description=(
-        "Archive the current working context to episodic memory and replace it "
-        "with a compact summary supplied by the caller.  Use this when the working "
-        "context has grown too large or stale.  The original is preserved in "
-        "episodic memory before being discarded."
+        "Archive the current working context and replace it with a compact summary. "
+        "The summary is optional: when omitted the server distils one from the working "
+        "context plus recent chat history.  The raw context is preserved verbatim in "
+        "working/archive and the distilled summary in episodic memory before the working "
+        "context is replaced.  Note: this affects working memory only — the chat "
+        "transcript (chat/history.json) is independent, bounded by "
+        "GRAPHCLAW_MEMORY_HISTORY_MAX, and compressed in-memory each turn; compaction "
+        "does not delete past messages."
     ),
 )
 async def compact_working_context(
     agent_id: str,
     body: CompactRequest,
+    request: Request,
     user_id: CurrentUserDep,
     storage_client: StorageClientDep,
 ) -> CompactResponse:
-    """Archive working context and replace with compact summary."""
-    working_path = StoragePaths.agent_memory_working(user_id, agent_id)
+    """Archive working context (raw → archive, distilled → episodic) and replace it."""
+    from graphclaw.agent.compaction import compact_working_memory  # noqa: PLC0415
 
-    today = _today_str()
-    session_label = body.session_label or uuid.uuid4().hex[:8]
-    entry_name = f"{today}-compact-{session_label}.md"
-    episodic_path = StoragePaths.agent_memory_episodic_entry(user_id, agent_id, entry_name)
-    working_archive_path = StoragePaths.agent_memory_working_archive_entry(
-        user_id, agent_id, entry_name
-    )
+    # The orchestrator (if wired) carries the LLM used to auto-generate summaries.
+    agent_loop = getattr(request.app.state, "agent_loop", None)
+    llm = getattr(agent_loop, "llm_client", None) if agent_loop is not None else None
 
-    context_before_chars = 0
-    original_text = ""
-    try:
-        original = await storage_client.read(working_path)
-        original_text = original.decode()
-        context_before_chars = len(original_text)
-    except FileNotFoundError:
-        original_text = ""
-
-    archive_content = (
-        f"# Compacted Context — {today}\n\n"
-        f"*Session: {session_label}*\n\n"
-        f"## Original Working Context\n\n"
-        f"{original_text if original_text else '_(empty)_'}"
+    result = await compact_working_memory(
+        storage=storage_client,
+        user_id=user_id,
+        agent_id=agent_id,
+        llm=llm,
+        summary=body.summary,
+        session_label=body.session_label,
     )
-    await storage_client.write(
-        episodic_path, archive_content.encode(), content_type="text/markdown"
-    )
-    await storage_client.write(
-        working_archive_path,
-        archive_content.encode(),
-        content_type="text/markdown",
-    )
-
-    await storage_client.write(working_path, body.summary.encode(), content_type="text/markdown")
-    context_after_chars = len(body.summary)
-    reduction_pct = (
-        round((1 - context_after_chars / context_before_chars) * 100, 1)
-        if context_before_chars > 0
-        else 0.0
-    )
+    if not result.working_context_replaced:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Nothing to compact: working context and chat history are empty and no "
+                "summary was supplied."
+            ),
+        )
     logger.info(
-        "intelligence: compact done agent_id=%s archived_as=%s before=%d after=%d user_id=%s",
+        "intelligence: compact done agent_id=%s archived_as=%s before=%d after=%d "
+        "generated=%s user_id=%s",
         agent_id,
-        entry_name,
-        context_before_chars,
-        context_after_chars,
+        result.archived_as,
+        result.context_before_chars,
+        result.context_after_chars,
+        result.summary_generated,
         user_id,
     )
     return CompactResponse(
         agent_id=agent_id,
-        archived_as=entry_name,
-        working_context_replaced=True,
-        context_before_chars=context_before_chars,
-        context_after_chars=context_after_chars,
-        reduction_pct=reduction_pct,
+        archived_as=result.archived_as,
+        working_context_replaced=result.working_context_replaced,
+        context_before_chars=result.context_before_chars,
+        context_after_chars=result.context_after_chars,
+        reduction_pct=result.reduction_pct,
+        summary_generated=result.summary_generated,
     )
 
 
@@ -729,7 +718,7 @@ async def estimate_context_usage(
     storage_client: StorageClientDep,
 ) -> ContextUsageResponse:
     """Sum active memory sizes across all three memory tiers."""
-    budget_chars = int(os.environ.get("GRAPHCLAW_MEMORY_BUDGET_CHARS", "80000"))
+    budget_chars = config.memory.budget_chars
 
     # Working context
     working_chars = 0

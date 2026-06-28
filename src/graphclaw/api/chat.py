@@ -53,7 +53,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from datetime import datetime, timezone
 from typing import Any
 
@@ -62,13 +61,14 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from graphclaw.api.deps import CurrentUserDep, StorageClientDep
+from graphclaw.config import config
 from graphclaw.infra.storage import StoragePaths
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
-_HISTORY_MAX = int(os.environ.get("GRAPHCLAW_MEMORY_HISTORY_MAX", "200"))
+_HISTORY_MAX = config.memory.history_max
 _LLM_NOT_CONFIGURED_MESSAGE = (
     "LLM is not configured for this environment. "
     "Set ANTHROPIC_API_KEY or OPENAI_API_KEY (or configure cloud secrets) and restart the service."

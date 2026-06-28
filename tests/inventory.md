@@ -8,6 +8,7 @@
 | TODO | (no header) test_activity_formatter | [test_agent/test_activity_formatter.py](test_agent/test_activity_formatter.py) |
 | TODO | (no header) test_archive_tools | [test_agent/test_archive_tools.py](test_agent/test_archive_tools.py) |
 | TODO | (no header) test_catalog_cache | [test_agent/test_catalog_cache.py](test_agent/test_catalog_cache.py) |
+| TODO | compaction: raw→archive, distilled→episodic, auto-generate, no-op | [test_agent/test_compaction.py](test_agent/test_compaction.py) |
 | TODO | (no header) test_catalog_integration | [test_agent/test_catalog_integration.py](test_agent/test_catalog_integration.py) |
 | TODO | (no header) test_context | [test_agent/test_context.py](test_agent/test_context.py) |
 | TODO | (no header) test_delegation | [test_agent/test_delegation.py](test_agent/test_delegation.py) |

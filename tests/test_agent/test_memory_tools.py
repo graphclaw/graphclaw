@@ -60,6 +60,10 @@ def _episodic_key(name: str) -> str:
     return StoragePaths.agent_memory_episodic_entry(_USER, _AGENT, name)
 
 
+def _working_archive_key(name: str) -> str:
+    return StoragePaths.agent_memory_working_archive_entry(_USER, _AGENT, name)
+
+
 # ---------------------------------------------------------------------------
 # read_memory
 # ---------------------------------------------------------------------------
@@ -192,16 +196,23 @@ class TestCompactMemory:
         assert result["reduction_pct"] > 0
         # Working memory replaced with the summary.
         assert storage.data[working_path] == b"Short summary"
-        # Episodic archive entry created with original content preserved.
+        # Raw verbatim snapshot goes to the working archive (audit trail).
+        archive_key = _working_archive_key(result["archived_as"])
+        assert archive_key in storage.data
+        assert b"X" * 1000 in storage.data[archive_key]
+        # Episodic gets the distilled summary, not the raw context.
         episodic_key = _episodic_key(result["archived_as"])
         assert episodic_key in storage.data
-        assert b"X" * 1000 in storage.data[episodic_key]
+        assert b"Short summary" in storage.data[episodic_key]
+        assert b"X" * 1000 not in storage.data[episodic_key]
 
     @pytest.mark.asyncio
-    async def test_compact_memory_requires_summary(self):
+    async def test_compact_memory_noop_when_nothing_to_compact(self):
+        # No summary supplied, no LLM, empty working context + no history → no-op
+        # (writes nothing rather than producing empty archive files).
         orch = _make_orchestrator(_FakeStorage())
         result = await orch._execute_tool(_USER, "compact_memory", {"summary": ""})
-        assert "error" in result
+        assert result["working_context_replaced"] is False
 
 
 # ---------------------------------------------------------------------------

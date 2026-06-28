@@ -48,13 +48,40 @@ Within `{user_id}/agents/{agent_id}/memory/`, there are three sub-tiers with dis
 
 | Sub-tier | Path | Loaded by SubAgentRunner | Writable by |
 |---|---|---|---|
-| **Working** | `working/context.md` | ✅ Always loaded | Agent loop, InboundIntelligenceAgent, cockpit UI |
-| **Working archive** | `working/archive/{date}-compact-{label}.md` | ❌ Never loaded | `/compact` endpoint (read-only after creation) |
-| **Episodic — active** | `episodic/{date}-compact-{label}.md` | ✅ All active entries, newest first | `/compact` endpoint (read-only after creation) |
+| **Working** | `working/context.md` | ✅ Always loaded (verbatim, capped) | Agent loop, InboundIntelligenceAgent, cockpit UI |
+| **Working archive** | `working/archive/{date}-compact-{label}.md` | ❌ Never loaded | `/compact` (raw snapshot, read-only after creation) |
+| **Episodic — active** | `episodic/{date}-compact-{label}.md` | Retrieved on demand via `recall_episodic` | `/compact` (distilled summary, read-only after creation) |
 | **Episodic — archived** | `episodic/archive/{date}-compact-{label}.md` | ❌ Never loaded | Archive action via cockpit (irreversible) |
-| **Semantic** | `semantic/{topic}.md` | ✅ All files loaded | User via cockpit UI |
+| **Semantic — index** | `semantic/_index.json` | ✅ Topic list always injected | Distillation (auto), cockpit UI, CLI |
+| **Semantic — topic** | `semantic/{topic}.md` | Loaded on demand via `read_memory(topic)` | Distillation (auto), cockpit UI |
 
-**Episodic active vs. archived:** Active episodic entries represent recent session summaries that inform the agent's reasoning. When a user archives an entry, it moves to `episodic/archive/` and is permanently excluded from context — the agent will never see it again. Archive is irreversible. This allows users to prune low-value or sensitive history without deleting it entirely.
+**Compaction writes two distinct artifacts (not identical copies).** A `/compact`
+call writes the *raw verbatim* working context to `working/archive/` (an audit
+snapshot, never re-loaded) and an *LLM-distilled summary* to `episodic/` (recallable
+via `recall_episodic`), then replaces `working/context.md` with that summary. The
+summary is supplied by the caller, or — when omitted — generated server-side from
+the working context plus recent chat history (`graphclaw.agent.compaction`). When
+there is nothing to compact (empty context and history, no summary) the operation
+is a no-op and writes nothing.
+
+**Compaction is independent of chat history.** It only rewrites the working-memory
+tier. The conversation log `chat/history.json` is a separate store: it is bounded
+to the last `GRAPHCLAW_MEMORY_HISTORY_MAX` entries on save and compressed *in
+memory* each turn by the `ContextManager` (sliding window + rolling LLM summary).
+Compacting working memory therefore does **not** delete past messages or shrink the
+chat transcript — the two tiers are decoupled by design.
+
+**Semantic memory is populated automatically.** Post-turn distillation promotes
+stable, long-lived facts (owner profile, team roles, standing preferences) into
+`semantic/{topic}.md` and upserts `semantic/_index.json`. Only the index (topic →
+description) is injected into the system prompt; full topic bodies load on demand
+when the agent calls `read_memory(topic)`. Users/CLI can also write topics directly.
+
+**Episodic active vs. archived:** Active episodic entries are recent session
+summaries the agent can recall. When a user archives an entry, it moves to
+`episodic/archive/` and is permanently excluded from context. Archive is
+irreversible. This lets users prune low-value or sensitive history without deleting
+it entirely.
 
 **Semantic multi-file:** `knowledge.md` is provisioned as the default file when an agent is created. Users can add additional topic files (e.g. `users.md`, `patterns.md`). All files are loaded on every SubAgentRunner invocation.
 

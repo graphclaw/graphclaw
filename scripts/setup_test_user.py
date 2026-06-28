@@ -233,6 +233,28 @@ Agent {AGENT_NAME.title()} initialised for {TEST_USER_NAME} ({TEST_USER_EMAIL}).
     await storage.write(user_topic_path, user_semantic.encode(), content_type="text/markdown")
     logger.info("Written: %s", user_topic_path)
 
+    # Semantic index — without this the topic is not surfaced in the system prompt
+    # and the agent never knows to call read_memory("owner-profile").
+    import json as _json
+
+    semantic_index_path = StoragePaths.agent_memory_semantic_index(user_id, AGENT_ID)
+    semantic_index = {
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "topics": [
+            {
+                "name": "owner-profile",
+                "description": f"Key information about {TEST_USER_NAME} (role, timezone, contacts)",
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        ],
+    }
+    await storage.write(
+        semantic_index_path,
+        _json.dumps(semantic_index).encode(),
+        content_type="application/json",
+    )
+    logger.info("Written: %s", semantic_index_path)
+
     # Triggers persisted to MinIO
     triggers = []
     for time_str in BRIEFING_TIMES:
