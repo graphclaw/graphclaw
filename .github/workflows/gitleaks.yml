@@ -12,7 +12,7 @@ jobs:
   scan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # gitleaks-action@v2 requires a paid license for organization repos.
       # Use the free, open-source gitleaks CLI instead — no license needed.
