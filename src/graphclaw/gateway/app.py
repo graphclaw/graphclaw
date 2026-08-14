@@ -80,6 +80,7 @@ _DEFAULT_LLM_PROVIDER_ENV = "GRAPHCLAW_DEFAULT_LLM_PROVIDER"
 _LLM_PROVIDER_SECRET_CANDIDATES: dict[str, tuple[str, ...]] = {
     "anthropic": ("ANTHROPIC_API_KEY", "graphclaw/org/llm/anthropic"),
     "openai": ("OPENAI_API_KEY", "graphclaw/org/llm/openai"),
+    "litellm": ("LITELLM_API_KEY",),  # API key optional for local providers like Ollama
 }
 
 
@@ -150,10 +151,27 @@ async def _select_startup_llm_provider_and_key(
     """Select startup LLM provider and API key using key-availability policy.
 
     Policy:
+    - if LITELLM_DEFAULT_MODEL is set, use litellm (for Ollama/local models)
     - if only one provider key exists, select that provider
-    - if both exist, select by GRAPHCLAW_DEFAULT_LLM_PROVIDER
+    - if multiple keys exist, select by GRAPHCLAW_DEFAULT_LLM_PROVIDER
     - if none exist, return (None, None)
     """
+    # Priority 1: Check if LiteLLM is configured (for Ollama/local models)
+    litellm_model = os.getenv("LITELLM_DEFAULT_MODEL")
+    if litellm_model and litellm_model.strip():
+        # LiteLLM configured — use it (API key optional for local providers)
+        litellm_key = await _read_first_available_secret(
+            secrets_client,
+            _LLM_PROVIDER_SECRET_CANDIDATES["litellm"],
+        )
+        logger.info(
+            "GraphClaw: LiteLLM configured with model=%s (key=%s)",
+            litellm_model,
+            "present" if litellm_key else "not required",
+        )
+        return "litellm", litellm_key or ""  # Empty string key is fine for Ollama
+
+    # Priority 2: Check for Anthropic/OpenAI keys
     anthropic_key = await _read_first_available_secret(
         secrets_client,
         _LLM_PROVIDER_SECRET_CANDIDATES["anthropic"],
@@ -366,11 +384,11 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
                     selected_provider, selected_key = await _select_startup_llm_provider_and_key(
                         app.state.secrets_client
                     )
-                    if selected_provider and selected_key:
+                    if selected_provider is not None:  # key can be empty for local providers like Ollama
                         try:
                             llm_client = create_llm_client(
                                 selected_provider,
-                                api_key=selected_key,
+                                api_key=selected_key if selected_key else None,
                             )
                             logger.info(
                                 "GraphClaw: llm client initialised (provider=%s)",

@@ -164,21 +164,27 @@ class RedisMessageBroker(MessageBroker):
         The generator runs forever; callers should break or cancel the
         surrounding task to stop consumption.
         """
+        import redis.exceptions
+
         r = await self._get_redis()
         while True:
-            result = await r.brpop(queue, timeout=5)
-            if result is not None:
-                # brpop returns (queue_name, value)
-                _, value = result
-                logger.debug(
-                    "broker.consume",
-                    extra={
-                        "event_type": "broker.consume",
-                        "queue": queue,
-                        "message_size": len(value),
-                    },
-                )
-                yield value
+            try:
+                result = await r.brpop(queue, timeout=5)
+                if result is not None:
+                    # brpop returns (queue_name, value)
+                    _, value = result
+                    logger.debug(
+                        "broker.consume",
+                        extra={
+                            "event_type": "broker.consume",
+                            "queue": queue,
+                            "message_size": len(value),
+                        },
+                    )
+                    yield value
+            except redis.exceptions.TimeoutError:
+                # brpop timeout when queue is empty — continue waiting
+                continue
 
     async def acknowledge(self, queue: str, message_id: str) -> None:
         """No-op: Redis list consumption is implicitly acknowledged."""
