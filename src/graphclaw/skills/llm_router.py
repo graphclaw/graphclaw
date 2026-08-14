@@ -70,22 +70,25 @@ class LLMRouter:
 
         # Swap to Anthropic directly
         from graphclaw.llm import create_llm_client
+        from graphclaw.config import config
         router = LLMRouter(llm_client=create_llm_client("anthropic"))
     """
 
     def __init__(
         self,
-        default_model: str = "claude-sonnet-4-20250514",
+        default_model: str | None = None,
         llm_client: LLMClient | None = None,
         provider: str = "litellm",
     ) -> None:
-        self._default_model = default_model
+        from graphclaw.config import config  # noqa: PLC0415
+
+        self._default_model = default_model or config.app.litellm_default_model
         if llm_client is not None:
             self._client: LLMClient = llm_client
         else:
             from graphclaw.llm.factory import create_llm_client
 
-            self._client = create_llm_client(provider, default_model=default_model)
+            self._client = create_llm_client(provider, default_model=self._default_model)
 
     async def complete(
         self,

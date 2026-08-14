@@ -84,6 +84,17 @@ class AppConfig:
     default_llm_provider: str = field(
         default_factory=lambda: os.getenv("GRAPHCLAW_DEFAULT_LLM_PROVIDER", "anthropic")
     )
+    # Ollama local LLM configuration for cost-free development
+    ollama_base_url: str = field(
+        default_factory=lambda: os.getenv("OLLAMA_API_BASE", "http://localhost:11434")
+    )
+    ollama_default_model: str = field(
+        default_factory=lambda: os.getenv("OLLAMA_DEFAULT_MODEL", "llama3.2")
+    )
+    # LiteLLM default model (supports any provider via model prefix: anthropic/, openai/, ollama/, etc.)
+    litellm_default_model: str = field(
+        default_factory=lambda: os.getenv("LITELLM_DEFAULT_MODEL", "claude-sonnet-4-20250514")
+    )
     log_level: str = field(default_factory=lambda: os.getenv("LOG_LEVEL", "INFO"))
     environment: str = field(default_factory=lambda: os.getenv("ENVIRONMENT", "development"))
     # Wave 0: No-Delete enforcement feature flag.

@@ -51,11 +51,25 @@ class LiteLLMLLMClient(LLMTraceMixin, LLMClient):
 
     Args:
         default_model: LiteLLM-compatible model string used when no model is
-            specified at call time (default ``"claude-sonnet-4-20250514"``).
+            specified at call time. Supports provider prefixes like:
+            - ``anthropic/claude-sonnet-4-20250514``
+            - ``openai/gpt-4o``
+            - ``ollama/llama3.2`` (requires OLLAMA_API_BASE env var)
+            Defaults to value from LITELLM_DEFAULT_MODEL env var or
+            ``"claude-sonnet-4-20250514"``.
+        api_base: Base URL for the LLM provider API. Auto-configured from
+            OLLAMA_API_BASE when using ollama/ models.
     """
 
-    def __init__(self, default_model: str = "claude-sonnet-4-20250514", **_: Any) -> None:
-        self._default_model = default_model
+    def __init__(self, default_model: str | None = None, api_base: str | None = None, **_: Any) -> None:
+        from graphclaw.config import config  # noqa: PLC0415
+
+        self._default_model = default_model or config.app.litellm_default_model
+        self._api_base = api_base
+        
+        # Auto-configure Ollama base URL if using ollama/ model prefix
+        if self._default_model.startswith("ollama/") and not self._api_base:
+            self._api_base = config.app.ollama_base_url
 
     async def complete(
         self,
@@ -84,6 +98,8 @@ class LiteLLMLLMClient(LLMTraceMixin, LLMClient):
             "max_tokens": max_tokens,
             "temperature": temperature,
         }
+        if self._api_base:
+            kwargs["api_base"] = self._api_base
         if tools:
             kwargs["tools"] = [
                 {
@@ -209,6 +225,8 @@ class LiteLLMLLMClient(LLMTraceMixin, LLMClient):
                 "temperature": temperature,
                 "stream": True,
             }
+            if self._api_base:
+                stream_kwargs["api_base"] = self._api_base
             if litellm_tools:
                 stream_kwargs["tools"] = litellm_tools
             response = await litellm.acompletion(**stream_kwargs)
