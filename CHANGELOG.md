@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.2.3](https://github.com/graphclaw/graphclaw/compare/v0.2.2...v0.2.3) (2026-08-14)
+
+
+### Features
+
+* **agent:** externalize onboarding prompts and synthesize behavioral profile ([#34](https://github.com/graphclaw/graphclaw/issues/34)) ([aeea30b](https://github.com/graphclaw/graphclaw/commit/aeea30b1c9a5f8ea1883fcb3b11f3fa8bf638fb0))
+* **agent:** wire functional tiered memory into MainOrchestrator ([#37](https://github.com/graphclaw/graphclaw/issues/37)) ([7ba9037](https://github.com/graphclaw/graphclaw/commit/7ba9037f8d16163559d9f482b7a9237246411f14))
+* **llm:** add Ollama local LLM support via LiteLLM ([156bc7a](https://github.com/graphclaw/graphclaw/commit/156bc7a40c08c6e3dfb0363f6dcd7f29775f0dbb))
+* **scoring:** add debug trace events and caller-context persistence ([e7b17c7](https://github.com/graphclaw/graphclaw/commit/e7b17c7bdd7b4b4f9cfa540963420602f924982b))
+
+
+### Bug Fixes
+
+* **agent:** add save_output tool for sub-agents to return deliverables ([b5c8b55](https://github.com/graphclaw/graphclaw/commit/b5c8b5583adc4ddc056473e2b26506cec7d1e087))
+* **agent:** advance onboarding FSM after each state-driving tool call ([7083781](https://github.com/graphclaw/graphclaw/commit/708378109511928bc2515dbfbf118d475af58046))
+* **agent:** initialize missing _store attribute on MainOrchestrator ([00cac2a](https://github.com/graphclaw/graphclaw/commit/00cac2af68b73de9f9ac2c7ab610ab7bb69f084f))
+* **agent:** thread caller_context through all onboarding store calls ([c56a969](https://github.com/graphclaw/graphclaw/commit/c56a96986d4db716f24ba7cfb2fbf956197ac210))
+* **broker:** handle Redis timeout when queue is empty ([f4b7a5f](https://github.com/graphclaw/graphclaw/commit/f4b7a5f51c59462e2a5dfec217268982c455154f))
+* **ci:** green main pipeline + externalize remaining memory config ([#39](https://github.com/graphclaw/graphclaw/issues/39)) ([1b20dba](https://github.com/graphclaw/graphclaw/commit/1b20dbab5eda5f8c666245690f29f3b567a29418))
+* **docker:** add Ollama environment variables to gateway service ([15107bb](https://github.com/graphclaw/graphclaw/commit/15107bb42017d339c486fa047c37ff77573f1b68))
+* **gateway:** add LiteLLM/Ollama support to orchestrator LLM provider selection ([f4b7a5f](https://github.com/graphclaw/graphclaw/commit/f4b7a5f51c59462e2a5dfec217268982c455154f))
+* **gateway:** pass CallerContext to trigger schedule persistence at startup ([f6a81c4](https://github.com/graphclaw/graphclaw/commit/f6a81c4068de8a004478a037616c3ad6e99cf4b6))
+* **memory:** centralize config, auto-generate compaction, distinct tiers, populate semantic ([f304947](https://github.com/graphclaw/graphclaw/commit/f30494780a8899b480407afa7dc85d15b3beaa94))
+
+
+### Documentation
+
+* **launch:** publish roadmap and distribution criteria ([#27](https://github.com/graphclaw/graphclaw/issues/27)) ([e4494a9](https://github.com/graphclaw/graphclaw/commit/e4494a9b82692b128bfc4db06b46322f4a30d796))
+* **policy:** adopt solo fast-lane commit workflow ([1adaf0b](https://github.com/graphclaw/graphclaw/commit/1adaf0b6fb4d4299166b1f07ddca7fd61a9907c4))
+* **process:** add lifecycle guardrails for future waves ([#28](https://github.com/graphclaw/graphclaw/issues/28)) ([e0e39c3](https://github.com/graphclaw/graphclaw/commit/e0e39c3da4c724a07767bee5e5094a1f35e1f7f4))
+* **security:** refresh policy metadata for profile sync ([#22](https://github.com/graphclaw/graphclaw/issues/22)) ([9edb5fd](https://github.com/graphclaw/graphclaw/commit/9edb5fde04deaa8e48aed427b17f706e4a548f98))
+
 ## [0.2.2](https://github.com/graphclaw/graphclaw/compare/v0.2.1...v0.2.2) (2026-05-27)
 
 
