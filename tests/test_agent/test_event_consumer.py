@@ -435,3 +435,133 @@ async def test_notify_user_unmatched_includes_manual_match_candidates() -> None:
     body = mock_dispatcher.broadcast.call_args[1]["body"]
     assert "embedding service is unavailable" in body
     assert "TSK-AA-1001-ATM" in body
+
+
+# ---------------------------------------------------------------------------
+# _handle_agent_completed — Sub-agent result collection
+# ---------------------------------------------------------------------------
+
+
+async def test_handle_agent_completed_calls_result_collector_with_event() -> None:
+    """AgentUpdateEvent is passed directly to ResultCollector.process_agent_result."""
+    from graphclaw.agent.sub_agent_runner import AgentUpdateEvent, AgentUpdateEventType
+    
+    mock_result_collector = AsyncMock()
+    consumer, _, _, _ = _make_consumer()
+    consumer._result_collector = mock_result_collector
+    
+    event = AgentUpdateEvent(
+        event_type=AgentUpdateEventType.COMPLETED,
+        agent_id="external-outreach-agent",
+        task_id="TSK-001",
+        session_id="ses-usr-001-1234567890",
+        status="COMPLETED",
+        message="Email draft generated",
+        duration_ms=1500,
+    )
+    
+    await consumer._handle_agent_completed(event)
+    
+    # Verify ResultCollector received the full event object
+    mock_result_collector.process_agent_result.assert_called_once_with(event)
+
+
+async def test_handle_agent_completed_emits_sse_notification() -> None:
+    """SSE notification is emitted after sub-agent completion."""
+    from graphclaw.agent.sub_agent_runner import AgentUpdateEvent, AgentUpdateEventType
+    from graphclaw.infra.user_events import InMemoryUserEventPublisher
+    
+    mock_result_collector = AsyncMock()
+    consumer, _, _, _ = _make_consumer()
+    consumer._result_collector = mock_result_collector
+    
+    event_publisher = InMemoryUserEventPublisher()
+    consumer._event_publisher = event_publisher
+    
+    event = AgentUpdateEvent(
+        event_type=AgentUpdateEventType.COMPLETED,
+        agent_id="external-outreach-agent",
+        task_id="TSK-001",
+        session_id="ses-usr-001-1234567890",
+        status="COMPLETED",
+        message="Email draft generated",
+        duration_ms=1500,
+        batch_id="batch-001",
+    )
+    
+    await consumer._handle_agent_completed(event)
+    
+    # Verify SSE event was published
+    assert len(event_publisher.events) == 1
+    published_event = event_publisher.events[0]
+    assert published_event.event_type.value == "notification"
+    assert "external-outreach-agent" in published_event.payload.message
+    assert published_event.payload.details["task_id"] == "TSK-001"
+    assert published_event.payload.details["status"] == "COMPLETED"
+
+
+async def test_handle_agent_completed_removes_from_health_monitor() -> None:
+    """Health monitor tracking is cleaned up after agent completion."""
+    from graphclaw.agent.sub_agent_runner import AgentUpdateEvent, AgentUpdateEventType
+    
+    mock_health_monitor = MagicMock()
+    mock_result_collector = AsyncMock()
+    consumer, _, _, _ = _make_consumer()
+    consumer._health_monitor = mock_health_monitor
+    consumer._result_collector = mock_result_collector
+    
+    event = AgentUpdateEvent(
+        event_type=AgentUpdateEventType.COMPLETED,
+        agent_id="external-outreach-agent",
+        task_id="TSK-001",
+        session_id="ses-usr-001-1234567890",
+        status="COMPLETED",
+    )
+    
+    await consumer._handle_agent_completed(event)
+    
+    mock_health_monitor.remove_agent.assert_called_once_with("external-outreach-agent")
+
+
+async def test_handle_agent_completed_graceful_when_result_collector_fails() -> None:
+    """Consumer logs warning but continues when ResultCollector raises."""
+    from graphclaw.agent.sub_agent_runner import AgentUpdateEvent, AgentUpdateEventType
+    
+    mock_result_collector = AsyncMock()
+    mock_result_collector.process_agent_result = AsyncMock(
+        side_effect=RuntimeError("Database connection failed")
+    )
+    consumer, _, _, _ = _make_consumer()
+    consumer._result_collector = mock_result_collector
+    
+    event = AgentUpdateEvent(
+        event_type=AgentUpdateEventType.COMPLETED,
+        agent_id="external-outreach-agent",
+        task_id="TSK-001",
+        session_id="ses-usr-001-1234567890",
+        status="COMPLETED",
+    )
+    
+    # Should not raise
+    await consumer._handle_agent_completed(event)
+
+
+async def test_handle_agent_completed_skips_sse_when_no_publisher() -> None:
+    """No error when UserEventPublisher is None."""
+    from graphclaw.agent.sub_agent_runner import AgentUpdateEvent, AgentUpdateEventType
+    
+    mock_result_collector = AsyncMock()
+    consumer, _, _, _ = _make_consumer()
+    consumer._result_collector = mock_result_collector
+    consumer._event_publisher = None
+    
+    event = AgentUpdateEvent(
+        event_type=AgentUpdateEventType.COMPLETED,
+        agent_id="external-outreach-agent",
+        task_id="TSK-001",
+        session_id="ses-usr-001-1234567890",
+        status="COMPLETED",
+    )
+    
+    # Should not raise
+    await consumer._handle_agent_completed(event)

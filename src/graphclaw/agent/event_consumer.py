@@ -60,6 +60,7 @@ if TYPE_CHECKING:
     from graphclaw.cross_tenant.indexer import OrgTaskIndexer
     from graphclaw.identity.directory_indexer import DirectoryIndexer
     from graphclaw.infra.storage import StorageClient
+    from graphclaw.infra.user_events import UserEventPublisher
 
 logger = logging.getLogger(__name__)
 
@@ -93,11 +94,13 @@ class AgentEventConsumer:
         result_collector: ResultCollector | None = None,
         directory_indexer: DirectoryIndexer | None = None,
         task_indexer: OrgTaskIndexer | None = None,
+        event_publisher: UserEventPublisher | None = None,
     ) -> None:
         self._broker = broker
         self._loop = agent_loop
         self._dispatcher = dispatcher
         self._storage = storage
+        self._event_publisher = event_publisher
         self._user_channels: dict[str, list[dict[str, Any]]] = user_channels or {}
         self._default_user_id: str = default_user_id
         self._task: asyncio.Task | None = None
@@ -377,14 +380,7 @@ class AgentEventConsumer:
         # Update task state via ResultCollector if available
         if self._result_collector is not None:
             try:
-                await self._result_collector.process_agent_result(
-                    agent_id=event.agent_id,
-                    task_id=event.task_id,
-                    session_id=event.session_id,
-                    status=event.status or "COMPLETED",
-                    message=event.message or "",
-                    duration_ms=event.duration_ms or 0,
-                )
+                await self._result_collector.process_agent_result(event)
             except Exception as exc:
                 logger.warning(
                     "AgentEventConsumer: result_collector.process_agent_result failed: %s", exc
@@ -408,6 +404,37 @@ class AgentEventConsumer:
                     )
             except Exception as exc:
                 logger.warning("AgentEventConsumer: direct task update failed: %s", exc)
+
+        # Emit SSE event to frontend so user sees sub-agent completion in real-time
+        if self._event_publisher is not None:
+            try:
+                from graphclaw.agent.run_events import (
+                    AgentRunEvent,
+                    RunEventType,
+                    NotificationPayload,
+                )
+
+                # Extract user_id from session_id (format: ses-{user_id}-{timestamp})
+                user_id = event.session_id.split("-")[1] if "-" in event.session_id else ""
+                if user_id:
+                    notification_event = AgentRunEvent(
+                        event_type=RunEventType.NOTIFICATION,
+                        session_id=event.session_id,
+                        payload=NotificationPayload(
+                            level="info",
+                            message=f"Sub-agent '{event.agent_id}' completed task {event.task_id}",
+                            details={
+                                "task_id": event.task_id,
+                                "agent_id": event.agent_id,
+                                "status": event.status or "COMPLETED",
+                                "duration_ms": event.duration_ms,
+                                "batch_id": event.batch_id,
+                            },
+                        ),
+                    )
+                    await self._event_publisher.publish(user_id, notification_event)
+            except Exception as exc:
+                logger.debug("AgentEventConsumer: failed to emit SSE notification: %s", exc)
 
         logger.info(
             "AgentEventConsumer: sub-agent %s completed task %s (status=%s)",

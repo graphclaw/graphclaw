@@ -108,7 +108,7 @@ services:
       minio-init:
         condition: service_completed_successfully
     ports:
-      - "8000:8000"
+      - "8010:8000"
     environment:
       PYTHONPATH: /app
       ENVIRONMENT: development
@@ -161,7 +161,8 @@ services:
       GRAPHCLAW_MEMORY_DISTILL_MAX_CHARS: ${GRAPHCLAW_MEMORY_DISTILL_MAX_CHARS:-1500}
       GRAPHCLAW_MEMORY_INTELLIGENCE_MAX_WORDS: ${GRAPHCLAW_MEMORY_INTELLIGENCE_MAX_WORDS:-500}
       # OAuth 2.0
-      OAUTH_REDIRECT_BASE_URL: ${OAUTH_REDIRECT_BASE_URL:-http://localhost:8000}
+      OAUTH_REDIRECT_BASE_URL: ${OAUTH_REDIRECT_BASE_URL:-http://localhost:8010}
+      OAUTH_REDIRECT_ALLOWLIST: ${OAUTH_REDIRECT_ALLOWLIST:-http://localhost:8010}
       COCKPIT_BASE_URL: ${COCKPIT_BASE_URL:-http://localhost:3000}
       OAUTH_GOOGLE_CLIENT_ID: ${OAUTH_GOOGLE_CLIENT_ID:-}
       OAUTH_GOOGLE_CLIENT_SECRET: ${OAUTH_GOOGLE_CLIENT_SECRET:-}

@@ -249,8 +249,43 @@ class ResultCollector:
             "updated_at": now.isoformat(),
             "state": new_state,
         }
-        if result_summary:
-            updates["intelligence"] = result_summary[:2000]
+        
+        # Try to read agent output files and include in intelligence
+        agent_output_content = ""
+        if self._storage and status == "COMPLETED":
+            # Resolve user_id from session_id (format: ses-{user_id}-{timestamp})
+            output_user_id = event.session_id.split("-")[1] if "-" in event.session_id else ""
+            if output_user_id:
+                from graphclaw.infra.storage import StoragePaths
+                
+                # Try common output file paths for sub-agents
+                output_paths = [
+                    f"{StoragePaths.agent_root(output_user_id, agent_id)}output/email-draft.md",
+                    f"{StoragePaths.agent_root(output_user_id, agent_id)}output/result.md",
+                    f"{StoragePaths.agent_root(output_user_id, agent_id)}output/summary.md",
+                ]
+                
+                for output_path in output_paths:
+                    try:
+                        content_bytes = await self._storage.read(output_path)
+                        agent_output_content = content_bytes.decode(errors="replace").strip()
+                        if agent_output_content:
+                            logger.info(
+                                "ResultCollector: read agent output from %s (%d bytes)",
+                                output_path,
+                                len(content_bytes),
+                            )
+                            break
+                    except Exception:
+                        continue
+        
+        # Combine result summary with agent output
+        intelligence_text = result_summary
+        if agent_output_content:
+            intelligence_text = f"{result_summary}\n\n---\n\n{agent_output_content}"
+        
+        if intelligence_text:
+            updates["intelligence"] = intelligence_text[:2000]
 
         try:
             await self._repo.update_node(task_id, updates)
