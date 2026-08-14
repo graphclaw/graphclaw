@@ -125,6 +125,10 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       GRAPHCLAW_DEFAULT_LLM_PROVIDER: ${GRAPHCLAW_DEFAULT_LLM_PROVIDER:-anthropic}
+      # Ollama local LLM configuration
+      OLLAMA_API_BASE: ${OLLAMA_API_BASE:-http://host.docker.internal:11434}
+      OLLAMA_DEFAULT_MODEL: ${OLLAMA_DEFAULT_MODEL:-llama3.2}
+      LITELLM_DEFAULT_MODEL: ${LITELLM_DEFAULT_MODEL:-anthropic/claude-sonnet-4-20250514}
       REDIS_URL: redis://redis:6379
       STORAGE_ENDPOINT_URL: http://minio:9000
       STORAGE_BUCKET: graphclaw
