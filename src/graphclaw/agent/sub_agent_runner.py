@@ -437,7 +437,14 @@ class SubAgentRunner:
             f"  - After reading a batch of messages: record what you found and any patterns.\n"
             f"  - When you match a message to a task: record the match and required action.\n"
             f"  - When you complete an action: record what was done and the outcome.\n"
-            f"Notes must be concise (one sentence), factual, and free of PII.\n"
+            f"Notes must be concise (one sentence), factual, and free of PII.\n\n"
+            f"## Deliverables\n"
+            f"When you complete your task and produce a final deliverable (email draft, report, "
+            f"summary, etc.), use the `save_output` tool to save it. This ensures the orchestrator "
+            f"can retrieve and use your work. For example:\n"
+            f"  - Email drafts: save_output(filename='email-draft.md', content='...')\n"
+            f"  - Analysis reports: save_output(filename='report.md', content='...')\n"
+            f"  - Summaries: save_output(filename='summary.txt', content='...')\n"
         )
         if self._storage:
             try:
@@ -679,6 +686,29 @@ class SubAgentRunner:
                     "required": ["topic"],
                 },
             ),
+            _TD(
+                name="save_output",
+                description=(
+                    "Save your final work product or deliverable to an output file. "
+                    "Use this when you've completed your task and need to return results "
+                    "to the orchestrator (e.g., drafted email, analysis report, summary). "
+                    "The output will be automatically included in the task intelligence."
+                ),
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "filename": {
+                            "type": "string",
+                            "description": "Output filename (e.g., 'email-draft.md', 'report.md', 'summary.txt').",
+                        },
+                        "content": {
+                            "type": "string",
+                            "description": "The complete output content to save.",
+                        },
+                    },
+                    "required": ["filename", "content"],
+                },
+            ),
         ]
 
     async def _dispatch_tool(
@@ -728,6 +758,16 @@ class SubAgentRunner:
             return await self._execute_tool_with_retries(
                 tool_name=tool_name,
                 op=lambda: self._tool_read_memory(tool_input, job),
+                retry_allowed=False,
+                is_retryable_result=lambda _result: False,
+                job=job,
+                task_id=job.task_id,
+            )
+
+        if tool_name == "save_output":
+            return await self._execute_tool_with_retries(
+                tool_name=tool_name,
+                op=lambda: self._tool_save_output(tool_input, job),
                 retry_allowed=False,
                 is_retryable_result=lambda _result: False,
                 job=job,
@@ -957,6 +997,58 @@ class SubAgentRunner:
             return {"error": f"Semantic memory topic '{topic}' not found."}
         except Exception as exc:  # noqa: BLE001
             logger.warning("SubAgentRunner: read_memory failed topic=%s: %s", topic, exc)
+            return {"error": str(exc)}
+
+    async def _tool_save_output(self, args: dict[str, Any], job: AgentJobEvent) -> dict[str, Any]:
+        """Save agent output to the output/ directory for orchestrator retrieval.
+        
+        Writes to {user_id}/agents/{agent_id}/output/{filename} so ResultCollector
+        can read it and include it in the task intelligence field.
+        """
+        filename = str(args.get("filename", "")).strip()
+        content = str(args.get("content", "")).strip()
+        
+        if not filename:
+            return {"error": "filename must be a non-empty string"}
+        if not content:
+            return {"error": "content must be a non-empty string"}
+        
+        # Sanitize filename to prevent path traversal
+        safe_filename = filename.replace("..", "").replace("/", "").replace("\\", "")
+        if not safe_filename:
+            return {"error": "Invalid filename"}
+        
+        if self._storage is None:
+            return {"error": "Storage not available."}
+        
+        try:
+            from graphclaw.infra.storage import StoragePaths  # noqa: PLC0415
+            
+            output_path = f"{StoragePaths.agent_root(job.user_id, job.agent_id)}output/{safe_filename}"
+            await self._storage.write(output_path, content.encode("utf-8"))
+            
+            logger.info(
+                "agent.save_output",
+                extra={
+                    "event_type": "agent.save_output",
+                    "user_id": job.user_id,
+                    "agent_id": job.agent_id,
+                    "task_id": job.task_id,
+                    "session_id": job.session_id,
+                    "filename": safe_filename,
+                    "size_bytes": len(content.encode("utf-8")),
+                },
+            )
+            return {
+                "ok": True,
+                "filename": safe_filename,
+                "path": output_path,
+                "size_bytes": len(content.encode("utf-8")),
+            }
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "SubAgentRunner: save_output failed filename=%s: %s", safe_filename, exc
+            )
             return {"error": str(exc)}
 
     async def _tool_call_mcp(self, args: dict[str, Any]) -> dict[str, Any]:
