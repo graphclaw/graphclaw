@@ -51,7 +51,10 @@ class LLMRouter:
 
     Args:
         default_model: LiteLLM-compatible model string used when no model is
-            specified by the caller (default ``"claude-sonnet-4-20250514"``).
+            specified by the caller. ``None`` (the default) defers to the
+            underlying client's own default — for a role-bound client (the
+            normal case, see ``graphclaw.llm.routing.ModelRouter``) that is
+            the ``LLMRole.SKILL`` routing default, not a hardcoded literal.
         llm_client: Pre-constructed ``LLMClient`` instance to use.  When
             ``None``, a ``LiteLLMLLMClient`` is created with ``default_model``.
         provider: Provider name passed to ``create_llm_client()`` when
@@ -80,9 +83,10 @@ class LLMRouter:
         llm_client: LLMClient | None = None,
         provider: str = "litellm",
     ) -> None:
-        from graphclaw.config import config  # noqa: PLC0415
-
-        self._default_model = default_model or config.app.litellm_default_model
+        # No config.app.litellm_default_model fallback here: that would shadow
+        # the LLMRole.SKILL routing default with a single hardcoded model,
+        # which is exactly the behaviour role-based routing replaces.
+        self._default_model = default_model
         if llm_client is not None:
             self._client: LLMClient = llm_client
         else:

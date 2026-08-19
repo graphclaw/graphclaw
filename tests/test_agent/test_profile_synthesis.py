@@ -63,11 +63,20 @@ class TestSynthesizeFromOnboarding:
         assert "## Key Preferences" in body
         assert "- Surface blockers first" in body
 
-    async def test_uses_lightweight_model(self):
+    async def test_defers_to_llm_role_classify_default_when_unset(self):
+        """With no explicit model, ProfileSynthesizer must pass model=None so
+        the underlying LLMClient's LLMRole.CLASSIFY routing default applies —
+        not a hardcoded literal."""
         llm = _FakeLLM('{"working_style": ["x"], "preferences": ["y"]}')
         synth = ProfileSynthesizer(llm)
         await synth.synthesize_from_onboarding("U1", "main", _CONVO)
-        assert llm.calls[0]["model"] == "claude-haiku-4-5"
+        assert llm.calls[0]["model"] is None
+
+    async def test_explicit_model_override_passes_through(self):
+        llm = _FakeLLM('{"working_style": ["x"], "preferences": ["y"]}')
+        synth = ProfileSynthesizer(llm, model="ollama/qwen2.5:1.5b")
+        await synth.synthesize_from_onboarding("U1", "main", _CONVO)
+        assert llm.calls[0]["model"] == "ollama/qwen2.5:1.5b"
 
     async def test_strips_markdown_code_fence(self):
         llm = _FakeLLM('```json\n{"working_style": ["a"], "preferences": ["b"]}\n```')

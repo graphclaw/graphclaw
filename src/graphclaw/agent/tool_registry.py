@@ -5,16 +5,22 @@
 Description
 -----------
 Provides ``ToolSetRegistry``, which organises the agent's 16+ tool definitions
-into named sets and activates them on demand.  Only the 6-tool core set is sent
-to the LLM on every call (~600 tokens vs the previous flat ~4 800 tokens).  Named
-sets are loaded via the ``load_tool_set`` meta-tool, reducing token cost and
-preventing "not configured" round-trips for optional integrations.
+into named sets and activates them on demand.  Only the 12-tool core set is
+sent to the LLM on every call by default (~2 500 tokens — still well short of
+sending every set's schemas at once, but not the ~600 tokens this docstring
+used to claim; measure with ``estimate_json_tokens`` if the true figure
+matters for a specific deployment).  Named sets are loaded via the
+``load_tool_set`` meta-tool (and freed again via ``unload_tool_set``),
+reducing token cost and preventing "not configured" round-trips for optional
+integrations.  At most ``ContextConfig.max_active_tool_sets`` non-core sets
+can be active at once — activating one more evicts the least-recently-used
+eligible set (see ``_evict_if_needed``).
 
 Tool Set Layout
 ---------------
 Tier 1 — Core (always present):
   list_tasks, get_task_details, update_task_state,
-  list_available_agents, load_tool_set, read_knowledge,
+  list_available_agents, load_tool_set, unload_tool_set, read_knowledge,
   read_memory, recall_episodic, compact_memory, estimate_memory
 
 Tier 2 — Named sets (activated on demand):
@@ -28,9 +34,13 @@ Public API
 ----------
 - ToolSetRegistry: Manages tool set state for one agent session.
 - ToolSetRegistry.activate: Load a named set; return its tool definitions.
+- ToolSetRegistry.deactivate: Unload a named set (refuses "core").
+- ToolSetRegistry.set_active: Replace the active sets in one call.
+- ToolSetRegistry.preload: Activate several sets at once.
 - ToolSetRegistry.get_active_tools: Current active tool list.
 - ToolSetRegistry.reset_session: Clear activated sets back to core only.
 - ToolSetRegistry.get_manifest: Compact manifest string for the system prompt.
+- ToolSetRegistry.tick / note_tool_used: Recent-use tracking for eviction.
 
 Dependencies
 ------------
@@ -40,7 +50,9 @@ Dependencies
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 
+from graphclaw.config import config
 from graphclaw.llm.base import ToolDefinition
 
 logger = logging.getLogger(__name__)
@@ -165,12 +177,38 @@ def _make_core_tools() -> list[ToolDefinition]:
             "load_tool_set",
             (
                 "Activate a named tool set to access additional tools for this session. "
-                "Available sets: task_management, planning, skills, mcp, delegation, identity, onboarding."
+                "Available sets: task_management, planning, skills, mcp, delegation, identity, onboarding. "
+                "Only a limited number of non-core sets can be active at once — loading "
+                "another beyond that replaces the oldest. Call unload_tool_set(name) to "
+                "free one deliberately instead."
             ),
             {
                 "name": {
                     "type": "string",
                     "description": "Tool set name: task_management | planning | skills | mcp | delegation | identity | onboarding.",
+                    "enum": [
+                        "task_management",
+                        "planning",
+                        "skills",
+                        "mcp",
+                        "delegation",
+                        "identity",
+                        "onboarding",
+                    ],
+                },
+            },
+            required=["name"],
+        ),
+        _td(
+            "unload_tool_set",
+            (
+                "Deactivate a previously-loaded tool set to free budget for another. "
+                "Has no effect on the always-present core tools."
+            ),
+            {
+                "name": {
+                    "type": "string",
+                    "description": "Tool set name to deactivate: task_management | planning | skills | mcp | delegation | identity | onboarding.",
                     "enum": [
                         "task_management",
                         "planning",
@@ -871,17 +909,6 @@ def _make_onboarding_tools() -> list[ToolDefinition]:
 # ToolSetRegistry
 # ---------------------------------------------------------------------------
 
-_MANIFEST = """\
-## Available Tool Sets
-Call load_tool_set(name) to activate additional tools for this session.
-- task_management : create and edit tasks and goals
-- planning        : decompose goals into structured execution plans
-- skills          : run AI automation skills
-- mcp             : call external integrations (GitHub, Calendar, Slack, etc.)
-- delegation      : delegate tasks to sub-agents asynchronously
-- identity        : resolve users, create contacts, merge duplicates
-- onboarding      : guide new users through initial setup"""
-
 
 class ToolSetRegistry:
     """Manages which tool sets are active for one agent session.
@@ -899,6 +926,7 @@ class ToolSetRegistry:
         self,
         has_skill_registry: bool = False,
         has_mcp_registry: bool = False,
+        max_active_sets: int | None = None,
     ) -> None:
         self._available: dict[str, list[ToolDefinition]] = {
             "core": _make_core_tools(),
@@ -913,7 +941,17 @@ class ToolSetRegistry:
         if has_mcp_registry:
             self._available["mcp"] = _make_mcp_tools()
 
-        self._active_sets: set[str] = {"core"}
+        # dict, not set: insertion order is the activation order, needed to
+        # pick an eviction victim when max_active_sets is exceeded. "core" is
+        # always the first key and is never evicted.
+        self._active_sets: dict[str, None] = {"core": None}
+        self._max_active_sets = (
+            max_active_sets if max_active_sets is not None else config.context.max_active_tool_sets
+        )
+        # Guards against evicting a set whose tool the model is actively
+        # using: bumped by note_tool_used(), compared against tick().
+        self._iteration: int = 0
+        self._last_used_at: dict[str, int] = {}
 
     # ------------------------------------------------------------------
     # Session management
@@ -923,7 +961,10 @@ class ToolSetRegistry:
         """Add *set_name* to the active sets and return its tool definitions.
 
         Returns an empty list if the set name is unknown or not available
-        (e.g. ``mcp`` when no MCP registry is configured).
+        (e.g. ``mcp`` when no MCP registry is configured). If activating this
+        set would exceed ``max_active_sets`` non-core sets, the
+        least-recently-activated eligible set is evicted first — see
+        ``_evict_if_needed``.
         """
         if set_name not in self._available:
             logger.warning(
@@ -931,7 +972,9 @@ class ToolSetRegistry:
                 extra={"set_name": set_name, "available": list(self._available)},
             )
             return []
-        self._active_sets.add(set_name)
+        if set_name not in self._active_sets:
+            self._evict_if_needed()
+            self._active_sets[set_name] = None
         tools = self._available[set_name]
         logger.debug(
             "tool_registry.activate",
@@ -939,9 +982,92 @@ class ToolSetRegistry:
         )
         return tools
 
+    def deactivate(self, set_name: str) -> bool:
+        """Remove *set_name* from the active sets. Refuses to drop ``"core"``.
+
+        Returns ``True`` if a set was actually removed, ``False`` if it
+        wasn't active (or was ``"core"``) — lets the model free budget for
+        a set it no longer needs, via the ``unload_tool_set`` meta-tool.
+        """
+        if set_name == "core" or set_name not in self._active_sets:
+            return False
+        del self._active_sets[set_name]
+        self._last_used_at.pop(set_name, None)
+        return True
+
+    def set_active(self, set_names: Iterable[str]) -> None:
+        """Replace the active sets with *set_names*, always keeping ``"core"``.
+
+        Unknown names are silently skipped (same tolerance as ``activate``
+        for a bad name, without the warning noise for a bulk operation).
+        """
+        new_active: dict[str, None] = {"core": None}
+        for name in set_names:
+            if name != "core" and name in self._available:
+                new_active[name] = None
+        self._active_sets = new_active
+
+    def preload(self, set_names: Iterable[str]) -> list[ToolDefinition]:
+        """Activate every name in *set_names* and return the combined active
+        tool list. Intended for a future intent-classifier caller that knows
+        up front which sets a turn will likely need — deliberately a thin
+        wrapper over repeated ``activate()`` so eviction/recent-use rules
+        apply uniformly whether tools are loaded one at a time or in bulk.
+        """
+        for name in set_names:
+            self.activate(name)
+        return self.get_active_tools()
+
     def reset_session(self) -> None:
         """Reset active sets to core only (call at the start of each message)."""
-        self._active_sets = {"core"}
+        self._active_sets = {"core": None}
+        self._iteration = 0
+        self._last_used_at = {}
+
+    def tick(self) -> None:
+        """Advance the iteration counter — call once per agentic-loop round.
+
+        Together with ``note_tool_used``, this is what lets eviction skip a
+        set the model just called a tool from, even if it's the
+        least-recently-*activated* one.
+        """
+        self._iteration += 1
+
+    def note_tool_used(self, tool_name: str) -> None:
+        """Record that *tool_name* was just called, protecting its owning
+        set from eviction for the next couple of iterations."""
+        for set_name, tools in self._available.items():
+            if any(t.name == tool_name for t in tools):
+                self._last_used_at[set_name] = self._iteration
+                return
+
+    def _evict_if_needed(self) -> None:
+        """Evict the least-recently-activated eligible non-core set when
+        activating one more would exceed ``max_active_sets``.
+
+        "Eligible" excludes any set used within the last 2 iterations
+        (tracked via ``note_tool_used``/``tick``) — otherwise eviction could
+        remove a tool the model is about to call again this same turn. If
+        every active non-core set is protected, activation is allowed to
+        temporarily exceed the cap rather than evict something in active use.
+        """
+        non_core = [s for s in self._active_sets if s != "core"]
+        if len(non_core) < self._max_active_sets:
+            return
+        protected_cutoff = self._iteration - 2
+        for candidate in non_core:  # insertion order = oldest first
+            # A set with no recorded use is maximally eligible for eviction
+            # (float("-inf"), not e.g. -1) — otherwise, near iteration 0,
+            # "never used" would be indistinguishable from "used very
+            # recently" and every set would start out wrongly protected.
+            if self._last_used_at.get(candidate, float("-inf")) < protected_cutoff:
+                del self._active_sets[candidate]
+                self._last_used_at.pop(candidate, None)
+                logger.info(
+                    "tool_registry.evicted",
+                    extra={"set_name": candidate, "max_active_sets": self._max_active_sets},
+                )
+                return
 
     def get_active_tools(self, mode: str = "default") -> list[ToolDefinition]:
         """Return the current active tool list (core + all activated sets).
@@ -967,7 +1093,13 @@ class ToolSetRegistry:
     def get_manifest(self) -> str:
         """Return the compact manifest string for injection into the system prompt."""
         available_set_names = [k for k in self._available if k != "core"]
-        lines = ["## Available Tool Sets", "Call load_tool_set(name) to activate additional tools."]
+        lines = [
+            "## Available Tool Sets",
+            "Call load_tool_set(name) to activate additional tools. "
+            f"At most {self._max_active_sets} non-core set(s) can be active at "
+            "once — loading another replaces the oldest unless you "
+            "unload_tool_set(name) first.",
+        ]
         labels = {
             "task_management": "create and edit tasks and goals",
             "planning": "decompose goals into structured execution plans",
@@ -983,9 +1115,9 @@ class ToolSetRegistry:
         return "\n".join(lines)
 
     @property
-    def active_set_names(self) -> set[str]:
+    def active_set_names(self) -> frozenset[str]:
         """The currently active set names (read-only view)."""
-        return frozenset(self._active_sets)  # type: ignore[return-value]
+        return frozenset(self._active_sets)
 
 
 # ---------------------------------------------------------------------------

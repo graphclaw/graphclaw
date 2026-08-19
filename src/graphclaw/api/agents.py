@@ -135,7 +135,9 @@ class AgentConfigSchema(BaseModel):
     Missing key (None) = all available (backward compatible).
     """
 
-    llm_model: str = "claude-sonnet-4-20250514"
+    # None (the default) defers to the LLMRole.SUBAGENT routing default
+    # (see graphclaw.llm.roles) rather than a hardcoded literal.
+    llm_model: str | None = None
     heartbeat_interval_seconds: int = 60
     execution_timeout_seconds: int = 600
     skills: list[str] | None = Field(default=None)

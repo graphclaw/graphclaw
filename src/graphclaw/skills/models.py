@@ -95,7 +95,9 @@ class SkillDefinition(BaseModel):
     version:
         Semantic version string (defaults to ``"1.0.0"``).
     model:
-        LiteLLM-compatible model string (defaults to ``"claude-sonnet-4-20250514"``).
+        LiteLLM-compatible model string. ``None`` (the default) defers to the
+        ``LLMRole.SKILL`` routing default rather than hardcoding a model —
+        see ``graphclaw.llm.roles``.
     max_tokens:
         Maximum tokens in the LLM completion (defaults to 4096).
     temperature:
@@ -113,7 +115,7 @@ class SkillDefinition(BaseModel):
     name: str
     description: str = ""
     version: str = "1.0.0"
-    model: str = "claude-sonnet-4-20250514"
+    model: str | None = None
     max_tokens: int = 4096
     temperature: float = 0.0
     system_prompt: str = ""

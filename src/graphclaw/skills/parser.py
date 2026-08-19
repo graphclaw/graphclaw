@@ -96,7 +96,10 @@ class SkillParser:
             name=frontmatter.get("name", ""),
             description=frontmatter.get("description", ""),
             version=frontmatter.get("version", "1.0.0"),
-            model=frontmatter.get("model", "claude-sonnet-4-20250514"),
+            # SKILL.md files declare either "llm_model:" (the documented key,
+            # honoured here) or the older bare "model:". Absent both, None
+            # defers to the LLMRole.SKILL routing default.
+            model=frontmatter.get("llm_model") or frontmatter.get("model") or None,
             max_tokens=frontmatter.get("max_tokens", 4096),
             temperature=frontmatter.get("temperature", 0.0),
             system_prompt=body.strip(),

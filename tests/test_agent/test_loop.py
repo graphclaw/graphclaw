@@ -7,6 +7,7 @@ All database calls are mocked via AsyncMock so no live DB is required.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
@@ -575,18 +576,47 @@ class TestGenerateBriefing:
 
 class TestGraphSummaryScoping:
     @pytest.mark.asyncio
-    async def test_build_graph_summary_triggers_user_scoped_cycle(self):
+    async def test_build_graph_summary_does_not_block_on_scoring_cycle(self):
+        """Regression: _build_graph_summary used to run a full scoring cycle
+        synchronously (await self.run_cycle(...)) whenever the cache was
+        empty — on the request path, on every turn with no cached queue.
+        It must now return immediately (goals-only) and warm the cache in
+        the background instead."""
         task = _make_task(title="Summary Task")
         entry = _make_queue_entry(task, rank=1, score=0.91)
 
         loop, repo, engine = _make_loop()
         repo.list_nodes_by_user = AsyncMock(return_value=[])
+        run_cycle_started = asyncio.Event()
+
+        async def _slow_run_cycle(**kwargs):  # noqa: ARG001
+            run_cycle_started.set()
+            await asyncio.sleep(10)  # would hang the test if awaited inline
+            return [entry]
+
+        loop.run_cycle = _slow_run_cycle
+        loop._fetch_active_tasks = AsyncMock(return_value=[task])
+
+        summary = await asyncio.wait_for(loop._build_graph_summary("USER-summary"), timeout=1)
+
+        # Returned immediately without the task section (queue was empty).
+        assert "Top Priority Tasks" not in summary
+        # But the cycle was still kicked off in the background.
+        await asyncio.wait_for(run_cycle_started.wait(), timeout=1)
+
+    async def test_build_graph_summary_uses_cached_queue_without_scheduling_a_cycle(self):
+        task = _make_task(title="Summary Task")
+        entry = _make_queue_entry(task, rank=1, score=0.91)
+
+        loop, repo, engine = _make_loop()
+        repo.list_nodes_by_user = AsyncMock(return_value=[])
+        loop._last_queue_by_scope["USER-summary"] = [entry]
         loop.run_cycle = AsyncMock(return_value=[entry])
         loop._fetch_active_tasks = AsyncMock(return_value=[task])
 
         summary = await loop._build_graph_summary("USER-summary")
 
-        loop.run_cycle.assert_called_once_with(user_id="USER-summary", trigger_source="on_demand")
+        loop.run_cycle.assert_not_called()
         assert "Top Priority Tasks" in summary
         assert task.id in summary
 

@@ -106,7 +106,7 @@ class AgentCatalog:
     # Public API
     # ------------------------------------------------------------------
 
-    async def get_compact_catalog(self, user_id: str) -> str:
+    async def get_compact_catalog(self, user_id: str, max_agents: int | None = None) -> str:
         """Return a compact catalog string (~100 tokens) for the system prompt.
 
         Format::
@@ -115,17 +115,31 @@ class AgentCatalog:
             - comms [system]: Reads email, Telegram, WhatsApp — delegate for comms queries
             - my-research [user]: Searches the web and summarises findings
             To delegate: load_tool_set("delegation"), then call delegate_to_agent
+
+        Args:
+            user_id: Whose visible agents to list.
+            max_agents: Cap on manifests rendered as lines. ``None`` (the
+                default) renders all — callers assembling a bounded system
+                prompt should pass ``ContextConfig.agent_catalog_max_agents``.
+                A user with more agents than the cap sees a
+                "(+N more — call list_available_agents)" hint instead of an
+                unbounded catalog.
         """
         manifests = await self._load_all_manifests(user_id)
         if not manifests:
             return ""
 
+        shown = manifests if max_agents is None else manifests[:max_agents]
+        remaining = len(manifests) - len(shown)
+
         lines = ["## Available Agents"]
-        for m in manifests:
+        for m in shown:
             agent_id = m.get("agent_id", "?")
             agent_type = m.get("type", "user")
             hint = m.get("tool_hint") or m.get("description", "")
             lines.append(f"- {agent_id} [{agent_type}]: {hint}")
+        if remaining > 0:
+            lines.append(f"(+{remaining} more — call list_available_agents)")
         lines.append('To delegate: load_tool_set("delegation"), then call delegate_to_agent')
         return "\n".join(lines)
 

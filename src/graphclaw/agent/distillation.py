@@ -51,7 +51,11 @@ from graphclaw.config import config
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_MODEL = config.memory.distillation_model
+# No module-level model default: reading config.memory.distillation_model at
+# import time would freeze it before any test or role-router config can
+# apply, and would shadow the LLMRole.DISTILL routing default with a
+# hardcoded literal. self._model stays None unless a caller passes one
+# explicitly, and the role-bound LLMClient resolves None to its own default.
 _MAX_TOKENS = 512
 _TEMPERATURE = 0.0
 _MAX_BODY_CHARS = config.memory.distill_max_chars
@@ -212,8 +216,9 @@ class DistillationHelper:
         Async lock shared with any other writers of context.md to prevent
         read-modify-write races.
     model:
-        Model identifier override (default: GRAPHCLAW_DISTILLATION_MODEL env,
-        fallback ``claude-haiku-4-5``).
+        Explicit model identifier override. ``None`` (the default) defers to
+        the ``LLMRole.DISTILL`` routing default on ``llm`` rather than a
+        hardcoded literal — see ``graphclaw.llm.roles``.
     """
 
     def __init__(
@@ -228,7 +233,7 @@ class DistillationHelper:
         self._graph_repo = graph_repo
         self._storage = storage
         self._memory_lock = memory_lock or asyncio.Lock()
-        self._model = model or _DEFAULT_MODEL
+        self._model = model
 
     async def distill(self, inp: DistillationInput) -> DistillationResult:
         """Run distillation for a completed chat turn.

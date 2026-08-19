@@ -498,6 +498,82 @@ in `graphclaw-cockpit/docs/planning/build-plan.md`.
 
 ---
 
+### Wave Model-Routing — Role-Based Multi-Model Routing & Context Discipline ✅ COMPLETE (2026-08-17)
+
+**Goal:** Let each LLM-calling role run on an independently configured model, and bound every
+unbounded context contributor so the orchestrator fits inside a 32k-token window.
+
+**Problem statement:** Testing against a local `ollama/qwen2.5:7b` (32k context) surfaced three
+architectural limits previously masked by large hosted windows:
+
+1. **One model for every job.** A single process-wide `LLMClient` (`gateway/app.py:389`) is shared by
+   the orchestrator, all sub-agents, the distiller, the context manager, the inbound intelligence
+   agent, the profile synthesizer, and the skill workers. The orchestrator and sub-agents pass
+   `model=None`, so all ride one `LITELLM_DEFAULT_MODEL`. Routing, generation, and cheap
+   summarization have different model requirements.
+2. **Context rot.** ~2.5–5k tokens of system prompt across 8 sections (three unbounded), up to ~8k of
+   tool schemas that only grow within a turn, up to ~9k of collapsed history, and unbounded raw tool
+   result JSON appended across 15 loop iterations with no pruning.
+3. **Sub-agent isolation undermined.** The sub-agent runtime is otherwise well isolated (2 messages,
+   5 tools, no inherited history) but `## Episodic Memory` loads *all* active entries against a
+   hardcoded `token_budget = 80_000`, unscoped to the delegated task.
+
+Exploration also confirmed several defects where a feature has silently never worked — notably
+`ContextManager._build_rolling_summary` passing a non-existent `system=` kwarg to `LLMClient.complete`,
+and `SubAgentRunner._tool_invoke_skill` calling `get_skill_definition()` with the wrong arity.
+
+**Phases:**
+
+| Phase | Scope | Key Files |
+|-------|-------|-----------|
+| A | Per-call `api_base` resolution (unblocks mixed Ollama/hosted models on one client) | `llm/litellm/client.py` |
+| B | `LLMRole` enum, `LLMRoutingConfig`, `ModelRouter`, `RoleBoundLLMClient`; env scheme `GRAPHCLAW_MODEL_<ROLE>` → `GRAPHCLAW_MODEL_DEFAULT` → `LITELLM_DEFAULT_MODEL` | `llm/roles.py`, `llm/routing.py`, `llm/role_client.py`, `config.py` |
+| C | Hardcoded-model-default → `None` sweep; SKILL.md `llm_model:` frontmatter fix | `agent/distillation.py`, `agent/compaction.py`, `agent/profile_synthesis.py`, `inbound/intelligence_agent.py`, `skills/parser.py`, `skills/llm_router.py` |
+| D | Gateway wiring per role, `aclose()`, `describe()` in health; per-agent `config.json.llm_model` override | `gateway/app.py`, `agent/event_consumer.py`, `agent/sub_agent_runner.py`, `api/agents.py` |
+| E | `ContextConfig` + `PromptBudget` single enforcement point; tool-result truncation and cross-iteration pruning | `config.py`, `agent/prompt_budget.py`, `agent/main_orchestrator.py` |
+| F | System-prompt section caps + restructure to `PromptSection` list + parallel section loads | `agent/main_orchestrator.py`, `agent/catalog.py`, `agent/tool_registry.py` |
+| G | `TurnState` contextvars + per-turn `ToolSetRegistry` + per-user rolling summary (closes two cross-user leaks); reversible/capped tool sets | `agent/turn_state.py`, `agent/tool_registry.py`, `agent/context.py` |
+| H | Context-path defect fixes incl. the `system=` kwarg, streaming-path distillation and stuck-loop parity | `agent/context.py`, `agent/main_orchestrator.py`, `api/chat.py` |
+| I | Sub-agent episodic scoping via shared `recall_episodic`; sub-agent prompt cap; skill-arity, `report.md`, and `user_id`-derivation fixes | `agent/episodic_recall.py`, `agent/sub_agent_runner.py`, `agent/result_collector.py` |
+
+**Success criteria — verified:** each of the six roles resolves to an independent provider+model via
+env (confirmed live via `GET /health/ready` → `llm_routing`); all roles fall back to
+`LITELLM_DEFAULT_MODEL` when unset (backward compat, table-driven test); mixed Ollama/hosted role
+configuration works in both directions (regression tests for the leak in each direction); a status
+query on `qwen2.5:14b` (32k context) measured **4,569–5,442 prompt tokens across a 5-turn live chat**,
+comfortably under the 6k/12k targets; no cross-user context or ACL bleed (contextvars isolation,
+verified with concurrent-task tests); sub-agent skill invocation (`get_skill_definition` arity),
+deliverable collection (`output/` prefix scan + authoritative `user_id`), and episodic relevance
+scoping are functional end-to-end.
+
+**Tests:** `tests/test_llm/test_routing.py`, `tests/test_agent/test_prompt_budget.py`,
+`tests/test_agent/test_turn_state.py`, `tests/test_agent/test_episodic_recall.py`,
+`tests/test_agent/test_tool_result_rot.py`, `tests/test_agent/test_stream_parity.py` (all NEW);
+extended `tests/test_llm/test_litellm.py` (api_base both directions), `tests/test_agent/test_context.py`
+(summary-replaces-collapse, budget loop, per-user summary isolation, real-signature `system=` fix
+regression), `tests/test_agent/test_tool_registry.py` (deactivate, eviction cap, recent-use guard —
+caught a real sentinel-value bug during development), `tests/test_agent/test_sub_agent_orchestration.py`
+(output-file collection, skill arity). Full suite: 2,685 passed; the only failures are 13
+pre-existing `result_collector`/`event_consumer` test-helper bugs and 11 `test_cicd.py` file-mount
+checks, both confirmed present on `main` before this wave and unrelated to it.
+
+**Follow-up finding from live verification:** `SubAgentRunner._run_llm_loop` has no stuck-loop guard
+of its own — only the orchestrator's three agentic loops got one in this wave. Live testing surfaced
+a dispatched sub-agent retrying a failing `call_mcp_tool` call repeatedly with no early exit. Not
+fixed here (out of this wave's scope, which targeted the orchestrator); tracked as a direct follow-up.
+
+**Deferred to follow-up waves:** intent-based section/tool gating (needs `agent.prompt_budget` logs
+from this wave to calibrate); sub-agent stuck-loop guard (see finding above); `cost_usd` telemetry
+(hardcoded `0.0` in the LiteLLM backend); thread/session-scoped chat history (storage-schema
+migration); full `MainOrchestrator` decomposition; `DistillationHelper._memory_lock` race (new
+instance built every turn, guards nothing across concurrent turns).
+
+**Delivery:** Changes complete and verified in the working tree, not yet committed — per the
+Lifecycle Guardrails (PR-first delivery), land via a feature branch + PR rather than direct commits
+to `main`.
+
+---
+
 ## Agent Integration Recommendations
 
 ### Orchestrating Agent

@@ -65,12 +65,22 @@ async def test_factory_with_ollama():
         # Create client via factory
         client = create_llm_client("litellm", default_model=model_string)
         
-        # Verify api_base was auto-configured
-        if hasattr(client, "_api_base") and client._api_base == config.app.ollama_base_url:
-            print(f"✅ Factory auto-configured api_base: {client._api_base}")
+        # Verify api_base resolves for the ollama/ default model
+        resolved = getattr(client, "api_base", None)
+        if resolved == config.app.ollama_base_url:
+            print(f"✅ Factory resolved api_base: {resolved}")
         else:
-            print(f"⚠️  api_base not auto-configured (got: {getattr(client, '_api_base', None)})")
-        
+            print(f"⚠️  api_base not resolved (got: {resolved})")
+
+        # A hosted model on the same client must NOT receive the Ollama base URL.
+        hosted = client._resolve_api_base("anthropic/claude-sonnet-4-6")
+        if hosted is None:
+            print("✅ Hosted model correctly gets no api_base on the same client")
+        else:
+            print(f"❌ Ollama api_base leaked to a hosted model: {hosted}")
+            return False
+
+
         await client.close()
         return True
         

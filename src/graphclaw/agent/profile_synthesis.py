@@ -45,13 +45,16 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_MODEL = os.environ.get("GRAPHCLAW_PROFILE_SYNTHESIS_MODEL", "claude-haiku-4-5")
+# No module-level model default: GRAPHCLAW_PROFILE_SYNTHESIS_MODEL is now
+# consulted as a legacy fallback inside LLMRoutingConfig for LLMRole.CLASSIFY
+# (graphclaw.config), not read here at import time. self._model stays None
+# unless a caller passes one explicitly, and the role-bound LLMClient
+# resolves None to its own default.
 _MAX_TOKENS = 1024
 _TEMPERATURE = 0.0
 _MAX_CONV_CHARS = 12000
@@ -180,13 +183,14 @@ class ProfileSynthesizer:
     llm:
         ``LLMClient`` used for the extraction call.
     model:
-        Model id override (default: ``GRAPHCLAW_PROFILE_SYNTHESIS_MODEL`` env,
-        falling back to ``claude-haiku-4-5``).
+        Explicit model identifier override. ``None`` (the default) defers to
+        the ``LLMRole.CLASSIFY`` routing default on ``llm`` — see
+        ``graphclaw.llm.roles``.
     """
 
     def __init__(self, llm: Any, model: str | None = None) -> None:
         self._llm = llm
-        self._model = model or _DEFAULT_MODEL
+        self._model = model
 
     async def synthesize_from_onboarding(
         self,

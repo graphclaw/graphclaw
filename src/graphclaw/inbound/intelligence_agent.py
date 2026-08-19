@@ -28,7 +28,7 @@ Public API
 - InboundIntelligenceAgent: Main processor class.
 - InboundIntelligenceAgent.process: Extract intelligence from an inbound message.
 - INTELLIGENCE_AGENT_MODEL_ENV: Env var name for model override.
-- DEFAULT_INTELLIGENCE_MODEL: Default model (claude-haiku-4-5).
+- DEFAULT_INTELLIGENCE_MODEL: None — defers to the LLMRole.CLASSIFY routing default.
 - MAX_INTELLIGENCE_WORDS: Word count limit for node intelligence field (500).
 
 Dependencies
@@ -89,7 +89,11 @@ __all__ = [
 # ---------------------------------------------------------------------------
 
 INTELLIGENCE_AGENT_MODEL_ENV = "INTELLIGENCE_AGENT_MODEL"
-DEFAULT_INTELLIGENCE_MODEL = "claude-haiku-4-5"
+# No hardcoded default: this env var is also consulted as a legacy fallback
+# inside LLMRoutingConfig for LLMRole.CLASSIFY (graphclaw.config). Leaving
+# `model` unresolved (None) here lets the role-bound LLMClient apply its own
+# routing default instead of a literal that would shadow it.
+DEFAULT_INTELLIGENCE_MODEL: str | None = None
 MAX_INTELLIGENCE_WORDS = 500
 _MAX_EXTRACTION_RESPONSE_CHARS = 12_000
 _MAX_EXTRACTION_FIELD_CHARS = 512
@@ -407,6 +411,8 @@ class InboundIntelligenceAgent:
         # Resolution order: user override > system default > fallback constant.
         system_prompt = await self._load_profile(user_id)
         config = await self._load_config(user_id)
+        # None (from either source) falls through to self._llm's LLMRole.CLASSIFY
+        # routing default rather than a hardcoded literal here.
         model = os.getenv(INTELLIGENCE_AGENT_MODEL_ENV) or config.get(
             "model", DEFAULT_INTELLIGENCE_MODEL
         )

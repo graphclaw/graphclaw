@@ -57,6 +57,8 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
+from graphclaw.agent.prompt_budget import dumps_tool_result, truncate_tool_result
+from graphclaw.config import config
 from graphclaw.infra.broker import AGENT_UPDATES, MessageBroker
 from graphclaw.infra.logging.events import AgentToolCallEvent
 from graphclaw.models.base import utcnow
@@ -110,6 +112,11 @@ class AgentUpdateEvent(BaseModel):
     agent_id: str
     task_id: str
     session_id: str
+    # Authoritative user_id, carried straight from AgentJobEvent — consumers
+    # (e.g. ResultCollector) must use this, not re-derive it by splitting
+    # session_id, which assumes a "ses-{user_id}-{timestamp}" shape that
+    # breaks for any user_id containing a hyphen.
+    user_id: str = ""
     parent_task_id: str | None = None
     batch_id: str = ""
     message: str | None = None
@@ -227,6 +234,9 @@ class SubAgentRunner:
         self._current_job: AgentJobEvent | None = None
         self._started_at: datetime | None = None
         self._last_heartbeat: datetime | None = None
+        # Resolved once per job in _run_llm_loop; None -> LLMRole.SUBAGENT
+        # routing default on self._llm applies.
+        self._agent_model: str | None = None
 
     # ------------------------------------------------------------------
     # Properties
@@ -359,10 +369,56 @@ class SubAgentRunner:
     # LLM tool-use loop
     # ------------------------------------------------------------------
 
+    # Legacy literal that main_orchestrator._tool_create_agent used to stamp
+    # into every new agent's config.json before role-based routing existed.
+    # Agents created before this change carry it on disk; treat it the same
+    # as "unset" rather than requiring a data migration.
+    _LEGACY_HARDCODED_MODEL = "claude-sonnet-4-20250514"
+
+    async def _resolve_model(self, job: AgentJobEvent) -> str | None:
+        """Resolve this agent's model override from config.json.
+
+        config.json's ``llm_model`` field wins over the ``LLMRole.SUBAGENT``
+        routing default. Returns ``None`` when unset, blank, missing, or the
+        pre-routing legacy literal — in every case ``self._llm`` (a
+        role-bound client) applies its own default.
+        """
+        if self._storage is None or not job.user_id:
+            return None
+        from graphclaw.infra.storage import StoragePaths  # noqa: PLC0415
+
+        try:
+            config_path = StoragePaths.agent_config(job.user_id, job.agent_id)
+        except ValueError:
+            return None
+        try:
+            raw = await self._storage.read(config_path)
+        except FileNotFoundError:
+            return None
+        try:
+            cfg = json.loads(raw.decode())
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            logger.warning(
+                "SubAgentRunner: malformed config.json for agent '%s' (user=%s): %s",
+                job.agent_id,
+                job.user_id,
+                exc,
+            )
+            return None
+
+        value = cfg.get("llm_model") if isinstance(cfg, dict) else None
+        if not isinstance(value, str):
+            return None
+        value = value.strip()
+        if not value or value == self._LEGACY_HARDCODED_MODEL:
+            return None
+        return value
+
     async def _run_llm_loop(self, job: AgentJobEvent) -> None:
         """Run a multi-turn LLM tool-use loop for the delegated task."""
         from graphclaw.llm.base import LLMMessage  # local import
 
+        self._agent_model = await self._resolve_model(job)
         system_prompt = await self._build_system_prompt(job)
         messages: list[LLMMessage] = [
             LLMMessage(role="system", content=system_prompt),
@@ -384,6 +440,7 @@ class SubAgentRunner:
                 messages=messages,
                 tools=tools,
                 max_tokens=4096,
+                model=self._agent_model,
             )
 
             # Emit progress on each iteration
@@ -401,17 +458,23 @@ class SubAgentRunner:
                 # No more tool calls — done
                 break
 
-            # Execute each tool call and append results
+            # Execute each tool call and append results — truncated the same
+            # way as the orchestrator's agentic loop (see
+            # MainOrchestrator._tool_result_message), so one large tool
+            # result cannot alone blow the sub-agent's prompt budget either.
             tool_results = []
             for tool_call in tool_calls:
                 tool_name = tool_call.name
                 tool_input = tool_call.arguments
                 tool_id = tool_call.id
                 result = await self._dispatch_tool(tool_name, tool_input, job)
+                content = truncate_tool_result(
+                    dumps_tool_result(result), config.context.tool_result_max_chars
+                )
                 tool_results.append(
                     LLMMessage(
                         role="tool",
-                        content=json.dumps(result),
+                        content=content,
                         tool_call_id=tool_id,
                     )
                 )
@@ -483,45 +546,30 @@ class SubAgentRunner:
                     except FileNotFoundError:
                         pass
 
-                # Load episodic memory (active entries only, newest first)
+                # Load episodic memory — scoped to this delegated task via
+                # keyword+recency relevance, not a full unscoped scan. The
+                # delegation instructions ARE the relevance query, so this
+                # costs nothing extra beyond what the runner already knows.
+                # Previously this loaded ALL active entries against a
+                # hardcoded token_budget = 80_000, unscoped to the task —
+                # able on its own to dwarf every other section of this
+                # otherwise well-isolated 2-message sub-agent prompt.
                 if user_id:
-                    token_budget = 80_000
-                    used_chars = len(base)
-                    chars_per_token = 4  # conservative estimate
+                    from graphclaw.agent.episodic_recall import recall_episodic  # noqa: PLC0415
 
-                    episodic_prefix = StoragePaths.agent_memory_episodic_prefix(
-                        user_id, job.agent_id
+                    cfg = config.context
+                    query = f"{job.instructions} {job.task_id}".strip()
+                    matches = await recall_episodic(
+                        self._storage,
+                        user_id=user_id,
+                        agent_id=job.agent_id,
+                        query=query,
+                        limit=cfg.subagent_episodic_max_entries,
+                        max_chars=cfg.subagent_episodic_max_chars,
                     )
-                    archive_prefix = StoragePaths.agent_memory_episodic_archive_prefix(
-                        user_id, job.agent_id
-                    )
-                    try:
-                        episodic_keys = await self._storage.list_objects(episodic_prefix)
-                        # Only active entries — skip anything under episodic/archive/
-                        active_keys = sorted(
-                            [
-                                k
-                                for k in episodic_keys
-                                if k.endswith(".md") and archive_prefix not in k
-                            ],
-                            reverse=True,
-                        )
-                        episodic_sections: list[str] = []
-                        for key in active_keys:
-                            try:
-                                ep_bytes = await self._storage.read(key)
-                                ep_text = ep_bytes.decode(errors="replace")
-                                section = f"\n### {key.split('/')[-1]}\n{ep_text}\n"
-                                if (used_chars + len(section)) / chars_per_token > token_budget:
-                                    break
-                                episodic_sections.append(section)
-                                used_chars += len(section)
-                            except FileNotFoundError:
-                                continue
-                        if episodic_sections:
-                            base += "\n## Episodic Memory\n" + "".join(episodic_sections)
-                    except Exception as exc:
-                        logger.debug("SubAgentRunner: could not load episodic memory: %s", exc)
+                    if matches:
+                        episodic_sections = [f"\n### {m.name}\n{m.content}\n" for m in matches]
+                        base += "\n## Episodic Memory\n" + "".join(episodic_sections)
 
                     # Load semantic memory index (topics loaded on demand via read_memory tool)
                     try:
@@ -561,6 +609,16 @@ class SubAgentRunner:
 
             except Exception as exc:
                 logger.debug("SubAgentRunner: could not load profile/context: %s", exc)
+
+        # Overall cap: sub-agents run on the same local model as the
+        # orchestrator and need the same discipline. Each section above is
+        # already individually scoped (episodic via recall_episodic,
+        # semantic via index-only), but nothing previously bounded the
+        # assembled total — a large profile.md or working context could
+        # still push the whole prompt arbitrarily high.
+        cap = config.context.subagent_prompt_max_chars
+        if cap > 0 and len(base) > cap:
+            base = base[:cap].rstrip() + f"\n…(system prompt truncated, {len(base)} chars total)"
         return base
 
     async def _write_context_note(
@@ -896,7 +954,10 @@ class SubAgentRunner:
         input_data = args.get("input_data", {})
 
         try:
-            skill_def = await self._skill_registry.get_skill_definition(skill_name)
+            # get_skill_definition is (user_id, skill_id) — the previous
+            # single-arg call always raised TypeError, so every sub-agent
+            # skill invocation failed and surfaced as "not found" to the LLM.
+            skill_def = await self._skill_registry.get_skill_definition(job.user_id, skill_name)
         except Exception as exc:
             return {"error": f"Skill '{skill_name}' not found: {exc}"}
 
@@ -1001,32 +1062,34 @@ class SubAgentRunner:
 
     async def _tool_save_output(self, args: dict[str, Any], job: AgentJobEvent) -> dict[str, Any]:
         """Save agent output to the output/ directory for orchestrator retrieval.
-        
+
         Writes to {user_id}/agents/{agent_id}/output/{filename} so ResultCollector
         can read it and include it in the task intelligence field.
         """
         filename = str(args.get("filename", "")).strip()
         content = str(args.get("content", "")).strip()
-        
+
         if not filename:
             return {"error": "filename must be a non-empty string"}
         if not content:
             return {"error": "content must be a non-empty string"}
-        
+
         # Sanitize filename to prevent path traversal
         safe_filename = filename.replace("..", "").replace("/", "").replace("\\", "")
         if not safe_filename:
             return {"error": "Invalid filename"}
-        
+
         if self._storage is None:
             return {"error": "Storage not available."}
-        
+
         try:
             from graphclaw.infra.storage import StoragePaths  # noqa: PLC0415
-            
-            output_path = f"{StoragePaths.agent_root(job.user_id, job.agent_id)}output/{safe_filename}"
+
+            output_path = (
+                f"{StoragePaths.agent_root(job.user_id, job.agent_id)}output/{safe_filename}"
+            )
             await self._storage.write(output_path, content.encode("utf-8"))
-            
+
             logger.info(
                 "agent.save_output",
                 extra={
@@ -1046,9 +1109,7 @@ class SubAgentRunner:
                 "size_bytes": len(content.encode("utf-8")),
             }
         except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "SubAgentRunner: save_output failed filename=%s: %s", safe_filename, exc
-            )
+            logger.warning("SubAgentRunner: save_output failed filename=%s: %s", safe_filename, exc)
             return {"error": str(exc)}
 
     async def _tool_call_mcp(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -1108,6 +1169,7 @@ class SubAgentRunner:
             agent_id=job.agent_id,
             task_id=job.task_id,
             session_id=job.session_id,
+            user_id=job.user_id,
             parent_task_id=job.parent_task_id,
             batch_id=job.batch_id,
             message=message,

@@ -249,23 +249,38 @@ class ResultCollector:
             "updated_at": now.isoformat(),
             "state": new_state,
         }
-        
+
         # Try to read agent output files and include in intelligence
         agent_output_content = ""
         if self._storage and status == "COMPLETED":
-            # Resolve user_id from session_id (format: ses-{user_id}-{timestamp})
-            output_user_id = event.session_id.split("-")[1] if "-" in event.session_id else ""
+            # Authoritative user_id from the event itself — session_id is
+            # NOT parsed for this. Splitting "ses-{user_id}-{timestamp}" on
+            # "-" silently produced the wrong path for any user_id that
+            # itself contains a hyphen (e.g. "usr-abc123" splits to
+            # "abc123", not "usr-abc123"), so deliverables were dropped.
+            output_user_id = event.user_id
             if output_user_id:
                 from graphclaw.infra.storage import StoragePaths
-                
-                # Try common output file paths for sub-agents
-                output_paths = [
-                    f"{StoragePaths.agent_root(output_user_id, agent_id)}output/email-draft.md",
-                    f"{StoragePaths.agent_root(output_user_id, agent_id)}output/result.md",
-                    f"{StoragePaths.agent_root(output_user_id, agent_id)}output/summary.md",
-                ]
-                
-                for output_path in output_paths:
+
+                output_prefix = f"{StoragePaths.agent_root(output_user_id, agent_id)}output/"
+                try:
+                    output_keys = await self._storage.list_objects(output_prefix)
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug(
+                        "ResultCollector: could not list output/ for agent %s: %s", agent_id, exc
+                    )
+                    output_keys = []
+
+                # Newest first (StoragePaths keys sort lexically; a real
+                # timestamp-based ordering would need object metadata, which
+                # most StorageClient backends don't expose cheaply here) —
+                # take the first non-empty .md/.txt file rather than a fixed
+                # candidate-name list, so save_output(filename=...) with any
+                # name (report.md, summary.txt, etc.) is actually collected.
+                candidates = sorted(
+                    (k for k in output_keys if k.endswith((".md", ".txt"))), reverse=True
+                )
+                for output_path in candidates:
                     try:
                         content_bytes = await self._storage.read(output_path)
                         agent_output_content = content_bytes.decode(errors="replace").strip()
@@ -278,12 +293,12 @@ class ResultCollector:
                             break
                     except Exception:
                         continue
-        
+
         # Combine result summary with agent output
         intelligence_text = result_summary
         if agent_output_content:
             intelligence_text = f"{result_summary}\n\n---\n\n{agent_output_content}"
-        
+
         if intelligence_text:
             updates["intelligence"] = intelligence_text[:2000]
 
