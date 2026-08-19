@@ -81,6 +81,46 @@ def test_parse_valid_skill_md() -> None:
     assert skill.system_prompt == "You are a summarisation assistant."
 
 
+def test_parse_accepts_llm_model_key() -> None:
+    """SKILL.md files documented to use 'llm_model:' must actually take effect.
+
+    Regression test: the parser used to read only 'model:', so every shipped
+    definition declaring 'llm_model:' (e.g. pipeline-report-agent's
+    'llm_model: claude-opus-4') was silently ignored.
+    """
+    content = _make_skill_md(frontmatter="name: outreach\nllm_model: claude-opus-4\n")
+
+    skill = SkillParser().parse(content)
+
+    assert skill.model == "claude-opus-4"
+
+
+def test_parse_prefers_llm_model_when_both_present() -> None:
+    content = _make_skill_md(
+        frontmatter="name: outreach\nllm_model: claude-opus-4\nmodel: claude-sonnet-4-6\n"
+    )
+
+    skill = SkillParser().parse(content)
+
+    assert skill.model == "claude-opus-4"
+
+
+def test_parse_falls_back_to_model_key_when_llm_model_absent() -> None:
+    content = _make_skill_md(frontmatter="name: outreach\nmodel: claude-sonnet-4-6\n")
+
+    skill = SkillParser().parse(content)
+
+    assert skill.model == "claude-sonnet-4-6"
+
+
+def test_parse_model_defaults_to_none_when_neither_key_present() -> None:
+    content = _make_skill_md(frontmatter="name: outreach\n")
+
+    skill = SkillParser().parse(content)
+
+    assert skill.model is None
+
+
 def test_parse_minimal_frontmatter() -> None:
     """parse() with only 'name' in frontmatter should use all defaults."""
     content = _make_skill_md(frontmatter="name: minimal-skill")
@@ -91,7 +131,9 @@ def test_parse_minimal_frontmatter() -> None:
     assert skill.name == "minimal-skill"
     assert skill.description == ""
     assert skill.version == "1.0.0"
-    assert skill.model == "claude-sonnet-4-20250514"
+    # None defers to the LLMRole.SKILL routing default rather than
+    # hardcoding a model — see graphclaw.llm.roles.
+    assert skill.model is None
     assert skill.max_tokens == 4096
     assert skill.temperature == 0.0
     assert skill.tools == []

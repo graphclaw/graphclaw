@@ -151,22 +151,42 @@ async def _select_startup_llm_provider_and_key(
     """Select startup LLM provider and API key using key-availability policy.
 
     Policy:
-    - if LITELLM_DEFAULT_MODEL is set, use litellm (for Ollama/local models)
+    - if LITELLM_DEFAULT_MODEL or any GRAPHCLAW_MODEL_* role-routing var is
+      set, use litellm (for Ollama/local models, or per-role model routing)
     - if only one provider key exists, select that provider
     - if multiple keys exist, select by GRAPHCLAW_DEFAULT_LLM_PROVIDER
     - if none exist, return (None, None)
     """
-    # Priority 1: Check if LiteLLM is configured (for Ollama/local models)
+    # Priority 1: Check if LiteLLM is configured (for Ollama/local models),
+    # or if per-role model routing is configured at all — an operator setting
+    # only GRAPHCLAW_MODEL_ORCHESTRATOR=ollama/... with no LITELLM_DEFAULT_MODEL
+    # must still select litellm, not fall through to anthropic/openai and send
+    # an ollama/ model string to a direct SDK.
     litellm_model = os.getenv("LITELLM_DEFAULT_MODEL")
-    if litellm_model and litellm_model.strip():
+    role_routing_configured = litellm_model and litellm_model.strip()
+    if not role_routing_configured:
+        role_routing_configured = any(
+            os.getenv(f"GRAPHCLAW_MODEL_{suffix}", "").strip()
+            for suffix in (
+                "DEFAULT",
+                "ORCHESTRATOR",
+                "SUBAGENT",
+                "SKILL",
+                "DISTILL",
+                "CLASSIFY",
+                "SUMMARIZE",
+            )
+        )
+    if role_routing_configured:
         # LiteLLM configured — use it (API key optional for local providers)
         litellm_key = await _read_first_available_secret(
             secrets_client,
             _LLM_PROVIDER_SECRET_CANDIDATES["litellm"],
         )
         logger.info(
-            "GraphClaw: LiteLLM configured with model=%s (key=%s)",
+            "GraphClaw: LiteLLM configured (model=%s; role routing=%s) (key=%s)",
             litellm_model,
+            role_routing_configured,
             "present" if litellm_key else "not required",
         )
         return "litellm", litellm_key or ""  # Empty string key is fine for Ollama
@@ -377,22 +397,34 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
                     from graphclaw.agent.event_consumer import AgentEventConsumer  # noqa: PLC0415
                     from graphclaw.agent.main_orchestrator import MainOrchestrator  # noqa: PLC0415
                     from graphclaw.agent.outbound import OutboundDispatcher  # noqa: PLC0415
-                    from graphclaw.llm.factory import create_llm_client  # noqa: PLC0415
+                    from graphclaw.llm.roles import LLMRole  # noqa: PLC0415
+                    from graphclaw.llm.routing import ModelRouter  # noqa: PLC0415
                     from graphclaw.state.machine import StateMachine  # noqa: PLC0415
 
+                    # llm_client keeps its historical name (rather than being
+                    # renamed to e.g. orchestrator_llm) so every downstream
+                    # constructor call below needs no further edits — it is
+                    # now the LLMRole.ORCHESTRATOR facade over model_router,
+                    # not a bare provider client.
                     llm_client = None
+                    model_router = None
                     selected_provider, selected_key = await _select_startup_llm_provider_and_key(
                         app.state.secrets_client
                     )
-                    if selected_provider is not None:  # key can be empty for local providers like Ollama
+                    if (
+                        selected_provider is not None
+                    ):  # key can be empty for local providers like Ollama
                         try:
-                            llm_client = create_llm_client(
-                                selected_provider,
-                                api_key=selected_key if selected_key else None,
+                            model_router = ModelRouter(
+                                default_provider=selected_provider,
+                                api_keys={selected_provider: selected_key or None},
                             )
+                            llm_client = model_router.for_role(LLMRole.ORCHESTRATOR)
+                            app.state.model_router = model_router
                             logger.info(
-                                "GraphClaw: llm client initialised (provider=%s)",
+                                "GraphClaw: llm client initialised (provider=%s); role routing=%s",
                                 selected_provider,
+                                model_router.describe(),
                             )
                         except Exception as exc:  # noqa: BLE001
                             logger.error(
@@ -400,6 +432,7 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
                                 selected_provider,
                                 exc,
                             )
+                            model_router = None
                     else:
                         logger.warning(
                             "GraphClaw: no LLM API key configured (checked Anthropic/OpenAI). "
@@ -432,12 +465,12 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
                             )
                         except Exception:
                             pass
-                    if llm_client is not None:
+                    if model_router is not None:
                         try:
                             from graphclaw.skills.llm_router import LLMRouter  # noqa: PLC0415
                             from graphclaw.skills.worker import WorkerPool  # noqa: PLC0415
 
-                            _llm_router = LLMRouter(llm_client=llm_client)
+                            _llm_router = LLMRouter(llm_client=model_router.for_role(LLMRole.SKILL))
                             _worker_pool = WorkerPool(pool_size=4, llm_router=_llm_router)
                         except Exception:
                             pass
@@ -452,7 +485,7 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
                     _agent_health_monitor = None
                     _dispatch_planner = None
                     _result_collector = None
-                    if broker is not None and llm_client is not None:
+                    if broker is not None and model_router is not None:
                         try:
                             from graphclaw.agent.dispatch_planner import (
                                 AgentDispatchPlanner,  # noqa: PLC0415
@@ -472,7 +505,9 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
                             pool_cfg = AgentPoolConfig.from_env()
 
                             # Dedicated LLM router + worker pool for sub-agents (isolated from orchestrator)
-                            _subagent_llm_router = LLMRouter(llm_client=llm_client)
+                            _subagent_llm_router = LLMRouter(
+                                llm_client=model_router.for_role(LLMRole.SKILL)
+                            )
                             _subagent_worker_pool = WorkerPool(
                                 pool_size=pool_cfg.subagent_worker_pool_size,
                                 llm_router=_subagent_llm_router,
@@ -481,7 +516,7 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
                             _sub_agent_pool = SubAgentPool(
                                 max_size=pool_cfg.max_concurrent_agents,
                                 broker=broker,
-                                llm_client=llm_client,
+                                llm_client=model_router.for_role(LLMRole.SUBAGENT),
                                 storage=app.state.storage_client,
                                 worker_pool=_subagent_worker_pool,
                                 skill_registry=_skill_registry,
@@ -588,6 +623,11 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
                             storage=app.state.storage_client,
                             health_monitor=_agent_health_monitor,
                             result_collector=_result_collector,
+                            intelligence_llm_client=(
+                                model_router.for_role(LLMRole.CLASSIFY)
+                                if model_router is not None
+                                else None
+                            ),
                         )
                         await _agent_event_consumer.start()
                         app.state.agent_event_consumer = _agent_event_consumer
@@ -765,6 +805,10 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
         if _sub_agent_pool is not None:
             await _sub_agent_pool.stop()
             logger.info("GraphClaw: sub-agent pool stopped")
+        _model_router = getattr(app.state, "model_router", None)
+        if _model_router is not None:
+            await _model_router.aclose()
+            logger.info("GraphClaw: model router closed")
         await registry.stop_all()
 
         if broker is not None:
@@ -912,14 +956,16 @@ def create_app(broker: MessageBroker | None = None) -> FastAPI:
             startup_mode = getattr(request.app.state, "startup_mode", "degraded")
             status_code = 200 if is_ready else 503
             status = "ready" if is_ready else "degraded"
-            return JSONResponse(
-                status_code=status_code,
-                content={
-                    "status": status,
-                    "mode": startup_mode,
-                    "dependencies": dependencies,
-                },
-            )
+            content: dict[str, Any] = {
+                "status": status,
+                "mode": startup_mode,
+                "dependencies": dependencies,
+            }
+            # Non-critical diagnostic: what each LLMRole actually resolved to.
+            _model_router = getattr(request.app.state, "model_router", None)
+            if _model_router is not None:
+                content["llm_routing"] = _model_router.describe()
+            return JSONResponse(status_code=status_code, content=content)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Readiness check failed", exc_info=exc)
             return JSONResponse(

@@ -255,7 +255,9 @@ _DEFAULT_PROFILE_TEMPLATE = """\
 _DEFAULT_AGENT_CONFIG = {
     "heartbeat_interval_seconds": 60,
     "llm_provider": "anthropic",
-    "llm_model": "claude-sonnet-4-6",
+    # None defers to the LLMRole.SUBAGENT routing default (graphclaw.llm.roles)
+    # rather than a hardcoded literal.
+    "llm_model": None,
     "briefing_schedule": ["08:00", "13:00", "18:00"],
     "enabled_channels": ["email", "telegram"],
     "interrupt_threshold": "P1",

@@ -211,8 +211,10 @@ class TestResetSession:
         registry.reset_session()
 
         names = _tool_names(registry.get_active_tools())
-        assert len(names) == 11  # core: 8 base + read_memory/recall_episodic/compact_memory
-        # /estimate_memory (Wave Tiered-Memory added recall_episodic, compact_memory, estimate_memory)
+        # core: 8 base + read_memory/recall_episodic/compact_memory/estimate_memory
+        # (Wave Tiered-Memory) + unload_tool_set (Wave Model-Routing, reversible
+        # tool sets).
+        assert len(names) == 12
 
 
 # ---------------------------------------------------------------------------
@@ -248,3 +250,202 @@ class TestGetManifest:
         manifest = registry.get_manifest()
         assert "skills" in manifest
         assert "mcp" in manifest
+
+
+# ---------------------------------------------------------------------------
+# deactivate — reversible tool sets
+# ---------------------------------------------------------------------------
+
+
+class TestDeactivate:
+    def test_deactivate_removes_an_active_set(self):
+        registry = ToolSetRegistry()
+        registry.activate("task_management")
+        assert "task_management" in registry.active_set_names
+
+        removed = registry.deactivate("task_management")
+
+        assert removed is True
+        assert "task_management" not in registry.active_set_names
+
+    def test_deactivate_refuses_to_drop_core(self):
+        registry = ToolSetRegistry()
+
+        removed = registry.deactivate("core")
+
+        assert removed is False
+        assert "core" in registry.active_set_names
+
+    def test_deactivate_inactive_set_returns_false(self):
+        registry = ToolSetRegistry()
+
+        removed = registry.deactivate("task_management")
+
+        assert removed is False
+
+    def test_deactivate_then_reactivate_works(self):
+        registry = ToolSetRegistry()
+        registry.activate("planning")
+        registry.deactivate("planning")
+
+        tools = registry.activate("planning")
+
+        assert len(tools) > 0
+        assert "planning" in registry.active_set_names
+
+
+# ---------------------------------------------------------------------------
+# set_active — bulk replace
+# ---------------------------------------------------------------------------
+
+
+class TestSetActive:
+    def test_set_active_replaces_current_sets(self):
+        registry = ToolSetRegistry()
+        registry.activate("task_management")
+
+        registry.set_active(["planning"])
+
+        assert registry.active_set_names == {"core", "planning"}
+
+    def test_set_active_always_keeps_core(self):
+        registry = ToolSetRegistry()
+
+        registry.set_active([])
+
+        assert registry.active_set_names == {"core"}
+
+    def test_set_active_ignores_unknown_names(self):
+        registry = ToolSetRegistry()
+
+        registry.set_active(["not-a-real-set", "planning"])
+
+        assert registry.active_set_names == {"core", "planning"}
+
+    def test_set_active_ignores_explicit_core_duplicate(self):
+        registry = ToolSetRegistry()
+
+        registry.set_active(["core", "planning"])
+
+        assert registry.active_set_names == {"core", "planning"}
+
+
+# ---------------------------------------------------------------------------
+# preload — bulk activate
+# ---------------------------------------------------------------------------
+
+
+class TestPreload:
+    def test_preload_activates_all_named_sets(self):
+        registry = ToolSetRegistry()
+
+        tools = registry.preload(["task_management", "planning"])
+
+        names = _tool_names(tools)
+        assert "create_task" in names  # task_management
+        assert "propose_plan" in names  # planning
+        assert registry.active_set_names == {"core", "task_management", "planning"}
+
+    def test_preload_returns_combined_active_tools(self):
+        registry = ToolSetRegistry()
+        registry.activate("delegation")
+
+        tools = registry.preload(["planning"])
+
+        names = _tool_names(tools)
+        assert "delegate_to_agent" in names  # already-active delegation
+        assert "propose_plan" in names  # newly preloaded planning
+
+
+# ---------------------------------------------------------------------------
+# Eviction — max_active_sets cap
+# ---------------------------------------------------------------------------
+
+
+class TestEviction:
+    def test_activating_beyond_cap_evicts_oldest(self):
+        registry = ToolSetRegistry(max_active_sets=2)
+        registry.activate("task_management")
+        registry.activate("planning")
+
+        registry.activate("delegation")
+
+        # task_management (activated first) is evicted; planning + delegation remain.
+        assert registry.active_set_names == {"core", "planning", "delegation"}
+
+    def test_reactivating_an_already_active_set_does_not_evict(self):
+        registry = ToolSetRegistry(max_active_sets=2)
+        registry.activate("task_management")
+        registry.activate("planning")
+
+        registry.activate("planning")  # already active — no-op re-activation
+
+        assert registry.active_set_names == {"core", "task_management", "planning"}
+
+    def test_recently_used_set_is_protected_from_eviction(self):
+        """A set whose tool was called within the last 2 iterations must
+        survive eviction even if it's the oldest-activated."""
+        registry = ToolSetRegistry(max_active_sets=2)
+        registry.activate("task_management")
+        registry.note_tool_used("create_task")  # protects task_management
+        registry.activate("planning")
+
+        registry.activate("delegation")  # would normally evict task_management
+
+        assert "task_management" in registry.active_set_names
+
+    def test_protection_expires_after_two_ticks(self):
+        registry = ToolSetRegistry(max_active_sets=2)
+        registry.activate("task_management")
+        registry.note_tool_used("create_task")
+        registry.activate("planning")
+
+        registry.tick()
+        registry.tick()
+        registry.tick()  # protection window (2 iterations) has passed
+
+        registry.activate("delegation")
+
+        assert "task_management" not in registry.active_set_names
+
+    def test_eviction_allows_temporary_overflow_when_all_protected(self):
+        registry = ToolSetRegistry(max_active_sets=1)
+        registry.activate("task_management")
+        registry.note_tool_used("create_task")
+
+        registry.activate("planning")  # task_management is protected — nothing evictable
+
+        assert registry.active_set_names == {"core", "task_management", "planning"}
+
+    def test_reset_session_clears_eviction_state(self):
+        """reset_session() must clear the iteration counter and recent-use
+        tracking, not just the active-set membership — otherwise a set
+        activated in a *later* turn could inherit protection earned by a
+        same-named set in an earlier, unrelated turn."""
+        registry = ToolSetRegistry(max_active_sets=2)
+        registry.activate("task_management")
+        registry.note_tool_used("create_task")
+        registry.tick()
+        registry.tick()
+
+        registry.reset_session()
+        # Re-activate the same set fresh after reset — if protection state
+        # had survived, this would be considered "used within 2 iterations"
+        # relative to the old (now-reset) counter and wrongly protected.
+        registry.activate("task_management")
+        registry.activate("planning")
+        registry.activate("delegation")  # forces an eviction decision
+
+        # task_management was NOT re-marked as used after reset, so it is the
+        # oldest-and-unprotected set and must be the one evicted.
+        assert "task_management" not in registry.active_set_names
+        assert registry.active_set_names == {"core", "planning", "delegation"}
+
+    def test_default_max_active_sets_reads_from_context_config(self, monkeypatch):
+        monkeypatch.setenv("GRAPHCLAW_CONTEXT_MAX_ACTIVE_TOOL_SETS", "1")
+        registry = ToolSetRegistry()
+        registry.activate("task_management")
+
+        registry.activate("planning")
+
+        assert registry.active_set_names == {"core", "planning"}

@@ -36,7 +36,7 @@ class FakeLLM:
         result.content = self._content
         result.tool_calls = []
         result.usage = None
-        self.calls.append({"messages": messages, "tools": tools})
+        self.calls.append({"messages": messages, "tools": tools, "model": model})
         return result
 
 
@@ -122,6 +122,31 @@ class TestFRCA001:
 
 class TestFRCA002:
     """FR-CA-002: Post-turn distillation writes node intelligence + working memory."""
+
+    @pytest.mark.asyncio
+    async def test_defers_to_llm_role_distill_default_when_unset(self) -> None:
+        """With no explicit model, DistillationHelper must pass model=None so
+        the underlying LLMClient's LLMRole.DISTILL routing default applies —
+        not a hardcoded literal (this used to be claude-haiku-4-5)."""
+        llm = FakeLLM('{"task_entry": null, "memory_note": null}')
+        helper = DistillationHelper(llm=llm, graph_repo=FakeGraphRepo(), storage=FakeStorage())
+        inp = DistillationInput(
+            user_id="U1", agent_id="A1", user_text="hi", agent_reply="hello", channel="cockpit"
+        )
+        await helper.distill(inp)
+        assert llm.calls[0]["model"] is None
+
+    @pytest.mark.asyncio
+    async def test_explicit_model_override_passes_through(self) -> None:
+        llm = FakeLLM('{"task_entry": null, "memory_note": null}')
+        helper = DistillationHelper(
+            llm=llm, graph_repo=FakeGraphRepo(), storage=FakeStorage(), model="ollama/qwen2.5:1.5b"
+        )
+        inp = DistillationInput(
+            user_id="U1", agent_id="A1", user_text="hi", agent_reply="hello", channel="cockpit"
+        )
+        await helper.distill(inp)
+        assert llm.calls[0]["model"] == "ollama/qwen2.5:1.5b"
 
     @pytest.mark.asyncio
     async def test_distillation_writes_node_intelligence(self) -> None:

@@ -52,7 +52,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import re
 import time
 import uuid
 from datetime import datetime, timezone
@@ -61,7 +60,17 @@ from typing import TYPE_CHECKING, Any
 from graphclaw.agent.catalog import AgentCatalog
 from graphclaw.agent.context import ContextManager
 from graphclaw.agent.knowledge import KnowledgeBase
+from graphclaw.agent.prompt_budget import (
+    PromptBudget,
+    PromptSection,
+    digest_tool_result,
+    dumps_tool_result,
+    estimate_tokens,
+    estimate_tool_tokens,
+    truncate_tool_result,
+)
 from graphclaw.agent.tool_registry import ToolSetRegistry
+from graphclaw.agent.turn_state import TurnState, current_turn, turn_scope
 from graphclaw.config import config
 from graphclaw.infra.logging.context import generate_session_id, get_session_id, set_session_id
 from graphclaw.infra.logging.events import AgentToolCallEvent
@@ -81,7 +90,7 @@ if TYPE_CHECKING:
     from graphclaw.infra.broker import MessageBroker
     from graphclaw.infra.storage import StorageClient
     from graphclaw.infra.user_events import UserEventPublisher
-    from graphclaw.llm.base import LLMClient
+    from graphclaw.llm.base import LLMClient, LLMMessage
     from graphclaw.mcp.registry import MCPRegistry
     from graphclaw.skills.registry import SkillRegistryService
     from graphclaw.skills.worker import WorkerPool
@@ -134,6 +143,11 @@ Do not say "I will do X" — actually call the tool and report what you did.
 Always be concise, warm, and proactive. If you see something the user should know about in \
 their task graph (blocked tasks, overdue items, upcoming deadlines), mention it briefly.
 """
+# Note: the "never output raw JSON" instruction lives only in the
+# "## Response Format (MANDATORY)" section appended at the END of
+# _build_system_prompt() — deliberately last, where instruction-following is
+# strongest for small models — and is NOT repeated here. It used to be
+# duplicated in both places.
 
 
 class MainOrchestrator:
@@ -226,6 +240,12 @@ class MainOrchestrator:
         # Track whether task mutations since the last cycle require rescoring.
         self._score_cache_dirty: bool = True
         self._dirty_task_ids: set[str] = set()
+        # Fallback storage for the properties defined below (used whenever no
+        # turn_scope() is active — background cycles, startup, CLI calls).
+        # Assigning through the properties (next four lines) routes into
+        # these via each setter, since no TurnState exists yet during
+        # __init__.
+        self._fallback_conversation_history: list[dict[str, Any]] | None = None
         # Track current session_id for structured logging
         self._current_session_id: str | None = None
         # CallerContext for the active chat turn (built at turn start, used by tools)
@@ -910,8 +930,180 @@ class MainOrchestrator:
         return format_briefing(queue, top_n=top_n)
 
     # ------------------------------------------------------------------
+    # Per-turn state (contextvars) with process-wide fallback
+    #
+    # These four attributes plus _tool_registry below were previously plain
+    # instance attributes on this process-wide singleton — mutated per
+    # request, with no isolation between concurrent users. Each is now a
+    # property: inside a turn_scope() (installed by process_chat_message,
+    # process_chat_message_stream, process_counterparty_turn) it reads/writes
+    # the active TurnState; outside any turn_scope (background scoring
+    # cycles, startup, CLI one-shot calls) it falls back to the plain
+    # instance attribute set below, preserving the old singleton behaviour
+    # exactly for every non-request code path. See graphclaw.agent.turn_state.
+    # ------------------------------------------------------------------
+
+    @property
+    def _current_session_id(self) -> str | None:
+        turn = current_turn()
+        return turn.session_id if turn is not None else self._fallback_session_id
+
+    @_current_session_id.setter
+    def _current_session_id(self, value: str | None) -> None:
+        turn = current_turn()
+        if turn is not None:
+            turn.session_id = value
+        else:
+            self._fallback_session_id = value
+
+    @property
+    def _current_caller_context(self) -> Any:
+        turn = current_turn()
+        return turn.caller_context if turn is not None else self._fallback_caller_context
+
+    @_current_caller_context.setter
+    def _current_caller_context(self, value: Any) -> None:
+        turn = current_turn()
+        if turn is not None:
+            turn.caller_context = value
+        else:
+            self._fallback_caller_context = value
+
+    @property
+    def _current_conversation_history(self) -> list[dict[str, Any]] | None:
+        turn = current_turn()
+        if turn is not None:
+            return turn.conversation_history
+        return self._fallback_conversation_history
+
+    @_current_conversation_history.setter
+    def _current_conversation_history(self, value: list[dict[str, Any]] | None) -> None:
+        turn = current_turn()
+        if turn is not None:
+            turn.conversation_history = value or []
+        else:
+            self._fallback_conversation_history = value
+
+    @property
+    def _turn_delegation_calls(self) -> list[dict[str, Any]]:
+        turn = current_turn()
+        return turn.delegation_calls if turn is not None else self._fallback_delegation_calls
+
+    @_turn_delegation_calls.setter
+    def _turn_delegation_calls(self, value: list[dict[str, Any]]) -> None:
+        turn = current_turn()
+        if turn is not None:
+            turn.delegation_calls = value
+        else:
+            self._fallback_delegation_calls = value
+
+    def _make_tool_registry(self) -> ToolSetRegistry:
+        """Construct a fresh ToolSetRegistry with this orchestrator's wiring."""
+        return ToolSetRegistry(
+            has_skill_registry=self._skill_registry is not None,
+            has_mcp_registry=self._mcp_registry is not None,
+        )
+
+    @property
+    def _tool_registry(self) -> ToolSetRegistry:
+        turn = current_turn()
+        if turn is not None:
+            # Lazily constructed once per turn on first access, rather than
+            # eagerly at turn_scope entry — this keeps the turn-entry wrapper
+            # methods (process_chat_message et al.) free of any tool-registry
+            # construction logic; they only need to know a TurnState exists.
+            if turn.tool_registry is None:
+                turn.tool_registry = self._make_tool_registry()
+            return turn.tool_registry
+        return self._fallback_tool_registry
+
+    @_tool_registry.setter
+    def _tool_registry(self, value: ToolSetRegistry) -> None:
+        turn = current_turn()
+        if turn is not None:
+            turn.tool_registry = value
+        else:
+            self._fallback_tool_registry = value
+
+    # ------------------------------------------------------------------
     # Conversational interface
     # ------------------------------------------------------------------
+
+    def _tool_result_message(self, tool_call_id: str, tool_name: str, result: Any) -> LLMMessage:
+        """Build a role="tool" message with its JSON content capped.
+
+        Tool results (e.g. ``get_task_details``) can run 2-4k tokens
+        uncapped. Every call site in the agentic loop must go through this
+        instead of ``json.dumps(result)`` directly, so a single large result
+        cannot alone blow the prompt budget. Truncation leaves a visible
+        marker (see ``prompt_budget.truncate_tool_result``) rather than
+        silently clipping — a silently clipped blob teaches the model that
+        data is missing; the marker teaches it to re-call more narrowly.
+        """
+        from graphclaw.llm.base import LLMMessage
+
+        content = truncate_tool_result(
+            dumps_tool_result(result), config.context.tool_result_max_chars
+        )
+        return LLMMessage(role="tool", content=content, tool_call_id=tool_call_id)
+
+    def _prune_tool_results(self, messages: list[LLMMessage]) -> None:
+        """Collapse older tool-result messages to short digests, in place.
+
+        Keeps the last ``tool_result_keep_recent`` role="tool" messages
+        verbatim (already capped by ``_tool_result_message``); every older
+        one is rewritten to a one-line digest via
+        ``prompt_budget.digest_tool_result``. This is what actually bounds
+        the agentic loop's cost — even with per-call truncation, N
+        iterations of capped results still accumulate; without pruning,
+        a 15-iteration turn can carry 15 x tool_result_max_chars of tool
+        JSON by the final call.
+
+        Messages are never removed, only rewritten: Anthropic and OpenAI
+        both reject a ``tool_use`` block with no matching ``tool_result``,
+        so pruning must preserve the 1:1 ``tool_call_id`` pairing.
+        """
+        from graphclaw.llm.base import LLMMessage
+
+        keep_recent = config.context.tool_result_keep_recent
+        digest_chars = config.context.tool_result_digest_chars
+        tool_indices = [i for i, m in enumerate(messages) if m.role == "tool"]
+        stale_indices = tool_indices[:-keep_recent] if keep_recent > 0 else tool_indices
+        for i in stale_indices:
+            msg = messages[i]
+            if msg.content.startswith("[tool result elided"):
+                continue  # already digested on a prior iteration
+            # Best-effort tool name recovery: the preceding assistant message
+            # carries the tool_calls this "tool" message answers.
+            tool_name = "tool"
+            if i > 0 and messages[i - 1].role == "assistant":
+                for tc in messages[i - 1].tool_calls:
+                    if tc.id == msg.tool_call_id:
+                        tool_name = tc.name
+                        break
+            messages[i] = LLMMessage(
+                role="tool",
+                content=digest_tool_result(tool_name, msg.content, digest_chars),
+                tool_call_id=msg.tool_call_id,
+            )
+
+    @staticmethod
+    def _tool_call_fingerprint(tool_calls: list[Any]) -> str:
+        """Build a stable string fingerprint for one round of tool calls."""
+        return "|".join(
+            f"{tc.name}:{json.dumps(tc.arguments, sort_keys=True)}" for tc in tool_calls
+        )
+
+    @staticmethod
+    def _is_stuck_loop(recent_fingerprints: list[str]) -> bool:
+        """True if the last 3 recorded tool-call rounds are all identical.
+
+        Shared by every agentic loop (non-streaming, streaming, and — until
+        Wave Model-Routing — only the non-streaming one had this at all. A
+        looping small model would otherwise burn all 15 iterations on the
+        streaming path with no early exit.
+        """
+        return len(recent_fingerprints) >= 3 and len(set(recent_fingerprints[-3:])) == 1
 
     async def process_chat_message(
         self,
@@ -925,7 +1117,37 @@ class MainOrchestrator:
     ) -> str:
         """Handle a conversational message from the user.
 
-        Builds a system prompt from the agent profile and current graph context,
+        Thin wrapper: installs a per-request :class:`TurnState` for the
+        duration of the call so ``self._current_caller_context``,
+        ``self._current_session_id``, and ``self._tool_registry`` are
+        isolated from any concurrent turn on this same (process-wide
+        singleton) orchestrator — see ``graphclaw.agent.turn_state`` for why
+        that isolation matters. All real work happens in
+        ``_process_chat_message_impl``.
+        """
+        state = TurnState(user_id=user_id, session_id=session_id)
+        with turn_scope(state):
+            return await self._process_chat_message_impl(
+                user_id=user_id,
+                text=text,
+                conversation_history=conversation_history,
+                session_id=session_id,
+                channel=channel,
+                thread_id=thread_id,
+                org_id=org_id,
+            )
+
+    async def _process_chat_message_impl(
+        self,
+        user_id: str,
+        text: str,
+        conversation_history: list[dict[str, Any]] | None = None,
+        session_id: str | None = None,
+        channel: str = "cockpit",
+        thread_id: str | None = None,
+        org_id: str = "default",
+    ) -> str:
+        """Builds a system prompt from the agent profile and current graph context,
         then calls the LLM with the full conversation history and tool definitions
         for graph mutations.  Executes any tool calls the model requests and
         returns the final text response.
@@ -991,15 +1213,26 @@ class MainOrchestrator:
         # Compress conversation history if context manager is available
         current_user_msg = LLMMessage(role="user", content=text)
         if self._context_manager is not None and conversation_history:
+            fixed_overhead = estimate_tokens(system_prompt) + estimate_tool_tokens(
+                self._tool_registry.get_active_tools()
+            )
             compressed = await self._context_manager.compress(
                 conversation_history,
                 current_messages=[current_user_msg],
+                user_id=user_id,
+                fixed_overhead_tokens=fixed_overhead,
             )
             history_messages = self._context_manager.build_messages(compressed)
         else:
-            # Simple role remap: "agent" → "assistant"
+            # No ContextManager available (no storage/LLM wired) — simple
+            # role remap: "agent" → "assistant". Still slice to
+            # history_turns_sent so this fallback can't ship all
+            # history_max=200 persisted entries verbatim, unbounded — the
+            # ContextManager path already bounds itself via window_size, but
+            # this path bypassed that entirely before.
             history_messages = []
-            for entry in conversation_history or []:
+            recent_history = (conversation_history or [])[-config.context.history_turns_sent :]
+            for entry in recent_history:
                 role = entry.get("role", "user")
                 if role == "agent":
                     role = "assistant"
@@ -1014,7 +1247,14 @@ class MainOrchestrator:
         )
 
         # Agentic loop: call LLM → execute tools → call LLM again until no more tool calls
+        _recent_tool_calls: list[str] = []  # last N (tool_name, args_hash) for stuck-loop detection
         for _iteration in range(15):  # safety cap on tool-call rounds
+            # Prune older tool results before every call — bounds the loop's
+            # cost independent of the per-call cap below (see
+            # _prune_tool_results docstring for why truncation alone is not
+            # enough across 15 iterations).
+            self._prune_tool_results(messages)
+            self._tool_registry.tick()
             # Get current active tools from registry (updated as sets are loaded)
             tools = self._tool_registry.get_active_tools()
 
@@ -1029,21 +1269,34 @@ class MainOrchestrator:
             elapsed_ms = (time.monotonic() - t0) * 1000
 
             # Log LLM response
-            if response.usage:
+            if response.tokens_used:
                 logger.info(
                     "agent.message",
                     extra={
                         "event_type": "agent.message",
                         "session_id": session_id or "",
                         "user_id": user_id,
-                        "input_tokens": response.usage.input_tokens,
-                        "output_tokens": response.usage.output_tokens,
+                        "input_tokens": response.prompt_tokens,
+                        "output_tokens": response.completion_tokens,
                         "latency_ms": int(elapsed_ms),
                     },
                 )
 
             # If the model wants to call tools, execute them and feed results back
             if response.tool_calls:
+                # Stuck-loop guard: if the same tool+args appear 3 times consecutively, abort.
+                call_fingerprint = self._tool_call_fingerprint(response.tool_calls)
+                _recent_tool_calls.append(call_fingerprint)
+                if self._is_stuck_loop(_recent_tool_calls):
+                    logger.warning(
+                        "AgentLoop: stuck-loop detected — same tool call repeated 3× (%s). Aborting.",
+                        call_fingerprint[:120],
+                    )
+                    return (
+                        "I tried to complete your request but ran into a repeated error. "
+                        "Please try rephrasing or break the task into smaller steps."
+                    )
+
                 # Pre-process: if multiple delegate_to_agent calls exist in this turn,
                 # run AgentDispatchPlanner to assign dependency-ordered batch_ids.
                 self._turn_delegation_calls = []
@@ -1061,13 +1314,7 @@ class MainOrchestrator:
                 )
                 for tc in response.tool_calls:
                     tool_result = await self._execute_tool(user_id, tc.name, tc.arguments)
-                    messages.append(
-                        LLMMessage(
-                            role="tool",
-                            content=json.dumps(tool_result),
-                            tool_call_id=tc.id,
-                        )
-                    )
+                    messages.append(self._tool_result_message(tc.id, tc.name, tool_result))
                 # Clear buffered delegation calls after the turn completes
                 self._turn_delegation_calls = []
                 # Continue loop to get final response after tool results
@@ -1090,7 +1337,7 @@ class MainOrchestrator:
         # Fallback if loop exhausted
         return "(agent tool-call loop limit reached — please try again)"
 
-    def process_chat_message_stream(
+    async def process_chat_message_stream(
         self,
         user_id: str,
         text: str,
@@ -1114,6 +1361,13 @@ class MainOrchestrator:
             async for event in loop.process_chat_message_stream(user_id, text):
                 ...
 
+        Installs a per-request :class:`TurnState` for the duration of
+        iteration — same rationale as ``process_chat_message``. Because this
+        method is itself an async generator, the ``with turn_scope(...)``
+        block must wrap the ``async for`` that drives ``_impl`` to
+        completion, not just the call that constructs the inner generator
+        object (constructing it runs none of its body).
+
         Parameters
         ----------
         user_id:
@@ -1133,16 +1387,19 @@ class MainOrchestrator:
         thread_id:
             Channel-specific thread/conversation handle.
         """
-        return self._process_chat_message_stream_impl(
-            user_id=user_id,
-            text=text,
-            conversation_history=conversation_history,
-            session_id=session_id,
-            publisher=publisher or self._event_publisher,
-            channel=channel,
-            thread_id=thread_id,
-            org_id=org_id,
-        )
+        state = TurnState(user_id=user_id, session_id=session_id)
+        with turn_scope(state):
+            async for event in self._process_chat_message_stream_impl(
+                user_id=user_id,
+                text=text,
+                conversation_history=conversation_history,
+                session_id=session_id,
+                publisher=publisher or self._event_publisher,
+                channel=channel,
+                thread_id=thread_id,
+                org_id=org_id,
+            ):
+                yield event
 
     async def _process_chat_message_stream_impl(
         self,
@@ -1239,14 +1496,22 @@ class MainOrchestrator:
 
             current_user_msg = LLMMessage(role="user", content=text)
             if self._context_manager is not None and conversation_history:
+                fixed_overhead = estimate_tokens(system_prompt) + estimate_tool_tokens(
+                    self._tool_registry.get_active_tools()
+                )
                 compressed = await self._context_manager.compress(
                     conversation_history,
                     current_messages=[current_user_msg],
+                    user_id=user_id,
+                    fixed_overhead_tokens=fixed_overhead,
                 )
                 history_messages = self._context_manager.build_messages(compressed)
             else:
+                # No ContextManager available — see the non-streaming path's
+                # identical fallback for why this is bounded.
                 history_messages = []
-                for entry in conversation_history or []:
+                recent_history = (conversation_history or [])[-config.context.history_turns_sent :]
+                for entry in recent_history:
                     role = entry.get("role", "user")
                     if role == "agent":
                         role = "assistant"
@@ -1261,7 +1526,12 @@ class MainOrchestrator:
             )
 
             # ── Agentic loop ─────────────────────────────────────────────────
+            _recent_tool_calls: list[str] = []  # stuck-loop detection, see _is_stuck_loop
             for _iteration in range(15):
+                # Prune older tool results before every call — see the
+                # non-streaming loop's identical call for rationale.
+                self._prune_tool_results(messages)
+                self._tool_registry.tick()
                 tools = self._tool_registry.get_active_tools()
 
                 # --- Stream LLM response ---
@@ -1306,6 +1576,48 @@ class MainOrchestrator:
                 tool_calls = final_response.tool_calls if final_response else []
 
                 if tool_calls:
+                    # Stuck-loop guard — see the non-streaming loop's identical
+                    # check for rationale. Previously only the non-streaming
+                    # path had this, so a looping model on the streaming path
+                    # (the cockpit's primary UI) burned all 15 iterations.
+                    call_fingerprint = self._tool_call_fingerprint(tool_calls)
+                    _recent_tool_calls.append(call_fingerprint)
+                    if self._is_stuck_loop(_recent_tool_calls):
+                        logger.warning(
+                            "AgentLoop.stream: stuck-loop detected — same tool call "
+                            "repeated 3× (%s). Aborting.",
+                            call_fingerprint[:120],
+                        )
+                        stuck_event = make_event(
+                            ET.RUN_FAILED,
+                            run_id,
+                            sid,
+                            user_id,
+                            seq,
+                            RunFailedPayload(
+                                error_class="StuckToolLoop",
+                                error_message=("Repeated identical tool call detected; aborting."),
+                                duration_ms=int((_time.monotonic() - run_start_ms) * 1000),
+                            ),
+                        )
+                        seq += 1
+                        await _emit(stuck_event)
+                        yield stuck_event
+                        await emit_notification(
+                            pool=self._db_pool,
+                            redis=self._redis,
+                            user_id=user_id,
+                            event_type=NotificationEventType.AGENT_RUN_FAILED,
+                            title="Agent run failed",
+                            body="Repeated identical tool call detected.",
+                            metadata={
+                                "run_id": run_id,
+                                "session_id": sid,
+                                "error_class": "StuckToolLoop",
+                            },
+                        )
+                        return
+
                     # Pre-plan delegation if needed
                     self._turn_delegation_calls = []
                     await self._pre_plan_delegation_turn(
@@ -1356,13 +1668,7 @@ class MainOrchestrator:
                             seq += 1
                             await _emit(t_done)
                             yield t_done
-                            messages.append(
-                                LLMMessage(
-                                    role="tool",
-                                    content=json.dumps(tool_result),
-                                    tool_call_id=tc.id,
-                                )
-                            )
+                            messages.append(self._tool_result_message(tc.id, tc.name, tool_result))
                         except Exception as tc_exc:  # noqa: BLE001
                             latency = int((_time.monotonic() - t0_tool) * 1000)
                             t_fail = make_event(
@@ -1381,17 +1687,27 @@ class MainOrchestrator:
                             await _emit(t_fail)
                             yield t_fail
                             messages.append(
-                                LLMMessage(
-                                    role="tool",
-                                    content=json.dumps({"error": str(tc_exc)}),
-                                    tool_call_id=tc.id,
-                                )
+                                self._tool_result_message(tc.id, tc.name, {"error": str(tc_exc)})
                             )
 
                     self._turn_delegation_calls = []
                     continue  # next iteration — get response after tool results
 
                 # ── Text-only branch — emit assistant.final then run.completed ─
+                # Post-turn distillation (FR-CA-002), fire-and-forget — the
+                # non-streaming path has always done this; the streaming
+                # path (the cockpit's primary UI) never did, so memory was
+                # effectively never written from the main chat surface.
+                asyncio.ensure_future(
+                    self._run_distillation(
+                        user_id=user_id,
+                        text=text,
+                        reply=accumulated_text or "(no response)",
+                        channel=channel,
+                        thread_id=thread_id,
+                        session_id=sid,
+                    )
+                )
                 final_event = make_event(
                     ET.ASSISTANT_FINAL,
                     run_id,
@@ -1549,7 +1865,33 @@ class MainOrchestrator:
     ) -> str:
         """Handle a turn from a counterparty (external contact) — not the owner.
 
-        Enters ``counterparty_conversation`` mode:
+        Thin wrapper: installs a per-request :class:`TurnState`, same
+        rationale as ``process_chat_message``. All real work happens in
+        ``_process_counterparty_turn_impl``.
+        """
+        state = TurnState(user_id=user_id, session_id=session_id)
+        with turn_scope(state):
+            return await self._process_counterparty_turn_impl(
+                user_id=user_id,
+                counterparty_id=counterparty_id,
+                text=text,
+                channel=channel,
+                thread_id=thread_id,
+                session_id=session_id,
+                conversation_history=conversation_history,
+            )
+
+    async def _process_counterparty_turn_impl(
+        self,
+        user_id: str,
+        counterparty_id: str,
+        text: str,
+        channel: str,
+        thread_id: str,
+        session_id: str | None = None,
+        conversation_history: list[dict[str, Any]] | None = None,
+    ) -> str:
+        """Enters ``counterparty_conversation`` mode:
         - Restricted tool set (see ``COUNTERPARTY_ALLOWED_TOOL_NAMES``).
         - Counterparty-specific system prompt (system_header_counterparty.md).
         - Delegation policy gating on ``update_task_state``.
@@ -1590,10 +1932,13 @@ class MainOrchestrator:
         # Build counterparty system prompt
         system_prompt = await self._build_counterparty_system_prompt(user_id)
 
-        # Remap "agent" → "assistant" in history
+        # Remap "agent" → "assistant" in history. Counterparty turns have no
+        # ContextManager compression path at all — bound directly, same as
+        # the other two loops' no-ContextManager fallback.
         current_user_msg = LLMMessage(role="user", content=text)
         history_messages: list[LLMMessage] = []
-        for entry in conversation_history or []:
+        recent_history = (conversation_history or [])[-config.context.history_turns_sent :]
+        for entry in recent_history:
             role = entry.get("role", "user")
             if role == "agent":
                 role = "assistant"
@@ -1608,6 +1953,10 @@ class MainOrchestrator:
         )
 
         for _iteration in range(10):
+            # Prune older tool results before every call — see the main
+            # agentic loop's identical call for rationale.
+            self._prune_tool_results(messages)
+            self._tool_registry.tick()
             # Get tools filtered to counterparty_conversation allow-list
             tools = self._tool_registry.get_active_tools(mode="counterparty_conversation")
 
@@ -1643,13 +1992,7 @@ class MainOrchestrator:
                         }
                     else:
                         tool_result = await self._execute_tool(user_id, tc.name, tc.arguments)
-                    messages.append(
-                        LLMMessage(
-                            role="tool",
-                            content=json.dumps(tool_result),
-                            tool_call_id=tc.id,
-                        )
-                    )
+                    messages.append(self._tool_result_message(tc.id, tc.name, tool_result))
                 continue
 
             reply = response.content or "(no response)"
@@ -1702,22 +2045,42 @@ class MainOrchestrator:
     # ------------------------------------------------------------------
 
     async def _build_system_prompt(self, user_id: str) -> str:
-        """Build a system prompt combining header, agent profile, and graph summary."""
+        """Build a system prompt combining header, agent profile, and graph summary.
+
+        Sections are individually capped via ``ContextConfig`` and fitted into
+        the orchestrator's system-prompt token budget via ``PromptBudget``
+        rather than blindly concatenated — three sections (persona, semantic
+        index, agent catalog) were previously unbounded. Priority-0 sections
+        (header, tool manifest, onboarding, response format) are never
+        dropped even under budget pressure; see docs/planning/build-plan.md,
+        Wave Model-Routing.
+
+        Independent I/O-bound section loads (persona, knowledge base index,
+        working memory, semantic index, agent catalog, skills/MCP summary,
+        graph summary) run concurrently via ``asyncio.gather`` — previously
+        seven sequential MinIO/Redis round trips per turn. Onboarding stays
+        sequential: it can raise ``OnboardingPromptUnavailableError``, which
+        must propagate rather than be swallowed by ``gather``.
+        """
         import datetime as _dt
 
         from graphclaw.agent.onboarding import OnboardingFSM, OnboardingPromptUnavailableError
 
+        cfg = config.context
         today = _dt.date.today().isoformat()
         date_line = f"\nToday's date is {today}. Use this as the reference for all scheduling and deadline reasoning."
 
-        # 1. Load system header from storage (fallback to hardcoded default)
+        # 1. Load system header from storage (fallback to hardcoded default).
         header = await self._load_system_header()
-        parts: list[str] = [header + date_line]
+        sections: list[PromptSection] = [
+            PromptSection(name="header", text=header + date_line, priority=0, droppable=False)
+        ]
 
         # 1a. Inject onboarding guidance when the user hasn't completed onboarding.
         # Prompt loading is fail-fast: if onboarding.md is missing/unreadable while
         # the user genuinely needs onboarding, surface that instead of silently
         # dropping the guidance (which would strand the user mid-onboarding).
+        # Kept outside the gather below and outside all budget gating.
         if self._storage is not None:
             onboarding_needed = False
             try:
@@ -1740,52 +2103,130 @@ class MainOrchestrator:
                         "moment and try again, or contact support if this persists."
                     ) from exc
                 if onboarding_prompt:
-                    parts.append(
-                        f"\n## Onboarding Guidance (PRIORITY — follow these instructions now)\n"
-                        f"{onboarding_prompt}"
+                    sections.append(
+                        PromptSection(
+                            name="onboarding",
+                            text=(
+                                "\n## Onboarding Guidance (PRIORITY — follow these instructions now)\n"
+                                f"{onboarding_prompt}"
+                            ),
+                            priority=0,
+                            droppable=False,
+                        )
                     )
 
-        # 2. Load user agent persona from profile.md
-        persona = await self._load_agent_profile(user_id)
+        # 2-7. Independent section loads, concurrent.
+        async def _empty() -> str:
+            return ""
+
+        (
+            persona,
+            kb_index,
+            working_memory,
+            semantic_index,
+            agent_catalog,
+            exec_ctx,
+            graph_summary,
+        ) = await asyncio.gather(
+            self._load_agent_profile(user_id),
+            self._knowledge_base.get_index() if self._knowledge_base is not None else _empty(),
+            self._load_working_memory(user_id),
+            self._load_semantic_memory_index(user_id, max_topics=cfg.semantic_index_max_topics),
+            (
+                self._agent_catalog.get_compact_catalog(
+                    user_id, max_agents=cfg.agent_catalog_max_agents
+                )
+                if self._agent_catalog is not None
+                else _empty()
+            ),
+            self._build_execution_context(user_id),
+            self._build_graph_summary(user_id),
+        )
+
         if persona:
-            parts.append(f"\n## Your Persona\n{persona}")
+            sections.append(
+                PromptSection(
+                    name="persona",
+                    text=f"\n## Your Persona\n{persona}",
+                    priority=3,
+                    max_chars=cfg.persona_max_chars,
+                )
+            )
 
-        # 3. Tool set manifest (compact ~150 tokens, replaces sending all schemas)
-        parts.append(f"\n{self._tool_registry.get_manifest()}")
+        # Tool set manifest (compact ~150 tokens, replaces sending all schemas) —
+        # never dropped: without it the model has no idea load_tool_set exists.
+        sections.append(
+            PromptSection(
+                name="tool_set_manifest",
+                text=f"\n{self._tool_registry.get_manifest()}",
+                priority=0,
+                droppable=False,
+            )
+        )
 
-        # 4. Knowledge base index (available topics)
-        if self._knowledge_base is not None:
-            kb_index = await self._knowledge_base.get_index()
-            if kb_index:
-                parts.append(f"\n{kb_index}")
+        if kb_index:
+            sections.append(
+                PromptSection(
+                    name="kb_index",
+                    text=f"\n{kb_index}",
+                    priority=7,
+                    max_chars=cfg.kb_index_max_chars,
+                )
+            )
 
-        # 4a. Working memory (verbatim, capped) — the agent's live scratchpad.
-        working_memory = await self._load_working_memory(user_id)
         if working_memory:
-            parts.append(f"\n## Working Memory\n{working_memory}")
+            sections.append(
+                PromptSection(
+                    name="working_memory",
+                    text=f"\n## Working Memory\n{working_memory}",
+                    priority=1,
+                )
+            )
 
-        # 4b. Semantic memory index (topics loaded on demand via read_memory).
-        semantic_index = await self._load_semantic_memory_index(user_id)
         if semantic_index:
-            parts.append(f"\n{semantic_index}")
+            # Already capped by max_topics above; no per-char cap needed here.
+            sections.append(
+                PromptSection(name="semantic_index", text=f"\n{semantic_index}", priority=5)
+            )
 
-        # 5. Agent catalog (system + user agents available for delegation)
-        if self._agent_catalog is not None:
-            agent_catalog = await self._agent_catalog.get_compact_catalog(user_id)
-            if agent_catalog:
-                parts.append(f"\n{agent_catalog}")
+        if agent_catalog:
+            # Already capped by max_agents above.
+            sections.append(
+                PromptSection(name="agent_catalog", text=f"\n{agent_catalog}", priority=4)
+            )
 
-        # 6. Add available skills and MCP context
-        exec_ctx = await self._build_execution_context(user_id)
         if exec_ctx:
-            parts.append(f"\n{exec_ctx}")
+            # Already capped by skills_summary_max_items / mcp_summary_max_items.
+            sections.append(PromptSection(name="skills_mcp", text=f"\n{exec_ctx}", priority=6))
 
-        # 7. Goal-first task graph summary (user-scoped)
-        graph_summary = await self._build_graph_summary(user_id)
         if graph_summary:
-            parts.append(f"\n## Current Task Graph Summary\n{graph_summary}")
+            sections.append(
+                PromptSection(
+                    name="graph_summary",
+                    text=f"\n## Current Task Graph Summary\n{graph_summary}",
+                    priority=2,
+                    max_chars=cfg.graph_summary_max_chars,
+                )
+            )
 
-        return "\n".join(parts)
+        sections.append(
+            PromptSection(
+                name="response_format",
+                text=(
+                    "\n## Response Format (MANDATORY)\n"
+                    "After any tool call, write a short, friendly, natural-language summary of "
+                    "what you did and what it means for the user. NEVER output raw JSON, task "
+                    "objects, or tool result data as your reply — always convert them into clear "
+                    "English sentences."
+                ),
+                priority=0,
+                droppable=False,
+            )
+        )
+
+        budget = PromptBudget(cfg.system_budget_tokens)
+        text, _report = budget.fit_sections(sections)
+        return text
 
     async def _load_system_header(self) -> str:
         """Load system_header.md with a 1-hour in-process TTL cache.
@@ -1906,7 +2347,19 @@ class MainOrchestrator:
 
         cap = self._working_memory_char_cap
         if cap > 0 and original_len > cap:
-            content = content[:cap] + "\n[... truncated. Call estimate_memory to check usage.]"
+            # Tail-biased: distillation appends the newest notes at the END
+            # of this file (see distillation.py _append_working_note), so a
+            # head-only content[:cap] truncation keeps the stale preamble
+            # and silently drops exactly the observations the agent most
+            # recently learned. Keep a small head (the file's own header/
+            # preamble) plus the tail — the freshest content.
+            head_chars = min(500, cap // 4)
+            tail_chars = cap - head_chars
+            content = (
+                content[:head_chars]
+                + "\n[... older working memory elided — call estimate_memory to check usage ...]\n"
+                + content[-tail_chars:]
+            )
 
         # Compaction hint: warn when working memory alone exceeds the configured
         # share of the total budget, so the agent considers compact_memory.
@@ -1921,12 +2374,19 @@ class MainOrchestrator:
 
         return content
 
-    async def _load_semantic_memory_index(self, user_id: str) -> str:
+    async def _load_semantic_memory_index(self, user_id: str, max_topics: int | None = None) -> str:
         """Build the ``## Semantic Memory`` block listing available topics.
 
         Reads ``_index.json`` (topic → description map) and renders a compact
         list. Topics are loaded on demand via the ``read_memory`` tool. Cached
         in Redis with a 5-minute TTL (topics change infrequently). Never raises.
+
+        Args:
+            user_id: Whose semantic index to load.
+            max_topics: Cap on rendered topic lines. ``None`` renders all —
+                this index grows unbounded over the agent's lifetime, so
+                callers assembling a bounded system prompt should pass
+                ``ContextConfig.semantic_index_max_topics``.
         """
         if self._storage is None:
             return ""
@@ -1985,6 +2445,12 @@ class MainOrchestrator:
         if not lines:
             return ""
 
+        if max_topics is not None and len(lines) > max_topics:
+            remaining = len(lines) - max_topics
+            lines = lines[:max_topics] + [
+                f"(+{remaining} more topics — call read_memory to browse)"
+            ]
+
         header = (
             "## Semantic Memory\n"
             "Call read_memory(topic) to load a topic's full content before using it.\n"
@@ -2013,6 +2479,17 @@ class MainOrchestrator:
                 "orchestrator.invalidate_user_profile.error",
                 extra={"user_id": user_id, "error": str(exc)},
             )
+
+    async def _warm_scoped_queue_cache(self, user_id: str) -> None:
+        """Background fire-and-forget: populate ``_last_queue_by_scope`` for
+        *user_id* so the next turn's ``_build_graph_summary`` has a cached
+        queue instead of needing to run a cycle inline. Never raises —
+        scheduled via ``asyncio.ensure_future`` with no one awaiting it.
+        """
+        try:
+            await self.run_cycle(user_id=user_id, trigger_source="on_demand")
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("AgentLoop: background scoring cycle for %s failed: %s", user_id, exc)
 
     async def _build_graph_summary(self, user_id: str) -> str:
         """Build a goal-first, user-scoped task graph snapshot (§12.4).
@@ -2091,12 +2568,15 @@ class MainOrchestrator:
             logger.debug("AgentLoop: goal summary failed: %s", exc)
 
         # --- Top priority tasks section ---
+        # Never run a full scoring cycle synchronously here: this method
+        # runs on every single chat turn's prompt assembly, and a cycle over
+        # the user's whole task graph is exactly the kind of work that
+        # shouldn't block the request path. If nothing is cached yet, emit
+        # the goals-only summary and kick off a cycle in the background so
+        # the *next* turn has a populated cache.
         scoped_queue = self._last_queue_by_scope.get(user_id, [])
         if not scoped_queue:
-            try:
-                scoped_queue = await self.run_cycle(user_id=user_id, trigger_source="on_demand")
-            except Exception as exc:  # noqa: BLE001
-                logger.debug("AgentLoop: scoring cycle for graph summary failed: %s", exc)
+            asyncio.ensure_future(self._warm_scoped_queue_cache(user_id))
 
         if scoped_queue:
             try:
@@ -2184,6 +2664,10 @@ class MainOrchestrator:
         """Dispatch a tool call and return the result as a dict."""
         t0 = time.monotonic()
         result: dict[str, Any] = {}
+        # Protects the tool's owning set from eviction for the next couple of
+        # iterations — every dispatch funnels through here regardless of
+        # which of the three agentic loops called it.
+        self._tool_registry.note_tool_used(name)
         try:
             # --- Core tools (always active) ---
             if name == "list_tasks":
@@ -2196,6 +2680,8 @@ class MainOrchestrator:
                 result = await self._tool_list_available_agents(user_id, arguments)
             elif name == "load_tool_set":
                 result = await self._tool_load_tool_set(arguments)
+            elif name == "unload_tool_set":
+                result = await self._tool_unload_tool_set(arguments)
             elif name == "read_knowledge":
                 result = await self._tool_read_knowledge(arguments)
             elif name == "read_memory":
@@ -2391,6 +2877,22 @@ class MainOrchestrator:
             "message": f"Tool set '{set_name}' activated — {len(tools)} tool(s) now available.",
         }
 
+    async def _tool_unload_tool_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Deactivate a named tool set, freeing budget for another."""
+        set_name = args.get("name", "")
+        removed = self._tool_registry.deactivate(set_name)
+        if not removed:
+            return {
+                "error": (
+                    f"Tool set '{set_name}' was not active (or is 'core', which cannot "
+                    "be unloaded)."
+                )
+            }
+        return {
+            "deactivated": set_name,
+            "message": f"Tool set '{set_name}' deactivated.",
+        }
+
     async def _tool_read_knowledge(self, args: dict[str, Any]) -> dict[str, Any]:
         """Load a domain knowledge document from the system knowledge base."""
         topic = args.get("topic", "")
@@ -2426,10 +2928,12 @@ class MainOrchestrator:
     async def _tool_recall_episodic(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
         """Search episodic memory (past session summaries) for relevant entries.
 
-        Keyword + recency scoring, no LLM call: episodic entries are named with
-        dates and labels, so filename matching plus a light content scan is
-        sufficient and fast.
+        Delegates to ``graphclaw.agent.episodic_recall.recall_episodic`` — the
+        same keyword+recency scoring also backs ``SubAgentRunner``'s system
+        prompt assembly, so both resolve relevance identically.
         """
+        from graphclaw.agent.episodic_recall import dumps_matches, recall_episodic  # noqa: PLC0415
+
         query = str(args.get("query", "")).strip()
         try:
             limit = int(args.get("limit", 3))
@@ -2441,64 +2945,10 @@ class MainOrchestrator:
         if self._storage is None:
             return {"error": "Storage not available."}
 
-        from graphclaw.infra.storage import StoragePaths  # noqa: PLC0415
-
-        active_prefix = StoragePaths.agent_memory_episodic_prefix(user_id, self._agent_id)
-        archive_prefix = StoragePaths.agent_memory_episodic_archive_prefix(user_id, self._agent_id)
-        try:
-            keys = await self._storage.list_objects(active_prefix)
-        except Exception as exc:  # noqa: BLE001
-            return {"error": f"Could not list episodic memory: {exc}"}
-
-        entries = [k for k in keys if k.endswith(".md") and not k.startswith(archive_prefix)]
-        if not entries:
-            return {"matches": [], "query": query}
-
-        keywords = [w for w in re.split(r"\W+", query.lower()) if len(w) >= 3]
-
-        # Stage 1 — score by filename (exact date match, keyword substrings)
-        scored: list[tuple[float, str]] = []
-        for key in entries:
-            name = key.rsplit("/", 1)[-1]
-            name_lower = name.lower()
-            score = 0.0
-            if query.lower() in name_lower:
-                score += 10.0
-            for kw in keywords:
-                if kw in name_lower:
-                    score += 5.0
-            scored.append((score, key))
-
-        # Stage 2 — read first 500 chars of the top 5 filename candidates and
-        # boost by keyword hits in the content.
-        scored.sort(key=lambda t: (t[0], t[1]), reverse=True)
-        top_candidates = [key for _, key in scored[:5]]
-        content_cache: dict[str, str] = {}
-        boosts: dict[str, float] = {}
-        for key in top_candidates:
-            try:
-                raw = await self._storage.read(key)
-                excerpt = raw.decode(errors="replace")[:500]
-            except FileNotFoundError:
-                excerpt = ""
-            content_cache[key] = excerpt
-            excerpt_lower = excerpt.lower()
-            boosts[key] = sum(3.0 for kw in keywords if kw in excerpt_lower)
-
-        rescored = [(score + boosts.get(key, 0.0), key) for score, key in scored]
-        # Tiebreak by filename descending (dates first → newest first).
-        rescored.sort(key=lambda t: (t[0], t[1]), reverse=True)
-
-        matches: list[dict[str, Any]] = []
-        for score, key in rescored[:limit]:
-            content = content_cache.get(key)
-            if content is None:
-                try:
-                    content = (await self._storage.read(key)).decode(errors="replace")
-                except FileNotFoundError:
-                    continue
-            matches.append({"name": key.rsplit("/", 1)[-1], "content": content, "score": score})
-        return {"matches": matches, "query": query}
+        matches = await recall_episodic(
+            self._storage, user_id=user_id, agent_id=self._agent_id, query=query, limit=limit
+        )
+        return {"matches": dumps_matches(matches), "query": query}
 
     async def _tool_compact_memory(self, user_id: str, args: dict[str, Any]) -> dict[str, Any]:
         """Archive working context and replace it with a compact summary.
@@ -4829,7 +5279,11 @@ class MainOrchestrator:
         if not mcp_servers:
             profile_content += "- (none assigned yet)\n"
 
-        # Create config.json
+        # Create config.json. llm_model is intentionally omitted (None): the
+        # sub-agent runner defers to the LLMRole.SUBAGENT routing default
+        # (graphclaw.llm.roles) rather than stamping a hardcoded literal into
+        # every new agent's config. llm_provider stays reserved for a future
+        # per-agent ModelRouter handle — not read by anything today.
         config = {
             "agent_id": agent_id,
             "name": name,
@@ -4837,7 +5291,7 @@ class MainOrchestrator:
             "skills": skills,
             "mcp_servers": mcp_servers,
             "llm_provider": "litellm",
-            "llm_model": "claude-sonnet-4-20250514",
+            "llm_model": None,
             "heartbeat_interval_seconds": 60,
             "created_by": self._agent_id,
         }
@@ -4896,7 +5350,7 @@ class MainOrchestrator:
             if not installed:
                 return ""
             lines = []
-            for s in installed[:20]:
+            for s in installed[: config.context.skills_summary_max_items]:
                 name = getattr(s, "name", "")
                 desc = getattr(s, "description", "")
                 lines.append(f"- {name}: {desc}")
@@ -4913,7 +5367,7 @@ class MainOrchestrator:
             if not servers:
                 return ""
             lines = []
-            for srv in servers[:10]:
+            for srv in servers[: config.context.mcp_summary_max_items]:
                 tier = (
                     srv.trust_tier.value
                     if hasattr(srv.trust_tier, "value")

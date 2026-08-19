@@ -80,7 +80,9 @@ def test_skill_definition_defaults() -> None:
     assert skill.name == "test-skill"
     assert skill.description == ""
     assert skill.version == "1.0.0"
-    assert skill.model == "claude-sonnet-4-20250514"
+    # None defers to the LLMRole.SKILL routing default rather than
+    # hardcoding a model — see graphclaw.llm.roles.
+    assert skill.model is None
     assert skill.max_tokens == 4096
     assert skill.temperature == 0.0
     assert skill.system_prompt == ""

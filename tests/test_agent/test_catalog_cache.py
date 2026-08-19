@@ -365,3 +365,71 @@ class TestGetCompactCatalogCaching:
 
         # System manifests loaded once (in-process); user manifests from Redis each time
         assert storage.list_objects.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# get_compact_catalog — max_agents cap
+#
+# Regression coverage for the context-budget work: this catalog was
+# previously unbounded, so a user with many agents paid its full cost on
+# every turn regardless of relevance.
+# ---------------------------------------------------------------------------
+
+
+class TestGetCompactCatalogMaxAgentsCap:
+    @pytest.mark.asyncio
+    async def test_default_is_unbounded_backward_compatible(self):
+        many = [_manifest(f"agent-{i}", "user") for i in range(20)]
+        storage = _make_storage(system_manifests=[], user_manifests=many)
+        catalog = AgentCatalog(storage)
+
+        result = await catalog.get_compact_catalog(_USER_ID)
+
+        for i in range(20):
+            assert f"agent-{i}" in result
+        assert "more —" not in result
+
+    @pytest.mark.asyncio
+    async def test_max_agents_caps_rendered_lines(self):
+        many = [_manifest(f"agent-{i}", "user") for i in range(20)]
+        storage = _make_storage(system_manifests=[], user_manifests=many)
+        catalog = AgentCatalog(storage)
+
+        result = await catalog.get_compact_catalog(_USER_ID, max_agents=5)
+
+        for i in range(5):
+            assert f"agent-{i}" in result
+        for i in range(5, 20):
+            assert f"agent-{i}" not in result
+
+    @pytest.mark.asyncio
+    async def test_max_agents_appends_remaining_count_hint(self):
+        many = [_manifest(f"agent-{i}", "user") for i in range(20)]
+        storage = _make_storage(system_manifests=[], user_manifests=many)
+        catalog = AgentCatalog(storage)
+
+        result = await catalog.get_compact_catalog(_USER_ID, max_agents=5)
+
+        assert "(+15 more — call list_available_agents)" in result
+
+    @pytest.mark.asyncio
+    async def test_max_agents_larger_than_count_omits_hint(self):
+        storage = _make_storage(
+            system_manifests=[_manifest("comms", "system")],
+            user_manifests=[_manifest("my-agent", "user")],
+        )
+        catalog = AgentCatalog(storage)
+
+        result = await catalog.get_compact_catalog(_USER_ID, max_agents=10)
+
+        assert "more —" not in result
+
+    @pytest.mark.asyncio
+    async def test_max_agents_preserves_delegation_footer(self):
+        many = [_manifest(f"agent-{i}", "user") for i in range(5)]
+        storage = _make_storage(system_manifests=[], user_manifests=many)
+        catalog = AgentCatalog(storage)
+
+        result = await catalog.get_compact_catalog(_USER_ID, max_agents=2)
+
+        assert 'To delegate: load_tool_set("delegation"), then call delegate_to_agent' in result

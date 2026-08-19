@@ -32,6 +32,8 @@ Dependencies
 
 from __future__ import annotations
 
+import json
+import uuid
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -45,6 +47,13 @@ from graphclaw.llm.base import (
 )
 from graphclaw.llm.logging_mixin import LLMTraceMixin
 
+# Models that do not support OpenAI function-calling API natively and require
+# the text-based tool-call fallback instead.
+# Ollama models are NOT listed here — Ollama passes function-calling natively
+# to models that support it (e.g. qwen2.5, llama3.1). The text fallback is
+# reserved for providers/models that genuinely lack tool-call schema support.
+_TEXT_TOOL_PREFIXES: tuple[str, ...] = ()
+
 
 class LiteLLMLLMClient(LLMTraceMixin, LLMClient):
     """LLMClient backed by LiteLLM (routes to 100+ providers).
@@ -57,19 +66,199 @@ class LiteLLMLLMClient(LLMTraceMixin, LLMClient):
             - ``ollama/llama3.2`` (requires OLLAMA_API_BASE env var)
             Defaults to value from LITELLM_DEFAULT_MODEL env var or
             ``"claude-sonnet-4-20250514"``.
-        api_base: Base URL for the LLM provider API. Auto-configured from
-            OLLAMA_API_BASE when using ollama/ models.
+        api_base: Base URL for the LLM provider API. When omitted, it is
+            resolved *per call* from OLLAMA_API_BASE for ``ollama/`` models and
+            left unset for everything else — see ``_resolve_api_base``.
+
+    Note:
+        A single instance may serve many different models (one per
+        :class:`~graphclaw.llm.roles.LLMRole`), so ``api_base`` must never be
+        bound to the constructor's ``default_model``. Doing so breaks both
+        directions: an ``ollama/`` call on a hosted-default client would get no
+        ``api_base``, and a hosted call on an ollama-default client would have
+        the Ollama URL sent to Anthropic/OpenAI.
     """
 
-    def __init__(self, default_model: str | None = None, api_base: str | None = None, **_: Any) -> None:
+    def __init__(
+        self, default_model: str | None = None, api_base: str | None = None, **_: Any
+    ) -> None:
         from graphclaw.config import config  # noqa: PLC0415
 
         self._default_model = default_model or config.app.litellm_default_model
-        self._api_base = api_base
-        
-        # Auto-configure Ollama base URL if using ollama/ model prefix
-        if self._default_model.startswith("ollama/") and not self._api_base:
-            self._api_base = config.app.ollama_base_url
+        # Explicit constructor override — wins over per-call resolution.
+        self._api_base_explicit = api_base
+
+    @property
+    def api_base(self) -> str | None:
+        """``api_base`` that applies to this client's *default* model.
+
+        Retained for introspection and diagnostics. Call paths must use
+        :meth:`_resolve_api_base` with the actual target model instead.
+        """
+        return self._resolve_api_base(self._default_model)
+
+    def _resolve_api_base(self, target_model: str) -> str | None:
+        """Resolve the API base URL for a specific target model.
+
+        An explicit constructor argument always wins. Otherwise only
+        ``ollama/``/``ollama_chat/`` models get a base URL; hosted providers
+        must not receive one.
+        """
+        if self._api_base_explicit:
+            return self._api_base_explicit
+        if target_model.startswith(("ollama/", "ollama_chat/")):
+            from graphclaw.config import config  # noqa: PLC0415
+
+            return config.app.ollama_base_url
+        return None
+
+    # ------------------------------------------------------------------
+    # Helpers — message translation
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _translate_messages(messages: list[LLMMessage]) -> list[dict[str, Any]]:
+        """Translate LLMMessages to OpenAI/LiteLLM wire format.
+
+        Preserves tool_calls on assistant messages and tool_call_id on tool
+        result messages — both are required for valid multi-turn tool-use
+        conversations with any OpenAI-compatible provider.
+        """
+        out: list[dict[str, Any]] = []
+        for m in messages:
+            msg: dict[str, Any] = {"role": m.role, "content": m.content}
+            if m.role == "assistant" and m.tool_calls:
+                msg["tool_calls"] = [
+                    {
+                        "id": tc.id or f"call_{uuid.uuid4().hex[:8]}",
+                        "type": "function",
+                        "function": {
+                            "name": tc.name,
+                            "arguments": json.dumps(tc.arguments),
+                        },
+                    }
+                    for tc in m.tool_calls
+                ]
+            if m.role == "tool" and m.tool_call_id:
+                msg["tool_call_id"] = m.tool_call_id
+            out.append(msg)
+        return out
+
+    # ------------------------------------------------------------------
+    # Helpers — text-based tool-call fallback for models without native
+    # function-calling support (e.g. llama3.2 via Ollama)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _needs_text_tool_fallback(model: str) -> bool:
+        return any(model.startswith(p) for p in _TEXT_TOOL_PREFIXES)
+
+    @staticmethod
+    def _build_tool_system_block(tools: list[ToolDefinition]) -> str:
+        """Return a system-prompt block that teaches the model to call tools."""
+        lines = [
+            "You have access to the following tools.",
+            "To call a tool, respond with ONLY a JSON object on a single line — no other text:",
+            '{"tool_call": {"name": "TOOL_NAME", "arguments": {ARGS}}}',
+            "",
+            "Available tools:",
+        ]
+        for t in tools:
+            param_names = list((t.parameters or {}).get("properties", {}).keys())
+            sig = ", ".join(param_names) if param_names else ""
+            lines.append(f"- {t.name}({sig}): {t.description}")
+        lines += [
+            "",
+            "If no tool is needed, reply in plain text.",
+        ]
+        return "\n".join(lines)
+
+    @staticmethod
+    def _translate_messages_text_tools(
+        messages: list[LLMMessage],
+        tools: list[ToolDefinition],
+    ) -> list[dict[str, Any]]:
+        """Translate messages for models using the text-based tool fallback.
+
+        - Injects the tool catalogue as a system message prefix.
+        - Converts assistant messages that previously called tools into plain
+          text so the model sees what was done.
+        - Converts role=tool result messages into role=user messages so the
+          model receives the results without needing native tool support.
+        """
+        tool_block = LiteLLMLLMClient._build_tool_system_block(tools)
+        out: list[dict[str, Any]] = []
+
+        # Prepend (or merge into existing) system message
+        injected = False
+        for m in messages:
+            if m.role == "system" and not injected:
+                out.append({"role": "system", "content": f"{tool_block}\n\n{m.content}"})
+                injected = True
+            elif m.role == "assistant" and m.tool_calls:
+                # Render prior tool invocations as plain text so the model
+                # understands what it previously requested.
+                calls_text = "\n".join(
+                    f'{{"tool_call": {{"name": "{tc.name}", "arguments": {json.dumps(tc.arguments)}}}}}'
+                    for tc in m.tool_calls
+                )
+                text = (m.content + "\n" + calls_text).strip() if m.content else calls_text
+                out.append({"role": "assistant", "content": text})
+            elif m.role == "tool":
+                # Convert tool results to user messages
+                out.append({"role": "user", "content": f"Tool result: {m.content}"})
+            else:
+                out.append({"role": m.role, "content": m.content})
+
+        if not injected:
+            out.insert(0, {"role": "system", "content": tool_block})
+
+        return out
+
+    @staticmethod
+    def _parse_text_tool_calls(content: str) -> list[ToolCall]:
+        """Extract tool calls from a model response that uses text-based JSON format."""
+        # Find the start of a {"tool_call": ...} object in the content
+        marker = '"tool_call"'
+        idx = content.find(marker)
+        if idx == -1:
+            return []
+        # Walk backwards to find the opening brace of the enclosing object
+        start = content.rfind("{", 0, idx)
+        if start == -1:
+            return []
+        # Walk forward tracking brace depth to extract the full JSON object
+        depth = 0
+        end = -1
+        for i, ch in enumerate(content[start:], start):
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    end = i + 1
+                    break
+        if end == -1:
+            return []
+        try:
+            obj = json.loads(content[start:end])
+            tc = obj.get("tool_call", {})
+            name = tc.get("name", "")
+            if not name:
+                return []
+            return [
+                ToolCall(
+                    id=f"call_{uuid.uuid4().hex[:8]}",
+                    name=name,
+                    arguments=tc.get("arguments") or {},
+                )
+            ]
+        except (json.JSONDecodeError, KeyError, TypeError):
+            return []
+
+    # ------------------------------------------------------------------
+    # LLMClient interface
+    # ------------------------------------------------------------------
 
     async def complete(
         self,
@@ -90,7 +279,12 @@ class LiteLLMLLMClient(LLMTraceMixin, LLMClient):
             ) from exc
 
         target_model = model or self._default_model
-        provider_messages = [{"role": m.role, "content": m.content} for m in messages]
+        use_text_tools = tools and self._needs_text_tool_fallback(target_model)
+
+        if use_text_tools:
+            provider_messages = self._translate_messages_text_tools(messages, tools)  # type: ignore[arg-type]
+        else:
+            provider_messages = self._translate_messages(messages)
 
         kwargs: dict[str, Any] = {
             "model": target_model,
@@ -98,9 +292,10 @@ class LiteLLMLLMClient(LLMTraceMixin, LLMClient):
             "max_tokens": max_tokens,
             "temperature": temperature,
         }
-        if self._api_base:
-            kwargs["api_base"] = self._api_base
-        if tools:
+        resolved_api_base = self._resolve_api_base(target_model)
+        if resolved_api_base:
+            kwargs["api_base"] = resolved_api_base
+        if tools and not use_text_tools:
             kwargs["tools"] = [
                 {
                     "type": "function",
@@ -140,13 +335,15 @@ class LiteLLMLLMClient(LLMTraceMixin, LLMClient):
         completion_tokens = (usage.completion_tokens or 0) if usage else 0
 
         tool_calls: list[ToolCall] = []
-        if choice.message.tool_calls:
-            import json
-
+        if use_text_tools:
+            tool_calls = self._parse_text_tool_calls(content)
+            if tool_calls:
+                content = ""
+        elif choice.message.tool_calls:
             for tc in choice.message.tool_calls:
                 tool_calls.append(
                     ToolCall(
-                        id=tc.id,
+                        id=tc.id or f"call_{uuid.uuid4().hex[:8]}",
                         name=tc.function.name,
                         arguments=json.loads(tc.function.arguments or "{}"),
                     )
@@ -198,12 +395,17 @@ class LiteLLMLLMClient(LLMTraceMixin, LLMClient):
             ) from exc
 
         target_model = model or self._default_model
-        provider_messages = [{"role": m.role, "content": m.content} for m in messages]
+        use_text_tools = tools and self._needs_text_tool_fallback(target_model)
+
+        if use_text_tools:
+            provider_messages = self._translate_messages_text_tools(messages, tools)  # type: ignore[arg-type]
+        else:
+            provider_messages = self._translate_messages(messages)
 
         import json as _json  # noqa: PLC0415
 
         litellm_tools = None
-        if tools:
+        if tools and not use_text_tools:
             litellm_tools = [
                 {
                     "type": "function",
@@ -225,8 +427,9 @@ class LiteLLMLLMClient(LLMTraceMixin, LLMClient):
                 "temperature": temperature,
                 "stream": True,
             }
-            if self._api_base:
-                stream_kwargs["api_base"] = self._api_base
+            resolved_api_base = self._resolve_api_base(target_model)
+            if resolved_api_base:
+                stream_kwargs["api_base"] = resolved_api_base
             if litellm_tools:
                 stream_kwargs["tools"] = litellm_tools
             response = await litellm.acompletion(**stream_kwargs)
@@ -259,8 +462,8 @@ class LiteLLMLLMClient(LLMTraceMixin, LLMClient):
                 accumulated_content += text_delta
                 is_final = choice.finish_reason is not None
 
-                # Accumulate tool call deltas
-                if hasattr(delta, "tool_calls") and delta.tool_calls:
+                # Accumulate tool call deltas (native tool-calling path)
+                if not use_text_tools and hasattr(delta, "tool_calls") and delta.tool_calls:
                     for tc_delta in delta.tool_calls:
                         idx = getattr(tc_delta, "index", 0)
                         if idx not in tc_chunks:
@@ -276,15 +479,20 @@ class LiteLLMLLMClient(LLMTraceMixin, LLMClient):
 
                 if is_final:
                     final_tool_calls = []
-                    for idx in sorted(tc_chunks):
-                        tc = tc_chunks[idx]
-                        try:
-                            args = _json.loads(tc["arguments"]) if tc["arguments"] else {}
-                        except (_json.JSONDecodeError, ValueError):
-                            args = {}
-                        final_tool_calls.append(
-                            ToolCall(id=tc["id"], name=tc["name"], arguments=args)
-                        )
+                    if use_text_tools:
+                        final_tool_calls = self._parse_text_tool_calls(accumulated_content)
+                        if final_tool_calls:
+                            accumulated_content = ""
+                    else:
+                        for idx in sorted(tc_chunks):
+                            tc = tc_chunks[idx]
+                            try:
+                                args = _json.loads(tc["arguments"]) if tc["arguments"] else {}
+                            except (_json.JSONDecodeError, ValueError):
+                                args = {}
+                            final_tool_calls.append(
+                                ToolCall(id=tc["id"], name=tc["name"], arguments=args)
+                            )
                     final_response = LLMResponse(
                         content=accumulated_content,
                         model=target_model,
@@ -320,7 +528,7 @@ class LiteLLMLLMClient(LLMTraceMixin, LLMClient):
             )
             raise RuntimeError(f"LiteLLM stream failed: {exc}") from exc
 
-        if not final_tool_calls and tc_chunks:
+        if not use_text_tools and not final_tool_calls and tc_chunks:
             for idx in sorted(tc_chunks):
                 tc = tc_chunks[idx]
                 try:
@@ -361,7 +569,7 @@ class LiteLLMLLMClient(LLMTraceMixin, LLMClient):
             ) from exc
 
         target_model = model or self._default_model
-        provider_messages = [{"role": m.role, "content": m.content} for m in messages]
+        provider_messages = self._translate_messages(messages)
         try:
             return litellm.token_counter(model=target_model, messages=provider_messages)
         except Exception:

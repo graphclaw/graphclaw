@@ -617,6 +617,175 @@ class TestResultCollectorProcessAgentResult:
 
 
 # ---------------------------------------------------------------------------
+# ResultCollector.process_agent_result — output-file collection
+#
+# Regression coverage for two confirmed defects: (1) user_id used to be
+# derived by splitting session_id on "-", which breaks for any hyphenated
+# user_id; (2) only a fixed candidate list (email-draft.md/result.md/
+# summary.md) was checked, so save_output(filename="report.md", ...) — which
+# the sub-agent's own system prompt advertises as a valid choice — was never
+# collected.
+# ---------------------------------------------------------------------------
+
+
+class _FakeOutputStorage:
+    def __init__(self, objects: dict[str, bytes] | None = None) -> None:
+        self._objects = dict(objects or {})
+
+    async def list_objects(self, prefix: str) -> list[str]:
+        return [k for k in self._objects if k.startswith(prefix)]
+
+    async def read(self, path: str) -> bytes:
+        if path not in self._objects:
+            raise FileNotFoundError(path)
+        return self._objects[path]
+
+
+class TestResultCollectorOutputFileCollection:
+    @pytest.fixture
+    def _collector_with_storage(self):
+        from graphclaw.agent.result_collector import ResultCollector
+        from graphclaw.agent.sub_agent_runner import AgentUpdateEvent, AgentUpdateEventType
+        from graphclaw.infra.storage import StoragePaths
+
+        repo = AsyncMock()
+        repo.update_node = AsyncMock(return_value=None)
+        worker_pool = MagicMock()
+        worker_pool.get_worker_statuses = MagicMock(return_value=[])
+
+        def _make(storage: _FakeOutputStorage):
+            return ResultCollector(
+                graph_repo=repo,
+                worker_pool=worker_pool,
+                storage_client=storage,
+                user_id="usr-001",
+                agent_id="main",
+            )
+
+        return _make, repo, AgentUpdateEvent, AgentUpdateEventType, StoragePaths
+
+    @pytest.mark.asyncio
+    async def test_uses_event_user_id_not_session_id_split(self, _collector_with_storage):
+        """The user_id "usr-abc123" contains a hyphen — the old
+        session_id.split("-")[1] approach would have derived "abc123"."""
+        from graphclaw.agent.result_collector import ResultCollector
+
+        make, repo, AgentUpdateEvent, AgentUpdateEventType, StoragePaths = _collector_with_storage
+        output_path = f"{StoragePaths.agent_root('usr-abc123', 'agent-1')}output/report.md"
+        storage = _FakeOutputStorage({output_path: b"The report body."})
+        collector = ResultCollector(
+            graph_repo=repo,
+            worker_pool=MagicMock(),
+            storage_client=storage,
+            user_id="usr-abc123",
+            agent_id="main",
+        )
+        event = AgentUpdateEvent(
+            event_type=AgentUpdateEventType.COMPLETED,
+            agent_id="agent-1",
+            task_id="TSK-001",
+            session_id="ses-usr-abc123-1234567890",
+            user_id="usr-abc123",
+            message="Done",
+            status="COMPLETED",
+        )
+
+        await collector.process_agent_result(event)
+
+        updates = repo.update_node.call_args[0][1]
+        assert "The report body." in updates["intelligence"]
+
+    @pytest.mark.asyncio
+    async def test_report_md_is_collected_not_just_the_fixed_candidates(
+        self, _collector_with_storage
+    ):
+        """save_output(filename="report.md", ...) — advertised by the
+        sub-agent's own system prompt — must actually be collected."""
+        make, repo, AgentUpdateEvent, AgentUpdateEventType, StoragePaths = _collector_with_storage
+        output_path = f"{StoragePaths.agent_root('usr-001', 'agent-1')}output/report.md"
+        storage = _FakeOutputStorage({output_path: b"Analysis findings."})
+        collector = make(storage)
+        event = AgentUpdateEvent(
+            event_type=AgentUpdateEventType.COMPLETED,
+            agent_id="agent-1",
+            task_id="TSK-001",
+            session_id="ses-usr-001-1",
+            user_id="usr-001",
+            message="Done",
+            status="COMPLETED",
+        )
+
+        await collector.process_agent_result(event)
+
+        updates = repo.update_node.call_args[0][1]
+        assert "Analysis findings." in updates["intelligence"]
+
+    @pytest.mark.asyncio
+    async def test_summary_txt_is_collected(self, _collector_with_storage):
+        """summary.txt — also advertised by the prompt — was never in the
+        old fixed candidate list at all."""
+        make, repo, AgentUpdateEvent, AgentUpdateEventType, StoragePaths = _collector_with_storage
+        output_path = f"{StoragePaths.agent_root('usr-001', 'agent-1')}output/summary.txt"
+        storage = _FakeOutputStorage({output_path: b"Brief summary."})
+        collector = make(storage)
+        event = AgentUpdateEvent(
+            event_type=AgentUpdateEventType.COMPLETED,
+            agent_id="agent-1",
+            task_id="TSK-001",
+            session_id="ses-usr-001-1",
+            user_id="usr-001",
+            message="Done",
+            status="COMPLETED",
+        )
+
+        await collector.process_agent_result(event)
+
+        updates = repo.update_node.call_args[0][1]
+        assert "Brief summary." in updates["intelligence"]
+
+    @pytest.mark.asyncio
+    async def test_no_output_files_degrades_gracefully(self, _collector_with_storage):
+        make, repo, AgentUpdateEvent, AgentUpdateEventType, StoragePaths = _collector_with_storage
+        collector = make(_FakeOutputStorage({}))
+        event = AgentUpdateEvent(
+            event_type=AgentUpdateEventType.COMPLETED,
+            agent_id="agent-1",
+            task_id="TSK-001",
+            session_id="ses-usr-001-1",
+            user_id="usr-001",
+            message="Done, no file output",
+            status="COMPLETED",
+        )
+
+        await collector.process_agent_result(event)
+
+        updates = repo.update_node.call_args[0][1]
+        assert updates["intelligence"] == "Done, no file output"
+
+    @pytest.mark.asyncio
+    async def test_missing_user_id_on_event_skips_output_read_gracefully(
+        self, _collector_with_storage
+    ):
+        """No user_id on the event (e.g. an older producer that predates
+        this field) must not raise — just skip output collection."""
+        make, repo, AgentUpdateEvent, AgentUpdateEventType, StoragePaths = _collector_with_storage
+        collector = make(_FakeOutputStorage({}))
+        event = AgentUpdateEvent(
+            event_type=AgentUpdateEventType.COMPLETED,
+            agent_id="agent-1",
+            task_id="TSK-001",
+            session_id="ses-usr-001-1",
+            message="Done",
+            status="COMPLETED",
+        )
+
+        await collector.process_agent_result(event)
+
+        updates = repo.update_node.call_args[0][1]
+        assert updates["intelligence"] == "Done"
+
+
+# ---------------------------------------------------------------------------
 # SubAgentPool — basic construction and dispatch plan registration
 # ---------------------------------------------------------------------------
 
@@ -905,3 +1074,223 @@ class TestSubAgentRunnerTimeouts:
         assert getattr(tool_records[1], "attempt", None) == 2
         assert getattr(tool_records[1], "success", None) is True
         assert getattr(tool_records[1], "user_id", None) == "USR-log"
+
+
+# ---------------------------------------------------------------------------
+# SubAgentRunner._resolve_model — per-agent config.json.llm_model override
+# ---------------------------------------------------------------------------
+
+
+class FakeStorage:
+    """Minimal in-memory StorageClient stub for _resolve_model tests."""
+
+    def __init__(self, objects: dict[str, bytes] | None = None) -> None:
+        self._objects = dict(objects or {})
+
+    async def read(self, path: str) -> bytes:
+        if path not in self._objects:
+            raise FileNotFoundError(path)
+        return self._objects[path]
+
+
+class TestSubAgentRunnerModelResolution:
+    """Unit tests for SubAgentRunner._resolve_model (config.json.llm_model)."""
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_no_storage(self):
+        from graphclaw.agent.sub_agent_runner import AgentJobEvent, SubAgentRunner
+
+        runner = SubAgentRunner(
+            runner_id="runner-1", broker=FakeBroker(), llm_client=MagicMock(), storage=None
+        )
+        job = AgentJobEvent(
+            agent_id="agent-1", task_id="TSK-1", session_id="SES-1", user_id="USR-1"
+        )
+
+        assert await runner._resolve_model(job) is None
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_config_missing(self):
+        from graphclaw.agent.sub_agent_runner import AgentJobEvent, SubAgentRunner
+
+        runner = SubAgentRunner(
+            runner_id="runner-1",
+            broker=FakeBroker(),
+            llm_client=MagicMock(),
+            storage=FakeStorage(),
+        )
+        job = AgentJobEvent(
+            agent_id="agent-1", task_id="TSK-1", session_id="SES-1", user_id="USR-1"
+        )
+
+        assert await runner._resolve_model(job) is None
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_user_id_blank(self):
+        """AgentJobEvent.user_id defaults to '' — must not raise on empty segment."""
+        from graphclaw.agent.sub_agent_runner import AgentJobEvent, SubAgentRunner
+
+        runner = SubAgentRunner(
+            runner_id="runner-1",
+            broker=FakeBroker(),
+            llm_client=MagicMock(),
+            storage=FakeStorage(),
+        )
+        job = AgentJobEvent(agent_id="agent-1", task_id="TSK-1", session_id="SES-1")
+
+        assert await runner._resolve_model(job) is None
+
+    @pytest.mark.asyncio
+    async def test_returns_configured_model(self):
+        from graphclaw.agent.sub_agent_runner import AgentJobEvent, SubAgentRunner
+        from graphclaw.infra.storage import StoragePaths
+
+        storage = FakeStorage(
+            {
+                StoragePaths.agent_config("USR-1", "agent-1"): json.dumps(
+                    {"llm_model": "ollama/qwen2.5:14b"}
+                ).encode()
+            }
+        )
+        runner = SubAgentRunner(
+            runner_id="runner-1", broker=FakeBroker(), llm_client=MagicMock(), storage=storage
+        )
+        job = AgentJobEvent(
+            agent_id="agent-1", task_id="TSK-1", session_id="SES-1", user_id="USR-1"
+        )
+
+        assert await runner._resolve_model(job) == "ollama/qwen2.5:14b"
+
+    @pytest.mark.asyncio
+    async def test_returns_none_for_blank_model(self):
+        from graphclaw.agent.sub_agent_runner import AgentJobEvent, SubAgentRunner
+        from graphclaw.infra.storage import StoragePaths
+
+        storage = FakeStorage(
+            {
+                StoragePaths.agent_config("USR-1", "agent-1"): json.dumps(
+                    {"llm_model": "   "}
+                ).encode()
+            }
+        )
+        runner = SubAgentRunner(
+            runner_id="runner-1", broker=FakeBroker(), llm_client=MagicMock(), storage=storage
+        )
+        job = AgentJobEvent(
+            agent_id="agent-1", task_id="TSK-1", session_id="SES-1", user_id="USR-1"
+        )
+
+        assert await runner._resolve_model(job) is None
+
+    @pytest.mark.asyncio
+    async def test_returns_none_for_legacy_hardcoded_literal(self):
+        """Agents created before role-routing existed carry the old hardcoded
+        literal on disk; treat it as unset rather than requiring a migration."""
+        from graphclaw.agent.sub_agent_runner import AgentJobEvent, SubAgentRunner
+        from graphclaw.infra.storage import StoragePaths
+
+        storage = FakeStorage(
+            {
+                StoragePaths.agent_config("USR-1", "agent-1"): json.dumps(
+                    {"llm_model": "claude-sonnet-4-20250514"}
+                ).encode()
+            }
+        )
+        runner = SubAgentRunner(
+            runner_id="runner-1", broker=FakeBroker(), llm_client=MagicMock(), storage=storage
+        )
+        job = AgentJobEvent(
+            agent_id="agent-1", task_id="TSK-1", session_id="SES-1", user_id="USR-1"
+        )
+
+        assert await runner._resolve_model(job) is None
+
+    @pytest.mark.asyncio
+    async def test_returns_none_for_malformed_json(self, caplog):
+        from graphclaw.agent.sub_agent_runner import AgentJobEvent, SubAgentRunner
+        from graphclaw.infra.storage import StoragePaths
+
+        storage = FakeStorage({StoragePaths.agent_config("USR-1", "agent-1"): b"{not json"})
+        runner = SubAgentRunner(
+            runner_id="runner-1", broker=FakeBroker(), llm_client=MagicMock(), storage=storage
+        )
+        job = AgentJobEvent(
+            agent_id="agent-1", task_id="TSK-1", session_id="SES-1", user_id="USR-1"
+        )
+
+        with caplog.at_level(logging.WARNING):
+            result = await runner._resolve_model(job)
+
+        assert result is None
+        assert any("malformed config.json" in r.message for r in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_llm_loop_passes_resolved_model_to_complete(self):
+        """End-to-end: _run_llm_loop must forward the resolved model=... to
+        self._llm.complete, and None (unset) must resolve to no model override."""
+        from graphclaw.agent.sub_agent_runner import AgentJobEvent, SubAgentRunner
+        from graphclaw.infra.storage import StoragePaths
+
+        storage = FakeStorage(
+            {
+                StoragePaths.agent_config("USR-1", "agent-1"): json.dumps(
+                    {"llm_model": "ollama/qwen2.5:14b"}
+                ).encode()
+            }
+        )
+        llm = AsyncMock()
+        response = MagicMock()
+        response.content = "done"
+        response.tool_calls = []
+        llm.complete = AsyncMock(return_value=response)
+
+        runner = SubAgentRunner(
+            runner_id="runner-1", broker=FakeBroker(), llm_client=llm, storage=storage
+        )
+        job = AgentJobEvent(
+            agent_id="agent-1",
+            task_id="TSK-1",
+            session_id="SES-1",
+            user_id="USR-1",
+            instructions="do the thing",
+        )
+
+        await runner._run_llm_loop(job)
+
+        assert llm.complete.call_args.kwargs["model"] == "ollama/qwen2.5:14b"
+
+
+# ---------------------------------------------------------------------------
+# SubAgentRunner._tool_invoke_skill — get_skill_definition arity fix
+#
+# Regression: get_skill_definition(skill_name) was called with one arg, but
+# the real signature is (user_id, skill_id) — every sub-agent skill
+# invocation raised TypeError, swallowed and surfaced to the LLM as
+# "not found".
+# ---------------------------------------------------------------------------
+
+
+class TestInvokeSkillArity:
+    @pytest.mark.asyncio
+    async def test_get_skill_definition_called_with_user_id_and_skill_name(self):
+        from graphclaw.agent.sub_agent_runner import AgentJobEvent, SubAgentRunner
+
+        skill_registry = AsyncMock()
+        skill_registry.get_skill_definition = AsyncMock(side_effect=RuntimeError("not reached"))
+        runner = SubAgentRunner(
+            runner_id="runner-1",
+            broker=FakeBroker(),
+            llm_client=MagicMock(),
+            skill_registry=skill_registry,
+            worker_pool=MagicMock(),
+        )
+        job = AgentJobEvent(
+            agent_id="agent-1", task_id="TSK-1", session_id="SES-1", user_id="USR-42"
+        )
+
+        result = await runner._tool_invoke_skill(
+            {"skill_name": "my-skill", "task_id": "TSK-1"}, job
+        )
+
+        skill_registry.get_skill_definition.assert_called_once_with("USR-42", "my-skill")
+        assert "error" in result  # RuntimeError from the mock, not a TypeError from bad arity

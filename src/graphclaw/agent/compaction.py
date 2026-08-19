@@ -123,10 +123,13 @@ async def generate_compaction_summary(
     recent_history: str,
     model: str | None = None,
 ) -> str:
-    """Produce a durable working-memory summary via the distillation LLM."""
+    """Produce a durable working-memory summary via the distillation LLM.
+
+    ``model=None`` defers to the ``LLMRole.SUMMARIZE`` routing default on
+    ``llm`` rather than a hardcoded literal — see ``graphclaw.llm.roles``.
+    """
     from graphclaw.llm.base import LLMMessage  # noqa: PLC0415
 
-    model = model or config.memory.distillation_model
     user_content = (
         "## Current working context\n"
         f"{working_context.strip() or '(empty)'}\n\n"

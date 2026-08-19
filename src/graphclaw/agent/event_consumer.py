@@ -95,12 +95,18 @@ class AgentEventConsumer:
         directory_indexer: DirectoryIndexer | None = None,
         task_indexer: OrgTaskIndexer | None = None,
         event_publisher: UserEventPublisher | None = None,
+        intelligence_llm_client: Any = None,
     ) -> None:
         self._broker = broker
         self._loop = agent_loop
         self._dispatcher = dispatcher
         self._storage = storage
         self._event_publisher = event_publisher
+        # LLMRole.CLASSIFY-bound client for InboundIntelligenceAgent. Falls
+        # back to the orchestrator's own client (LLMRole.ORCHESTRATOR) when
+        # not supplied, so callers that construct this without a
+        # ModelRouter (older tests, the CLI) keep working unchanged.
+        self._intelligence_llm_client = intelligence_llm_client
         self._user_channels: dict[str, list[dict[str, Any]]] = user_channels or {}
         self._default_user_id: str = default_user_id
         self._task: asyncio.Task | None = None
@@ -123,7 +129,14 @@ class AgentEventConsumer:
         return getattr(self._loop, "graph_repo", None)
 
     def _llm_client(self) -> Any:
-        """Return llm client via public orchestrator interface when available."""
+        """Return the LLMRole.CLASSIFY client for InboundIntelligenceAgent.
+
+        Prefers the router-resolved classify client passed at construction;
+        falls back to the orchestrator's own client via its public interface
+        when none was supplied.
+        """
+        if self._intelligence_llm_client is not None:
+            return self._intelligence_llm_client
         return getattr(self._loop, "llm_client", None)
 
     def _agent_id(self) -> str:
@@ -410,8 +423,8 @@ class AgentEventConsumer:
             try:
                 from graphclaw.agent.run_events import (
                     AgentRunEvent,
-                    RunEventType,
                     NotificationPayload,
+                    RunEventType,
                 )
 
                 # Extract user_id from session_id (format: ses-{user_id}-{timestamp})

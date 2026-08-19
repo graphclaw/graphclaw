@@ -89,6 +89,20 @@ def _make_job(priority: int = 0, timeout_seconds: int = 300) -> SkillJob:
 # ---------------------------------------------------------------------------
 
 
+async def test_worker_passes_none_model_when_skill_omits_it() -> None:
+    """When SKILL.md declares no model, worker must forward model=None so the
+    LLMRole.SKILL routing default applies, rather than injecting a literal."""
+    router = _make_router()
+    worker = SkillWorker(worker_id="worker-000", llm_router=router)
+    job = _make_job()
+    skill = _make_skill()
+    assert skill.model is None
+
+    await worker.execute(job, skill)
+
+    assert router.complete.call_args.kwargs["model"] is None
+
+
 async def test_worker_execute_success(caplog: pytest.LogCaptureFixture) -> None:
     """execute() should return a COMPLETED SkillResult on LLM success."""
     router = _make_router(content="Summary result", tokens=42)
